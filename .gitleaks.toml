@@ -1,0 +1,19 @@
+title = "AstroDex Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow documentation, example templates, deterministic unit test fixtures, and public Stellar G.../C... addresses"
+paths = [
+  '''\.env\.example$''',
+  '''\.dev\.vars\.example$''',
+  '''\.test\.ts$''',
+  '''\.test\.tsx$''',
+  '''^docs/''',
+  '''^README\.md$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^[CG][A-Z2-7]{55}$''',
+]
