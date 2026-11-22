@@ -115,8 +115,8 @@ export function TokenSearchInput({
   const showDropdown = query.trim().length > 0 || showResultsWhenEmpty;
 
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <form onSubmit={handleSubmit} style={{ display: "flex", gap: 8 }}>
+    <div className="ad-stack-6">
+      <form onSubmit={handleSubmit} className="ad-flex-8">
         <input
           type="text"
           className="ad-input"
@@ -133,33 +133,16 @@ export function TokenSearchInput({
       </form>
 
       {showDropdown && (combinedResults.length > 0 || searchingRemote) && (
-        <div
-          style={{
-            display: "grid",
-            gap: 4,
-            padding: 6,
-            borderRadius: 14,
-            background: "rgba(11, 20, 51, 0.92)",
-            border: "1px solid rgba(165, 139, 224, 0.32)",
-          }}
-        >
+        <div className="ad-dropdown-list">
           {searchingRemote && combinedResults.length === 0 && (
-            <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)", padding: "4px 6px" }}>
+            <div className="ad-text-xs ad-text-muted">
               Searching Stellar network &amp; AstroGate...
             </div>
           )}
           {combinedResults.map((item) => (
-            <div
-              key={item.assetKey}
-              className="ad-row"
-              style={{
-                padding: "6px 8px",
-                borderRadius: 10,
-                background: "rgba(23, 44, 105, 0.52)",
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <div key={item.assetKey} className="ad-row ad-dropdown-item">
+              <div className="ad-min-w-0">
+                <div className="ad-text-md ad-font-bold ad-flex-wrap">
                   <span>${item.code}</span>
                   <span
                     className={`glass-pill ${
@@ -177,16 +160,15 @@ export function TokenSearchInput({
                         : "Unreviewed"}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }}>
+                <div className="ad-text-xs ad-text-muted">
                   {item.name ? `${item.name} · ` : ""}
                   {shortKey(item.assetKey)}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <div className="ad-flex-6 ad-no-shrink">
                 <button
                   type="button"
-                  className="ad-btn-secondary"
-                  style={{ minHeight: 34, padding: "4px 10px", fontSize: 12 }}
+                  className="ad-btn-secondary ad-btn-sm"
                   onClick={() => onSelectToken(item, "primary")}
                 >
                   {primaryActionLabel}
@@ -194,8 +176,7 @@ export function TokenSearchInput({
                 {secondaryActionLabel && (
                   <button
                     type="button"
-                    className="glass-pill"
-                    style={{ cursor: "pointer" }}
+                    className="glass-pill ad-clickable"
                     onClick={() => onSelectToken(item, "secondary")}
                   >
                     {secondaryActionLabel}

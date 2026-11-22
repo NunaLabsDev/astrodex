@@ -11,11 +11,44 @@ interface PriceAlertItem {
   threshold: number;
 }
 
+const LOCAL_WATCHLIST_KEY = "astrodex_local_watchlist_v1";
+const LOCAL_ALERTS_KEY = "astrodex_local_alerts_v1";
+
+function readLocalJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocalJson<T>(key: string, value: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore restricted storage environments
+  }
+}
+
 export function OrdersAlertsView() {
-  const { config, sessionToken, activeAccount, catalog, selectedAsset, setSelectedAsset } =
-    useAppState();
-  const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [alerts, setAlerts] = useState<PriceAlertItem[]>([]);
+  const {
+    config,
+    sessionToken,
+    activeAccount,
+    catalog,
+    selectedAsset,
+    setSelectedAsset,
+    setActiveTab,
+    setMode,
+  } = useAppState();
+  const [watchlist, setWatchlist] = useState<string[]>(() =>
+    readLocalJson<string[]>(LOCAL_WATCHLIST_KEY, []),
+  );
+  const [alerts, setAlerts] = useState<PriceAlertItem[]>(() =>
+    readLocalJson<PriceAlertItem[]>(LOCAL_ALERTS_KEY, []),
+  );
   const [offers, setOffers] = useState<OpenLimitOffer[]>([]);
   const [alertQuery, setAlertQuery] = useState("");
   const [alertCondition, setAlertCondition] = useState<"above" | "below">("above");
@@ -78,8 +111,16 @@ export function OrdersAlertsView() {
   const activeToken = catalog.find((t) => t.assetKey === selectedAsset);
 
   const handleToggleWatchlist = async () => {
-    if (!sessionToken) return;
     const exists = watchlist.includes(selectedAsset);
+    if (!sessionToken) {
+      const next = exists
+        ? watchlist.filter((x) => x !== selectedAsset)
+        : [selectedAsset, ...watchlist];
+      setWatchlist(next);
+      writeLocalJson(LOCAL_WATCHLIST_KEY, next);
+      triggerTelegramHaptic("selection");
+      return;
+    }
     setBusyId("watchlist");
     setErrorMsg(null);
     try {
@@ -108,7 +149,24 @@ export function OrdersAlertsView() {
   const handleCreateAlert = async (e: FormEvent) => {
     e.preventDefault();
     const thresholdNum = Number(alertThreshold);
-    if (!sessionToken || !Number.isFinite(thresholdNum) || thresholdNum <= 0) return;
+    if (!Number.isFinite(thresholdNum) || thresholdNum <= 0) {
+      setErrorMsg("Enter a valid positive XLM price threshold.");
+      return;
+    }
+    if (!sessionToken) {
+      const localItem: PriceAlertItem = {
+        id: `local_${Date.now()}`,
+        assetKey: selectedAsset,
+        condition: alertCondition,
+        threshold: thresholdNum,
+      };
+      const next = [localItem, ...alerts];
+      setAlerts(next);
+      writeLocalJson(LOCAL_ALERTS_KEY, next);
+      setStatusMsg(`Saved local price alert for ${activeToken?.code ?? selectedAsset}.`);
+      triggerTelegramHaptic("success");
+      return;
+    }
     setBusyId("create-alert");
     setErrorMsg(null);
     try {
@@ -135,7 +193,13 @@ export function OrdersAlertsView() {
   };
 
   const handleDeleteAlert = async (alertId: string) => {
-    if (!sessionToken) return;
+    if (!sessionToken) {
+      const next = alerts.filter((a) => a.id !== alertId);
+      setAlerts(next);
+      writeLocalJson(LOCAL_ALERTS_KEY, next);
+      triggerTelegramHaptic("selection");
+      return;
+    }
     setBusyId(alertId);
     try {
       await fetch(`${base}/v1/alerts/${encodeURIComponent(alertId)}`, {
@@ -195,10 +259,10 @@ export function OrdersAlertsView() {
   };
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <section className="glass-card" style={{ display: "grid", gap: 10 }}>
+    <div className="ad-stack-12">
+      <section className="glass-card ad-stack-10">
         <div className="ad-row">
-          <strong style={{ fontSize: 15 }}>Open Orders &amp; Alerts</strong>
+          <strong className="ad-text-lg">Open Orders &amp; Alerts</strong>
           <span className="glass-pill">
             {activeAccount ? activeAccount.kind.toUpperCase() : "READ-ONLY"}
           </span>
@@ -207,50 +271,56 @@ export function OrdersAlertsView() {
         <div className="ad-banner">
           {activeAccount
             ? `Monitoring ${activeAccount.kind === "classic" ? "Classic SDEX offers" : "Soroban account"} for ${activeAccount.address.slice(0, 6)}...${activeAccount.address.slice(-4)}.`
-            : "Connect your AstroWallet (AstroID) inside Telegram to manage SDEX offers, watchlists, and alerts."}
+            : "Tap 'Connect AstroID / Address' above to load live Classic G... SDEX offers, or manage local Watchlists & Alerts below."}
         </div>
 
         {errorMsg && <div className="ad-banner ad-banner--danger">{errorMsg}</div>}
         {statusMsg && <div className="ad-banner">{statusMsg}</div>}
 
         <div className="ad-row">
-          <strong style={{ fontSize: 13 }}>Classic SDEX Open Offers ({offers.length})</strong>
-          {activeAccount && (
+          <strong className="ad-text-md">Classic SDEX Open Offers ({offers.length})</strong>
+          <div className="ad-flex-6">
+            {activeAccount && (
+              <button
+                type="button"
+                className="glass-pill ad-clickable"
+                onClick={() => void loadData()}
+              >
+                Refresh
+              </button>
+            )}
             <button
               type="button"
-              className="glass-pill"
-              style={{ cursor: "pointer" }}
-              onClick={() => void loadData()}
+              className="ad-btn-secondary ad-btn-sm"
+              onClick={() => {
+                setMode("pro");
+                setActiveTab("trade");
+              }}
             >
-              Refresh
+              + Limit Order
             </button>
-          )}
+          </div>
         </div>
 
         {offers.length === 0 ? (
-          <div style={{ fontSize: 12, color: "var(--ad-ink-secondary)" }}>
-            No open Classic SDEX offers found.
+          <div className="ad-text-sm ad-text-muted">
+            {activeAccount
+              ? activeAccount.kind === "classic"
+                ? "No open Classic SDEX offers found on this G... account."
+                : "Smart Accounts (C...) trade via Soroban AMMs; switch to a Classic G... account to place SDEX limit orders."
+              : "Connect or preview a Classic G... address above to inspect live resting SDEX offers."}
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 6 }}>
+          <div className="ad-stack-6">
             {offers.map((offer) => (
-              <div
-                key={offer.offerId}
-                className="ad-row"
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 12,
-                  background: "rgba(11, 20, 51, 0.65)",
-                  border: "1px solid rgba(165, 139, 224, 0.2)",
-                }}
-              >
-                <div style={{ fontSize: 12 }} className="tabular-nums">
+              <div key={offer.offerId} className="ad-row ad-item-card">
+                <div className="ad-text-sm tabular-nums">
                   <strong>#{offer.offerId}</strong> · {offer.amount} {offer.sellingAsset.split(":")[0]} @{" "}
                   {offer.price} {offer.buyingAsset.split(":")[0]}
                 </div>
                 <button
                   type="button"
-                  className="ad-btn-secondary"
+                  className="ad-btn-secondary ad-btn-sm"
                   disabled={busyId === offer.offerId}
                   onClick={() => void handleCancelOffer(offer)}
                 >
@@ -262,23 +332,21 @@ export function OrdersAlertsView() {
         )}
       </section>
 
-      <section className="glass-card" style={{ display: "grid", gap: 10 }}>
+      <section className="glass-card ad-stack-10">
         <div className="ad-row">
-          <strong style={{ fontSize: 14 }}>
+          <strong className="ad-text-base">
             Watchlist ({watchlist.length}) &amp; Alerts ({alerts.length})
           </strong>
-          {sessionToken && (
-            <button
-              type="button"
-              className="ad-btn-secondary"
-              disabled={busyId === "watchlist"}
-              onClick={() => void handleToggleWatchlist()}
-            >
-              {watchlist.includes(selectedAsset)
-                ? `Unwatch ${activeToken?.code ?? selectedAsset}`
-                : `+ Watch ${activeToken?.code ?? selectedAsset}`}
-            </button>
-          )}
+          <button
+            type="button"
+            className="ad-btn-secondary ad-btn-sm"
+            disabled={busyId === "watchlist"}
+            onClick={() => void handleToggleWatchlist()}
+          >
+            {watchlist.includes(selectedAsset)
+              ? `Unwatch ${activeToken?.code ?? selectedAsset}`
+              : `+ Watch ${activeToken?.code ?? selectedAsset}`}
+          </button>
         </div>
 
         <TokenSearchInput
@@ -292,58 +360,66 @@ export function OrdersAlertsView() {
           }}
         />
 
-        {sessionToken && (
-          <form
-            onSubmit={(e) => void handleCreateAlert(e)}
-            style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", gap: 6 }}
+        <form onSubmit={(e) => void handleCreateAlert(e)} className="ad-grid-alert">
+          <select
+            className="ad-input"
+            value={alertCondition}
+            onChange={(e) => setAlertCondition(e.target.value as "above" | "below")}
+            aria-label="Alert Condition"
           >
-            <select
-              className="ad-input"
-              value={alertCondition}
-              onChange={(e) => setAlertCondition(e.target.value as "above" | "below")}
-              aria-label="Alert Condition"
-            >
-              <option value="above">Above</option>
-              <option value="below">Below</option>
-            </select>
-            <input
-              type="text"
-              className="ad-input tabular-nums"
-              value={alertThreshold}
-              onChange={(e) => setAlertThreshold(e.target.value)}
-              placeholder="Threshold in XLM"
-              aria-label="Alert Threshold"
-            />
-            <button type="submit" className="ad-btn-primary" disabled={busyId === "create-alert"}>
-              Set Alert
-            </button>
-          </form>
-        )}
+            <option value="above">Above</option>
+            <option value="below">Below</option>
+          </select>
+          <input
+            type="text"
+            className="ad-input tabular-nums"
+            value={alertThreshold}
+            onChange={(e) => setAlertThreshold(e.target.value)}
+            placeholder="Threshold in XLM"
+            aria-label="Alert Threshold"
+          />
+          <button type="submit" className="ad-btn-primary" disabled={busyId === "create-alert"}>
+            Set Alert
+          </button>
+        </form>
 
-        {alerts.map((al) => (
-          <div key={al.id} className="ad-row ad-banner tabular-nums">
-            <span>
-              {al.assetKey.split(":")[0]} {al.condition} {al.threshold} XLM
-            </span>
-            <button
-              type="button"
-              className="glass-pill"
-              style={{ cursor: "pointer" }}
-              disabled={busyId === al.id}
-              onClick={() => void handleDeleteAlert(al.id)}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
+        {alerts.map((al) => {
+          const tok = catalog.find((c) => c.assetKey === al.assetKey);
+          return (
+            <div key={al.id} className="ad-row ad-banner tabular-nums">
+              <span>
+                {tok?.code ?? al.assetKey.split(":")[0]} {al.condition} {al.threshold} XLM
+              </span>
+              <button
+                type="button"
+                className="glass-pill ad-clickable"
+                disabled={busyId === al.id}
+                onClick={() => void handleDeleteAlert(al.id)}
+              >
+                Remove
+              </button>
+            </div>
+          );
+        })}
 
         {watchlist.length > 0 && (
           <div className="ad-chip-row">
-            {watchlist.map((item) => (
-              <span key={item} className="glass-pill">
-                ★ {item.split(":")[0]}
-              </span>
-            ))}
+            {watchlist.map((item) => {
+              const tok = catalog.find((c) => c.assetKey === item);
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  className="glass-pill ad-clickable"
+                  onClick={() => {
+                    setSelectedAsset(item);
+                    setActiveTab("trade");
+                  }}
+                >
+                  ★ {tok?.code ?? item.split(":")[0]}
+                </button>
+              );
+            })}
           </div>
         )}
       </section>

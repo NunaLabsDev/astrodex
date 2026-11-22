@@ -355,15 +355,14 @@ export function TradeChartView() {
   };
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
+    <div className="ad-stack-12">
       {quickPairChips.length > 0 && (
         <div className="ad-chip-row" aria-label="1-Tap Trading Pairs">
           {quickPairChips.map((item) => (
             <button
               key={item.assetKey}
               type="button"
-              className={`glass-pill ${toAsset === item.assetKey ? "glass-pill--gold" : ""}`}
-              style={{ cursor: "pointer" }}
+              className={`glass-pill ad-clickable ${toAsset === item.assetKey ? "glass-pill--gold" : ""}`}
               onClick={() => {
                 setFromAsset("XLM");
                 setToAsset(item.assetKey);
@@ -379,62 +378,50 @@ export function TradeChartView() {
       )}
 
       {focusToken && (
-        <section className="glass-card" style={{ display: "grid", gap: 8 }}>
+        <section className="glass-card ad-stack-8">
           <div className="ad-row">
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <div className="ad-min-w-0">
+              <div className="ad-text-xl ad-font-extrabold ad-flex-wrap">
                 <span>{focusToken.code} / XLM</span>
                 <span
                   className={`glass-pill ${
-                    focusToken.shieldScore >= 75
-                      ? "glass-pill--safe"
-                      : "glass-pill--warn"
+                    focusToken.shieldScore >= 75 ? "glass-pill--safe" : "glass-pill--warn"
                   }`}
                 >
                   Shield {focusToken.shieldScore}/100
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }}>
+              <div className="ad-text-xs ad-text-muted">
                 {focusToken.name ?? focusToken.kind.toUpperCase()} ·{" "}
-                <button
-                  type="button"
-                  onClick={() => void handleCopyFocusId()}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    color: "var(--ad-nebula-lavender)",
-                    cursor: "pointer",
-                    fontSize: 11,
-                  }}
-                >
+                <button type="button" onClick={() => void handleCopyFocusId()} className="ad-link-inline">
                   {copiedId ? "Copied ID!" : `${focusAsset.slice(0, 6)}…${focusAsset.slice(-4)} (Copy)`}
                 </button>
               </div>
             </div>
-            <div style={{ textAlign: "right" }} className="tabular-nums">
-              <div style={{ fontSize: 15, fontWeight: 800, color: "var(--ad-stellar-gold)" }}>
-                {spotXlmPerToken ? `${spotXlmPerToken < 0.01 ? spotXlmPerToken.toFixed(6) : spotXlmPerToken.toFixed(4)} XLM` : "Quoting..."}
+            <div className="ad-text-right tabular-nums">
+              <div className="ad-text-lg ad-font-extrabold ad-text-gold">
+                {spotXlmPerToken
+                  ? `${spotXlmPerToken < 0.01 ? spotXlmPerToken.toFixed(6) : spotXlmPerToken.toFixed(4)} XLM`
+                  : "Quoting..."}
               </div>
               {spotXlmPerToken && xlmUsd && xlmUsd > 0 && (
-                <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }}>
+                <div className="ad-text-xs ad-text-muted">
                   ≈ ${(spotXlmPerToken * xlmUsd).toFixed(4)} USD
                 </div>
               )}
             </div>
           </div>
 
-          <div className="ad-row" style={{ flexWrap: "wrap", fontSize: 11, color: "var(--ad-ink-secondary)" }}>
+          <div className="ad-row ad-row-wrap ad-text-xs ad-text-muted">
             <span className="tabular-nums">
               {ammPair
                 ? `Pool Reserve: ${ammPair.reserveQuote} XLM · ${ammPair.reserveBase} ${focusToken.code}`
                 : "Multi-Venue Liquidity Active"}
             </span>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div className="ad-flex-6">
               <button
                 type="button"
-                className="glass-pill"
-                style={{ cursor: "pointer" }}
+                className="glass-pill ad-clickable"
                 onClick={() => {
                   setSelectedAsset(focusAsset);
                   setActiveTab("book");
@@ -444,8 +431,7 @@ export function TradeChartView() {
               </button>
               <button
                 type="button"
-                className="glass-pill"
-                style={{ cursor: "pointer" }}
+                className="glass-pill ad-clickable"
                 onClick={() => {
                   setSelectedAsset(focusAsset);
                   setActiveTab("scanner");
@@ -461,8 +447,7 @@ export function TradeChartView() {
               <button
                 key={tf}
                 type="button"
-                className={`glass-pill ${timeframe === tf ? "glass-pill--gold" : ""}`}
-                style={{ cursor: "pointer" }}
+                className={`glass-pill ad-clickable ${timeframe === tf ? "glass-pill--gold" : ""}`}
                 onClick={() => setTimeframe(tf)}
               >
                 {tf}
@@ -474,14 +459,13 @@ export function TradeChartView() {
 
       <ChartCanvas mode={mode} candles={candles} depth={depth} quoteLabel="XLM" />
 
-      <section className="glass-card" style={{ display: "grid", gap: 10 }}>
+      <section className="glass-card ad-stack-10">
         <div className="ad-row">
-          <strong style={{ fontSize: 15 }}>5-Way Smart Router Swap</strong>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <strong className="ad-text-lg">5-Way Smart Router Swap</strong>
+          <div className="ad-flex-6">
             <button
               type="button"
-              className="glass-pill"
-              style={{ cursor: "pointer" }}
+              className="glass-pill ad-clickable"
               onClick={() => setShowTokenFinder((prev) => !prev)}
             >
               {showTokenFinder ? "Hide Search" : "🔍 Find Token"}
@@ -512,8 +496,8 @@ export function TradeChartView() {
           />
         )}
 
-        <div style={{ display: "grid", gap: 8 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", gap: 6, alignItems: "center" }}>
+        <div className="ad-stack-8">
+          <div className="ad-grid-swap">
             <select
               className="ad-input"
               value={fromAsset}
@@ -533,8 +517,7 @@ export function TradeChartView() {
 
             <button
               type="button"
-              className="ad-btn-secondary"
-              style={{ minWidth: 44, padding: "8px 10px" }}
+              className="ad-btn-secondary ad-btn-flip"
               onClick={handleFlipPair}
               aria-label="Flip Swap Pair"
             >
@@ -562,7 +545,7 @@ export function TradeChartView() {
             </select>
           </div>
 
-          <div style={{ display: "grid", gap: 6 }}>
+          <div className="ad-stack-6">
             <input
               type="text"
               className="ad-input tabular-nums"
@@ -571,14 +554,13 @@ export function TradeChartView() {
               placeholder="Amount"
               aria-label="Swap Amount"
             />
-            <div className="ad-row" style={{ flexWrap: "wrap" }}>
+            <div className="ad-row ad-row-wrap">
               <div className="ad-chip-row">
                 {QUICK_AMOUNTS.map((preset) => (
                   <button
                     key={preset}
                     type="button"
-                    className={`glass-pill tabular-nums ${amount === preset ? "glass-pill--gold" : ""}`}
-                    style={{ cursor: "pointer" }}
+                    className={`glass-pill tabular-nums ad-clickable ${amount === preset ? "glass-pill--gold" : ""}`}
                     onClick={() => setAmount(preset)}
                   >
                     {preset}
@@ -591,8 +573,7 @@ export function TradeChartView() {
                     <button
                       key={s.bps}
                       type="button"
-                      className={`glass-pill tabular-nums ${slippageBps === s.bps ? "glass-pill--gold" : ""}`}
-                      style={{ cursor: "pointer" }}
+                      className={`glass-pill tabular-nums ad-clickable ${slippageBps === s.bps ? "glass-pill--gold" : ""}`}
                       onClick={() => setSlippageBps(s.bps)}
                     >
                       {s.label}
@@ -617,30 +598,28 @@ export function TradeChartView() {
           ) : quote?.blockedReason ? (
             <div className="ad-banner ad-banner--danger">{quote.blockedReason}</div>
           ) : quote?.bestRoute ? (
-            <div className="ad-banner" style={{ display: "grid", gap: 6 }}>
+            <div className="ad-banner ad-stack-6">
               <div className="ad-row">
                 <strong>Best Route ({quote.bestRoute.venue})</strong>
                 {effectiveRateLabel && (
-                  <span style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }} className="tabular-nums">
-                    {effectiveRateLabel}
-                  </span>
+                  <span className="ad-text-xs ad-text-muted tabular-nums">{effectiveRateLabel}</span>
                 )}
               </div>
-              <div className="tabular-nums" style={{ fontSize: 14, fontWeight: 700 }}>
+              <div className="tabular-nums ad-text-base ad-font-bold">
                 {quote.bestRoute.inputAmount} {activeFromToken?.code ?? "FROM"} →{" "}
-                <span style={{ color: "var(--ad-bid-emerald)" }}>
+                <span className="ad-text-emerald">
                   {quote.bestRoute.expectedOutputAmount} {activeToToken?.code ?? quote.bestRoute.toAsset}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }} className="tabular-nums">
+              <div className="ad-text-xs ad-text-muted tabular-nums">
                 Min Received ({(slippageBps / 100).toFixed(1)}% slip): {quote.bestRoute.minOutputAmount} · Fee {(quote.bestRoute.feeBps / 100).toFixed(2)}% · Impact {quote.bestRoute.priceImpactPct}%
               </div>
 
               {mode === "pro" && quote.routes.length > 0 && (
-                <div style={{ display: "grid", gap: 4, marginTop: 4, borderTop: "1px solid rgba(165,139,224,0.2)", paddingTop: 6 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700 }}>5-Venue Route Matrix</div>
+                <div className="ad-route-matrix">
+                  <div className="ad-text-xs ad-font-bold">5-Venue Route Matrix</div>
                   {quote.routes.map((r, i) => (
-                    <div key={`${r.venue}-${i}`} className="ad-row tabular-nums" style={{ fontSize: 11 }}>
+                    <div key={`${r.venue}-${i}`} className="ad-row tabular-nums ad-text-xs">
                       <span>{i === 0 ? "★ " : ""}{r.venue}</span>
                       <span>
                         {r.expectedOutputAmount} {activeToToken?.code ?? ""} ({(r.feeBps / 100).toFixed(2)}%)
@@ -648,7 +627,7 @@ export function TradeChartView() {
                     </div>
                   ))}
                   {quote.skippedVenues.map((s) => (
-                    <div key={s.venue} className="ad-row" style={{ fontSize: 10, color: "var(--ad-ink-secondary)" }}>
+                    <div key={s.venue} className="ad-row ad-text-xxs ad-text-muted">
                       <span>{s.venue}</span>
                       <span>{s.reason}</span>
                     </div>
@@ -679,9 +658,9 @@ export function TradeChartView() {
       </section>
 
       {mode === "pro" && (
-        <section className="glass-card" style={{ display: "grid", gap: 10 }}>
+        <section className="glass-card ad-stack-10">
           <div className="ad-row">
-            <strong style={{ fontSize: 15 }}>Classic SDEX Limit Order (G... Only)</strong>
+            <strong className="ad-text-lg">Classic SDEX Limit Order (G... Only)</strong>
             <span className="glass-pill glass-pill--gold">manageBuy/SellOffer</span>
           </div>
 
@@ -691,7 +670,7 @@ export function TradeChartView() {
             </div>
           ) : (
             <>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div className="ad-flex-8 ad-row-wrap">
                 <button
                   type="button"
                   className={limitSide === "buy" ? "ad-btn-primary" : "ad-btn-secondary"}
@@ -709,15 +688,14 @@ export function TradeChartView() {
                 {spotXlmPerToken && (
                   <button
                     type="button"
-                    className="glass-pill"
-                    style={{ cursor: "pointer" }}
+                    className="glass-pill ad-clickable"
                     onClick={() => setLimitPrice(spotXlmPerToken.toFixed(6))}
                   >
                     Use Spot ({spotXlmPerToken.toFixed(4)})
                   </button>
                 )}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 8 }}>
+              <div className="ad-grid-2">
                 <input
                   type="text"
                   className="ad-input tabular-nums"

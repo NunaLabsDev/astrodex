@@ -106,8 +106,8 @@ export function ScannerView() {
   };
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <section className="glass-card" style={{ display: "grid", gap: 8 }}>
+    <div className="ad-stack-12">
+      <section className="glass-card ad-stack-8">
         <TokenSearchInput
           query={searchQuery}
           onQueryChange={setSearchQuery}
@@ -132,10 +132,8 @@ export function ScannerView() {
       <section className="glass-card ad-scanner-matrix">
         <div className="ad-row">
           <div>
-            <div style={{ fontSize: 12, color: "var(--ad-ink-secondary)" }}>
-              SDEX Reboot + Soroban X-Ray
-            </div>
-            <h2 style={{ margin: "2px 0 0", fontSize: 18 }}>
+            <div className="ad-text-sm ad-text-muted">SDEX Reboot + Soroban X-Ray</div>
+            <h2 className="ad-heading-sm">
               {audit ? `${audit.code}${audit.name ? ` · ${audit.name}` : ""} (${audit.kind.toUpperCase()})` : selectedAsset}
             </h2>
           </div>
@@ -155,12 +153,11 @@ export function ScannerView() {
         </div>
 
         {audit && (
-          <div className="ad-row" style={{ flexWrap: "wrap", gap: 6 }}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div className="ad-row ad-row-wrap">
+            <div className="ad-flex-wrap">
               <button
                 type="button"
-                className="glass-pill"
-                style={{ cursor: "pointer" }}
+                className="glass-pill ad-clickable"
                 onClick={() => void handleCopy(audit.assetKey)}
               >
                 {copiedId ? "Copied!" : `ID: ${shortId(audit.assetKey)}`}
@@ -169,11 +166,10 @@ export function ScannerView() {
               <span className="glass-pill">Decimals: {audit.decimals}</span>
             </div>
             {audit.assetKey !== "XLM" && (
-              <div style={{ display: "flex", gap: 6 }}>
+              <div className="ad-flex-6">
                 <button
                   type="button"
-                  className="ad-btn-secondary"
-                  style={{ minHeight: 34, padding: "4px 10px", fontSize: 12 }}
+                  className="ad-btn-secondary ad-btn-sm"
                   onClick={() => {
                     setSelectedAsset(audit.assetKey);
                     setActiveTab("trade");
@@ -183,8 +179,7 @@ export function ScannerView() {
                 </button>
                 <button
                   type="button"
-                  className="glass-pill"
-                  style={{ cursor: "pointer" }}
+                  className="glass-pill ad-clickable"
                   onClick={() => {
                     setSelectedAsset(audit.assetKey);
                     setActiveTab("book");
@@ -201,7 +196,7 @@ export function ScannerView() {
         {error && <div className="ad-banner ad-banner--danger">{error}</div>}
 
         {audit && (
-          <div style={{ display: "grid", gap: 8 }}>
+          <div className="ad-stack-8">
             {audit.basicSummary.map((item) => (
               <div key={item.label} className="ad-banner">
                 <strong>{item.passed ? "PASS" : "WARN"} · {item.label}:</strong> {item.detail}
@@ -237,7 +232,7 @@ export function ScannerView() {
             )}
 
             {mode === "pro" && audit.sorobanAudit?.ttlStatus && (
-              <div className="ad-banner tabular-nums" style={{ display: "grid", gap: 6 }}>
+              <div className="ad-banner tabular-nums ad-stack-6">
                 <div>
                   <strong>Protocol 23 TTL Status:</strong>{" "}
                   {audit.sorobanAudit.ttlStatus.approxDaysRemaining !== null
@@ -262,8 +257,8 @@ export function ScannerView() {
       </section>
 
       {mode === "pro" && (
-        <section className="glass-card" style={{ display: "grid", gap: 8 }}>
-          <strong style={{ fontSize: 14 }}>Lazy Web Worker Raw XDR Inspector</strong>
+        <section className="glass-card ad-stack-8">
+          <strong className="ad-text-base">Lazy Web Worker Raw XDR Inspector</strong>
           <textarea
             className="ad-input"
             rows={3}
@@ -278,20 +273,7 @@ export function ScannerView() {
           >
             Decode Raw XDR
           </button>
-          {rawXdrJson && (
-            <pre
-              style={{
-                margin: 0,
-                fontSize: 11,
-                overflowX: "auto",
-                background: "rgba(11,20,51,0.8)",
-                padding: 10,
-                borderRadius: 12,
-              }}
-            >
-              {rawXdrJson}
-            </pre>
-          )}
+          {rawXdrJson && <pre className="ad-code-block">{rawXdrJson}</pre>}
         </section>
       )}
     </div>

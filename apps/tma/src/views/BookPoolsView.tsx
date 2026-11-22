@@ -109,14 +109,9 @@ export function BookPoolsView() {
     Boolean(snapshot?.bids.some((b) => b.venue === "amm_synthetic")) ||
     Boolean(snapshot?.asks.some((a) => a.venue === "amm_synthetic"));
 
-  const maxLevelAmount = useMemo(() => {
-    const all = [...(snapshot?.asks ?? []), ...(snapshot?.bids ?? [])].map((l) => Number(l.amount));
-    return Math.max(1, ...all.filter((n) => Number.isFinite(n)));
-  }, [snapshot]);
-
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <section className="glass-card" style={{ display: "grid", gap: 10 }}>
+    <div className="ad-stack-12">
+      <section className="glass-card ad-stack-10">
         <TokenSearchInput
           query={pairQuery}
           onQueryChange={setPairQuery}
@@ -136,8 +131,7 @@ export function BookPoolsView() {
               <button
                 key={chip.assetKey}
                 type="button"
-                className={`glass-pill ${effectiveAsset === chip.assetKey ? "glass-pill--gold" : ""}`}
-                style={{ cursor: "pointer" }}
+                className={`glass-pill ad-clickable ${effectiveAsset === chip.assetKey ? "glass-pill--gold" : ""}`}
                 onClick={() => setSelectedAsset(chip.assetKey)}
               >
                 {chip.code} / XLM
@@ -147,7 +141,7 @@ export function BookPoolsView() {
         )}
 
         <div className="ad-row">
-          <strong style={{ fontSize: 15 }}>
+          <strong className="ad-text-lg">
             AMM Pools &amp; Venues ({selectedToken?.code ?? effectiveAsset})
           </strong>
           <button
@@ -163,10 +157,10 @@ export function BookPoolsView() {
         </div>
 
         {ammPair && (
-          <div className="ad-banner tabular-nums" style={{ display: "grid", gap: 4 }}>
+          <div className="ad-banner ad-stack-4 tabular-nums">
             <div className="ad-row">
               <strong>Live Spot Price:</strong>
-              <span style={{ color: "var(--ad-stellar-gold)" }}>
+              <span className="ad-text-gold ad-font-bold">
                 1 {selectedToken?.code ?? "TOK"} ={" "}
                 {ammPair.spotPriceQuotePerBase < 0.01
                   ? ammPair.spotPriceQuotePerBase.toFixed(6)
@@ -174,7 +168,7 @@ export function BookPoolsView() {
                 XLM
               </span>
             </div>
-            <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }}>
+            <div className="ad-text-xs ad-text-muted">
               Pool Liquidity: {ammPair.reserveBase} {selectedToken?.code ?? "TOK"} · {ammPair.reserveQuote} XLM
               {mode === "pro" && ammPair.pairId
                 ? ` · Pair ${ammPair.pairId.slice(0, 6)}…${ammPair.pairId.slice(-4)}`
@@ -183,21 +177,12 @@ export function BookPoolsView() {
           </div>
         )}
 
-        <div style={{ display: "grid", gap: 8 }}>
+        <div className="ad-stack-8">
           {poolVenues.map((v) => (
-            <div
-              key={v.name}
-              className="ad-row"
-              style={{
-                padding: "8px 12px",
-                borderRadius: 12,
-                background: "rgba(11, 20, 51, 0.65)",
-                border: "1px solid rgba(165, 139, 224, 0.2)",
-              }}
-            >
+            <div key={v.name} className="ad-row ad-item-card">
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{v.name}</div>
-                <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }}>{v.status}</div>
+                <div className="ad-text-md ad-font-bold">{v.name}</div>
+                <div className="ad-text-xs ad-text-muted">{v.status}</div>
               </div>
               <span className="glass-pill tabular-nums">Fee {v.fee}</span>
             </div>
@@ -207,7 +192,7 @@ export function BookPoolsView() {
 
       <section className="glass-card ad-orderbook-stage">
         <div className="ad-row">
-          <strong style={{ fontSize: 15 }}>
+          <strong className="ad-text-lg">
             {isSyntheticAmm ? "Live AMM Depth" : "Classic SDEX Orderbook"} ({selectedToken?.code ?? effectiveAsset} / XLM)
           </strong>
           <span className="glass-pill tabular-nums">
@@ -222,52 +207,28 @@ export function BookPoolsView() {
             No resting Classic SDEX or AMM pool depth found for {selectedToken?.code ?? effectiveAsset} / XLM.
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 6, fontSize: 12 }} className="tabular-nums">
-            <div className="ad-row" style={{ fontSize: 10, color: "var(--ad-ink-secondary)" }}>
+          <div className="ad-stack-6 ad-text-sm tabular-nums">
+            <div className="ad-row ad-text-xxs ad-text-muted">
               <span>PRICE (XLM)</span>
               <span>AMOUNT ({selectedToken?.code ?? "TOK"}) · TOTAL (XLM)</span>
             </div>
-            {[...snapshot.asks].slice(0, 8).reverse().map((a, idx) => {
-              const pct = Math.min(100, Math.round((Number(a.amount) / maxLevelAmount) * 100));
-              return (
-                <div
-                  key={`ask-${idx}`}
-                  className="ad-row"
-                  style={{
-                    color: "var(--ad-ask-coral)",
-                    padding: "4px 8px",
-                    borderRadius: 8,
-                    background: `linear-gradient(to left, rgba(241, 90, 36, 0.18) ${pct}%, transparent ${pct}%)`,
-                  }}
-                >
-                  <span>ASK {Number(a.price).toFixed(5)}</span>
-                  <span>
-                    {a.amount} ({a.totalQuote})
-                  </span>
-                </div>
-              );
-            })}
-            <div style={{ borderTop: "1px solid rgba(165,139,224,0.25)", margin: "2px 0" }} />
-            {snapshot.bids.slice(0, 8).map((b, idx) => {
-              const pct = Math.min(100, Math.round((Number(b.amount) / maxLevelAmount) * 100));
-              return (
-                <div
-                  key={`bid-${idx}`}
-                  className="ad-row"
-                  style={{
-                    color: "var(--ad-bid-emerald)",
-                    padding: "4px 8px",
-                    borderRadius: 8,
-                    background: `linear-gradient(to left, rgba(16, 185, 129, 0.18) ${pct}%, transparent ${pct}%)`,
-                  }}
-                >
-                  <span>BID {Number(b.price).toFixed(5)}</span>
-                  <span>
-                    {b.amount} ({b.totalQuote})
-                  </span>
-                </div>
-              );
-            })}
+            {[...snapshot.asks].slice(0, 8).reverse().map((a, idx) => (
+              <div key={`ask-${idx}`} className="ad-row ad-book-ask">
+                <span>ASK {Number(a.price).toFixed(5)}</span>
+                <span>
+                  {a.amount} ({a.totalQuote})
+                </span>
+              </div>
+            ))}
+            <div className="ad-divider" />
+            {snapshot.bids.slice(0, 8).map((b, idx) => (
+              <div key={`bid-${idx}`} className="ad-row ad-book-bid">
+                <span>BID {Number(b.price).toFixed(5)}</span>
+                <span>
+                  {b.amount} ({b.totalQuote})
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </section>

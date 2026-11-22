@@ -20,32 +20,31 @@ export function TelegramOnlyGate({
 
   return (
     <main className="glass-canvas">
-      <div className="ad-shell" style={{ marginTop: 28 }}>
+      <div className="ad-shell ad-gate-shell">
         <section
-          className="glass-sheet"
+          className="glass-sheet ad-stack-12 ad-text-center"
           aria-label="Open AstroDex Inside Telegram"
-          style={{ display: "grid", gap: 14, textAlign: "center" }}
         >
           <div>
             <span className="glass-pill glass-pill--gold">
               Telegram-Exclusive Terminal · {config.network.toUpperCase()}
             </span>
           </div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>
+          <h1 className="ad-heading-lg">
             {authStatus === "checking"
               ? "Verifying Telegram Session..."
               : authStatus === "error"
                 ? "Session Verification Failed"
                 : "Open AstroDex Inside Telegram"}
           </h1>
-          <p style={{ margin: 0, fontSize: 13, color: "var(--ad-ink-secondary)", lineHeight: 1.5 }}>
+          <p className="ad-text-lead">
             {authStatus === "checking"
               ? "Validating cryptographic Telegram initData and resolving your AstroID profile."
               : "AstroDex runs exclusively inside Telegram with AstroWallet AstroID SSO and zero local private keys."}
           </p>
           {authError && <div className="ad-banner ad-banner--danger">{authError}</div>}
           {authStatus !== "checking" && (
-            <div style={{ display: "grid", gap: 8 }}>
+            <div className="ad-stack-8">
               <a href={deepLink} className="ad-btn-primary">
                 Launch @{config.tgBotUsername}
               </a>

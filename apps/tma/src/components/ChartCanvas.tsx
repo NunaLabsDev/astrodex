@@ -17,8 +17,8 @@ export function ChartCanvas({
 
   if (candles.length === 0) {
     return (
-      <div className="ad-chart-stage" style={{ display: "grid", placeItems: "center" }}>
-        <div style={{ textAlign: "center", fontSize: 12, color: "var(--ad-ink-secondary)" }}>
+      <div className="ad-chart-stage ad-chart-empty">
+        <div className="ad-text-center ad-text-sm ad-text-muted">
           No OHLCV trades indexed yet for this window ({quoteLabel}).
         </div>
       </div>
@@ -46,19 +46,19 @@ export function ChartCanvas({
     .join(" ");
 
   return (
-    <div className="ad-chart-stage" style={{ display: "grid", gap: 8 }}>
-      <div className="ad-row" style={{ fontSize: 12 }}>
+    <div className="ad-chart-stage ad-stack-8">
+      <div className="ad-row ad-text-sm">
         <strong className="tabular-nums">
           Latest: {latest.close.toFixed(6)} {quoteLabel}
         </strong>
-        <span style={{ color: "var(--ad-ink-secondary)" }} className="tabular-nums">
+        <span className="tabular-nums ad-text-muted">
           H {maxPrice.toFixed(4)} / L {minPrice.toFixed(4)}
         </span>
       </div>
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        style={{ width: "100%", height: "auto", display: "block" }}
+        className="ad-svg-chart"
         role="img"
         aria-label="Price Chart"
       >
@@ -95,7 +95,7 @@ export function ChartCanvas({
       </svg>
 
       {mode === "pro" && depth.length > 0 && (
-        <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }} className="tabular-nums">
+        <div className="tabular-nums ad-text-xs ad-text-muted">
           Combined Depth Levels: {depth.length} active bid/ask levels
         </div>
       )}
