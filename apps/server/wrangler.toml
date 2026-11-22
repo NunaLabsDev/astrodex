@@ -18,6 +18,14 @@ id = "d086ce01143b472d920ec36ccc906668"
 name = "DEX_INDEXER"
 class_name = "DexIndexerDO"
 
+[[services]]
+binding = "ASTROWALLET"
+service = "astrowallet-server"
+
+[[services]]
+binding = "ASTROGATE"
+service = "astrogate-stellar"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["DexIndexerDO"]

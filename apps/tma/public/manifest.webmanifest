@@ -1,7 +1,7 @@
 {
   "name": "AstroDex",
   "short_name": "AstroDex",
-  "description": "Telegram-Exclusive 5-Way Stellar & Soroban DEX Aggregator, Orderbooks & Forensic Scanner.",
+  "description": "Stellar & Soroban DEX for Telegram — swaps, charts, orderbooks, and token safety.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#060E24",

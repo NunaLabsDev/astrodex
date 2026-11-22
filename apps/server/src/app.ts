@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { parseServerConfig, type ServerConfig } from "@astrodex/domain";
 import type {
   D1Database,
@@ -15,11 +16,59 @@ import { createTgAuthRoutes } from "./routes/tg-auth.js";
 import { createTradingRoutes, type TradingRoutesDeps } from "./routes/trading.js";
 import type { FetchLike } from "./stellar-verifier.js";
 
+export interface ServiceFetcher {
+  fetch: (request: Request | string, init?: RequestInit) => Promise<Response>;
+}
+
 export interface WorkerBindings {
   DB?: D1Database;
   CACHE?: KVNamespace;
   DEX_INDEXER?: DurableObjectNamespace;
+  ASTROWALLET?: ServiceFetcher;
+  ASTROGATE?: ServiceFetcher;
   [key: string]: unknown;
+}
+
+const ecosystemFetchStorage = new AsyncLocalStorage<FetchLike>();
+
+function createEcosystemFetch(
+  env: WorkerBindings,
+  config: ServerConfig,
+  baseFetch: FetchLike,
+): FetchLike {
+  const walletBase = config.astroWalletApiBaseUrl?.replace(/\/+$/, "");
+  const gateBase = config.astroGateApiBaseUrl?.replace(/\/+$/, "");
+
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const rawUrl =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+    if (walletBase && env.ASTROWALLET && rawUrl.startsWith(walletBase)) {
+      const pathAndQuery = rawUrl.slice(walletBase.length) || "/";
+      const targetUrl = `https://astrowallet.internal${pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`}`;
+      const req =
+        input instanceof Request
+          ? new Request(targetUrl, input)
+          : new Request(targetUrl, init);
+      return env.ASTROWALLET.fetch(req);
+    }
+
+    if (gateBase && env.ASTROGATE && rawUrl.startsWith(gateBase)) {
+      const pathAndQuery = rawUrl.slice(gateBase.length) || "/";
+      const targetUrl = `https://astrogate.internal${pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`}`;
+      const req =
+        input instanceof Request
+          ? new Request(targetUrl, input)
+          : new Request(targetUrl, init);
+      return env.ASTROGATE.fetch(req);
+    }
+
+    return baseFetch(input, init);
+  }) as FetchLike;
 }
 
 export interface ServerDeps extends TradingRoutesDeps {
@@ -46,6 +95,12 @@ function constantTimeEqual(a: string, b: string): boolean {
 
 export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+  const effectiveFetch: FetchLike =
+    deps.fetchFn ??
+    (((input: RequestInfo | URL, init?: RequestInit) => {
+      const scoped = ecosystemFetchStorage.getStore() ?? fetch;
+      return scoped(input, init);
+    }) as FetchLike);
 
   app.use("*", async (c, next) => {
     let config: ServerConfig;
@@ -74,6 +129,12 @@ export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
       if (c.req.method === "OPTIONS") {
         return c.body(null, 204);
       }
+    }
+
+    if (!deps.fetchFn && (c.env.ASTROWALLET || c.env.ASTROGATE)) {
+      const ecoFetch = createEcosystemFetch(c.env, config, fetch);
+      await ecosystemFetchStorage.run(ecoFetch, () => next());
+      return undefined;
     }
 
     await next();
@@ -148,19 +209,19 @@ export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
       }
     }
 
-    const bot = createAstroDexBot(config, repo, { fetchFn: deps.fetchFn });
+    const bot = createAstroDexBot(config, repo, { fetchFn: effectiveFetch });
     const handler = webhookCallback(bot, "hono");
     return handler(c);
   });
 
-  app.route("/v1", createTgAuthRoutes({ fetchFn: deps.fetchFn }));
-  app.route("/v1", createMarketRoutes({ fetchFn: deps.fetchFn }));
+  app.route("/v1", createTgAuthRoutes({ fetchFn: effectiveFetch }));
+  app.route("/v1", createMarketRoutes({ fetchFn: effectiveFetch }));
   app.route(
     "/v1",
-    createTradingRoutes({ fetchFn: deps.fetchFn, verifyTxFn: deps.verifyTxFn }),
+    createTradingRoutes({ fetchFn: effectiveFetch, verifyTxFn: deps.verifyTxFn }),
   );
-  app.route("/v1/proxy", createProxyRoutes({ fetchFn: deps.fetchFn }));
-  app.route("/", createMcpRoutes({ fetchFn: deps.fetchFn }));
+  app.route("/v1/proxy", createProxyRoutes({ fetchFn: effectiveFetch }));
+  app.route("/", createMcpRoutes({ fetchFn: effectiveFetch }));
 
   return app;
 }

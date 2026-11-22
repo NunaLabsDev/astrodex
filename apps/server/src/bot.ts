@@ -49,27 +49,47 @@ export function createAstroDexBot(
     tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
     tgMiniAppShortName: config.tgMiniAppShortName,
   });
+  const astroWalletUrl = `https://t.me/${config.astroWalletBotUsername ?? "AstroWalletAppBot"}/${config.astroWalletMiniAppShortName ?? "wallet"}`;
+  const astroGateBot = config.astroGateBotUsername ?? "AstroGateSorobanBot";
+  const astroGateHomeUrl = `https://t.me/${astroGateBot}/app`;
 
   bot.command("start", async (ctx) => {
-    await ctx.reply(
-      [
-        "<b>AstroDex — Stellar Classic SDEX + Soroban Terminal</b>",
-        "100% non-custodial inside Telegram. Identity & signing powered exclusively by <b>AstroWallet (AstroID)</b>.",
-        "",
-        "• <code>/scan &lt;asset&gt;</code> — Forensic Astro Shield audit (0–100)",
-        "• <code>/book &lt;base&gt; &lt;quote&gt;</code> — Live Classic SDEX orderbook",
-        "• <code>/route &lt;amount&gt; &lt;from&gt; &lt;to&gt;</code> — 5-Way Smart Router quote",
-        "• <code>/whales</code> — Live whale tape",
-        "• <code>/jackpot</code> — AstroGate v4.5 Jackpot Radar",
-        "• <code>/alerts</code> — Your active watchlist & price alerts",
-      ].join("\n"),
-      {
+    const caption = [
+      "<b>AstroDex — Stellar Classic SDEX + Soroban Terminal</b>",
+      "100% non-custodial inside Telegram. Identity &amp; signing powered exclusively by <b>AstroWallet (AstroID)</b>.",
+      "",
+      "• <code>/scan &lt;asset&gt;</code> — Forensic Astro Shield audit (0–100)",
+      "• <code>/chart &lt;asset&gt;</code> — Live OHLCV &amp; depth chart",
+      "• <code>/book &lt;base&gt; &lt;quote&gt;</code> — Live Classic SDEX orderbook",
+      "• <code>/route &lt;amount&gt; &lt;from&gt; &lt;to&gt;</code> — 5-Way Smart Router quote",
+      "• <code>/whales</code> · <code>/jackpot</code> · <code>/alerts</code> — Radar &amp; alerts",
+    ].join("\n");
+    const replyMarkup = {
+      inline_keyboard: [
+        [{ text: "⚡ Open AstroDex Terminal", url: openAppUrl }],
+        [
+          { text: "🛡️ Open AstroWallet", url: astroWalletUrl },
+          { text: "🚀 Open AstroGate", url: astroGateHomeUrl },
+        ],
+        [
+          { text: "💬 @AstroSoroban", url: "https://t.me/AstroSoroban" },
+          { text: "📡 @AstroGateFeed", url: "https://t.me/AstroGateFeed" },
+        ],
+      ],
+    };
+    const bannerUrl = `${config.tmaOrigin.replace(/\/+$/, "")}/telegram/astrodex-bot-banner.png`;
+    try {
+      await ctx.replyWithPhoto(bannerUrl, {
+        caption,
         parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [[{ text: "Open AstroDex Terminal", url: openAppUrl }]],
-        },
-      },
-    );
+        reply_markup: replyMarkup,
+      });
+    } catch {
+      await ctx.reply(caption, {
+        parse_mode: "HTML",
+        reply_markup: replyMarkup,
+      });
+    }
   });
 
   bot.command("scan", async (ctx) => {
@@ -89,7 +109,16 @@ export function createAstroDexBot(
     await ctx.reply(formatScanCard(audit), {
       parse_mode: "HTML",
       reply_markup: {
-        inline_keyboard: [[{ text: "Inspect X-Ray Matrix", url: deepLink }]],
+        inline_keyboard: [
+          [
+            { text: "📊 Inspect in AstroDex", url: deepLink },
+            {
+              text: "🚀 AstroGate Curve",
+              url: `https://t.me/${astroGateBot}/app?startapp=${encodeURIComponent(audit.assetKey)}`,
+            },
+          ],
+          [{ text: "🛡️ Sign in AstroWallet", url: astroWalletUrl }],
+        ],
       },
     });
   });
@@ -104,7 +133,16 @@ export function createAstroDexBot(
     await ctx.reply(`Open live OHLCV & Depth chart for <code>${arg}</code>:`, {
       parse_mode: "HTML",
       reply_markup: {
-        inline_keyboard: [[{ text: "Open Pro Chart", url: deepLink }]],
+        inline_keyboard: [
+          [
+            { text: "📊 Open Pro Chart", url: deepLink },
+            {
+              text: "🚀 AstroGate Curve",
+              url: `https://t.me/${astroGateBot}/app?startapp=${encodeURIComponent(arg)}`,
+            },
+          ],
+          [{ text: "🛡️ Sign in AstroWallet", url: astroWalletUrl }],
+        ],
       },
     });
   });
@@ -150,13 +188,27 @@ export function createAstroDexBot(
       "Track live AstroGate v4.5 250 / 500 / 1,000 XLM checkpoints and 2% keeper buyback bounties inside AstroDex.",
       {
         reply_markup: {
-          inline_keyboard: [[{ text: "Open Jackpot Radar", url: openAppUrl }]],
+          inline_keyboard: [
+            [
+              { text: "Open Jackpot Radar", url: openAppUrl },
+              {
+                text: "Open AstroGate Market",
+                url: `https://t.me/${config.astroGateBotUsername ?? "AstroGateSorobanBot"}/app?startapp=market`,
+              },
+            ],
+          ],
         },
       },
     );
   });
 
   bot.command("alerts", async (ctx) => {
+    if (
+      ctx.chat?.type !== "private" &&
+      !(ctx.message?.text ?? "").toLowerCase().includes(`@${(ctx.me?.username ?? config.tgBotUsername ?? "AstroDexBot").toLowerCase()}`)
+    ) {
+      return;
+    }
     const tgId = ctx.from?.id ? String(ctx.from.id) : "";
     const alerts = tgId ? await repo.listPriceAlerts(tgId) : [];
     await ctx.reply(
@@ -172,12 +224,19 @@ export function createAstroDexBot(
   bot.on("inline_query", async (ctx) => {
     const query = ctx.inlineQuery.query.trim() || "XLM";
     let cardText = `<b>AstroDex Market Card — ${query}</b>\nTap below to open Pro Chart & Forensic X-Ray.`;
+    let assetKey = query;
     try {
       const audit = await scanner.auditToken(query);
       cardText = formatScanCard(audit);
+      assetKey = audit.assetKey;
     } catch {
       // Fallback safely when free-text ticker is searched inline
     }
+    const dexDeepLink = buildAstroDexDeepLink({
+      tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
+      tgMiniAppShortName: config.tgMiniAppShortName,
+      startParam: `scan_${assetKey}`,
+    });
     await ctx.answerInlineQuery(
       [
         {
@@ -190,7 +249,16 @@ export function createAstroDexBot(
             parse_mode: "HTML",
           },
           reply_markup: {
-            inline_keyboard: [[{ text: "Trade & Inspect in AstroDex", url: openAppUrl }]],
+            inline_keyboard: [
+              [
+                { text: "📊 Inspect in AstroDex", url: dexDeepLink },
+                {
+                  text: "🚀 AstroGate Curve",
+                  url: `https://t.me/${astroGateBot}/app?startapp=${encodeURIComponent(assetKey)}`,
+                },
+              ],
+              [{ text: "🛡️ Sign in AstroWallet", url: astroWalletUrl }],
+            ],
           },
         },
       ],
