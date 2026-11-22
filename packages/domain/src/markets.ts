@@ -102,6 +102,25 @@ export interface WhaleTrade {
   timestampUnix: number;
 }
 
+export type TokenReviewStatus = "official" | "verified" | "unreviewed_warning";
+
+export interface CatalogTokenItem {
+  assetKey: string;
+  kind: "native" | "classic" | "soroban";
+  code: string;
+  name?: string | undefined;
+  issuer?: string | undefined;
+  sacId?: string | undefined;
+  decimals: number;
+  logoUrl?: string | undefined;
+  shieldScore: number;
+  reviewStatus: TokenReviewStatus;
+  reviewNote?: string | undefined;
+  ammVenue?: string | undefined;
+  pairId?: string | undefined;
+  communityUrl?: string | undefined;
+}
+
 export interface OraclePriceQuote {
   assetKey: string;
   priceUsd: number;

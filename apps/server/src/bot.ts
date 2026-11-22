@@ -62,6 +62,7 @@ export function createAstroDexBot(
       "• <code>/chart &lt;asset&gt;</code> — Live OHLCV &amp; depth chart",
       "• <code>/book &lt;base&gt; &lt;quote&gt;</code> — Live Classic SDEX orderbook",
       "• <code>/route &lt;amount&gt; &lt;from&gt; &lt;to&gt;</code> — 5-Way Smart Router quote",
+      "• <code>/list &lt;asset&gt; [venue]</code> — Auto-scan &amp; list token/AMM",
       "• <code>/whales</code> · <code>/jackpot</code> · <code>/alerts</code> — Radar &amp; alerts",
     ].join("\n");
     const replyMarkup = {
@@ -121,6 +122,82 @@ export function createAstroDexBot(
         ],
       },
     });
+  });
+
+  bot.command("list", async (ctx) => {
+    const parts = ctx.match.trim().split(/\s+/).filter(Boolean);
+    const assetId = parts[0];
+    if (!assetId) {
+      await ctx.reply(
+        "Usage: <code>/list CODE:G... [soroswap|aquarius|phoenix|sdex_pool]</code> or <code>/list C...</code>",
+        { parse_mode: "HTML" },
+      );
+      return;
+    }
+    const rawVenue = parts[1]?.toLowerCase() ?? "soroswap";
+    const allowedVenues = new Set(["soroswap", "aquarius", "phoenix", "sdex_pool", "astrogate_curve"]);
+    const ammVenue = allowedVenues.has(rawVenue) ? rawVenue : "soroswap";
+
+    try {
+      const audit = await scanner.auditToken(assetId);
+      if (audit.verdict === "malicious" || audit.trustTier === "spoof_blocked") {
+        await ctx.reply(
+          `<b>Listing Blocked by Astro Shield</b>\n<code>${audit.code}</code> was flagged as spoofed or malicious and cannot be listed.`,
+          { parse_mode: "HTML" },
+        );
+        return;
+      }
+
+      const isClean =
+        audit.astroShieldScore >= 75 && audit.verdict === "safe" && audit.findings.length === 0;
+      const reviewStatus = isClean ? "verified" : "unreviewed_warning";
+      const findingTitles = audit.findings.map((f) => f.title).join(", ");
+      const reviewNote = isClean
+        ? "Passed automated Astro Shield forensic check."
+        : findingTitles
+          ? `Community-listed (not yet reviewed): ${findingTitles}. Verify before trading.`
+          : `Community-listed (not yet reviewed): Shield score ${audit.astroShieldScore}/100. Verify before trading.`;
+
+      await repo.upsertToken({
+        assetKey: audit.assetKey,
+        kind: audit.kind,
+        sacId: audit.sacContractId ?? audit.contractId,
+        code: audit.code,
+        name: audit.name,
+        issuer: audit.issuer,
+        decimals: audit.decimals,
+        logoUrl: audit.logoUrl,
+        shieldScore: audit.astroShieldScore,
+        verifiedLaunchpad: Boolean(audit.sorobanAudit?.astroGate?.isLaunchpadToken),
+        reviewStatus,
+        reviewNote,
+        ammVenue,
+        updatedAt: Math.floor(Date.now() / 1000),
+      });
+
+      const tradeLink = buildAstroDexDeepLink({
+        tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
+        tgMiniAppShortName: config.tgMiniAppShortName,
+        startParam: `token_${audit.assetKey}`,
+      });
+      const statusBadge = isClean
+        ? "✅ <b>Verified &amp; Listed</b>"
+        : "⚠️ <b>Listed with Unreviewed Warning</b>";
+
+      await ctx.reply(
+        `${statusBadge} (${ammVenue})\n${reviewNote}\n\n${formatScanCard(audit)}`,
+        {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [[{ text: "⚡ Trade in AstroDex", url: tradeLink }]],
+          },
+        },
+      );
+    } catch (err) {
+      await ctx.reply(
+        `Could not list asset: ${err instanceof Error ? err.message : "Invalid Stellar asset ID"}`,
+      );
+    }
   });
 
   bot.command("chart", async (ctx) => {

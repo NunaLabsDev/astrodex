@@ -1,5 +1,5 @@
 import type { MultiVenueQuoteResult, OhlcvCandle } from "@astrodex/domain";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChartCanvas } from "../components/ChartCanvas.js";
 import { useAppState } from "../state/app-context.js";
 import {
@@ -8,10 +8,23 @@ import {
   triggerTelegramHaptic,
 } from "../telegram/webapp.js";
 
+const QUICK_AMOUNTS = ["10", "50", "100", "500"] as const;
+
 export function TradeChartView() {
-  const { config, mode, activeAccount, sessionToken, selectedAsset } = useAppState();
+  const {
+    config,
+    mode,
+    activeAccount,
+    sessionToken,
+    selectedAsset,
+    setSelectedAsset,
+    catalog,
+  } = useAppState();
+
   const [fromAsset, setFromAsset] = useState("XLM");
   const [toAsset, setToAsset] = useState(selectedAsset === "XLM" ? "" : selectedAsset);
+  const [customToInput, setCustomToInput] = useState("");
+  const [showCustomTo, setShowCustomTo] = useState(false);
   const [amount, setAmount] = useState("10");
   const [quote, setQuote] = useState<MultiVenueQuoteResult | null>(null);
   const [candles, setCandles] = useState<OhlcvCandle[]>([]);
@@ -25,23 +38,38 @@ export function TradeChartView() {
   const [limitPrice, setLimitPrice] = useState("1.0");
   const [limitAmount, setLimitAmount] = useState("10");
 
+  // Auto-select first non-XLM official/verified token when user hasn't chosen one yet
   useEffect(() => {
     if (selectedAsset && selectedAsset !== "XLM") {
       setToAsset(selectedAsset);
+      setShowCustomTo(false);
+      return;
     }
-  }, [selectedAsset]);
+    if (!toAsset && catalog.length > 1) {
+      const firstPair = catalog.find((item) => item.assetKey !== "XLM");
+      if (firstPair) {
+        setToAsset(firstPair.assetKey);
+      }
+    }
+  }, [selectedAsset, catalog, toAsset]);
 
   useEffect(() => {
     setTelegramClosingConfirmation(submitting);
     return () => setTelegramClosingConfirmation(false);
   }, [submitting]);
 
+  const activeToToken = useMemo(
+    () => catalog.find((item) => item.assetKey === toAsset),
+    [catalog, toAsset],
+  );
+
   useEffect(() => {
     let cancelled = false;
     async function loadCandles() {
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
-        const pair = `${encodeURIComponent(selectedAsset)}-XLM`;
+        const target = toAsset || selectedAsset || "XLM";
+        const pair = `${encodeURIComponent(target)}-XLM`;
         const res = await fetch(`${base}/v1/candles/${pair}?tf=1h`);
         if (!res.ok) return;
         const json = (await res.json()) as { candles?: OhlcvCandle[] };
@@ -54,10 +82,10 @@ export function TradeChartView() {
     return () => {
       cancelled = true;
     };
-  }, [config.apiBaseUrl, selectedAsset]);
+  }, [config.apiBaseUrl, selectedAsset, toAsset]);
 
   useEffect(() => {
-    if (!toAsset.trim() || !amount.trim()) {
+    if (!toAsset.trim() || !amount.trim() || fromAsset.trim() === toAsset.trim()) {
       setQuote(null);
       return undefined;
     }
@@ -89,12 +117,78 @@ export function TradeChartView() {
       } finally {
         if (!cancelled) setQuoting(false);
       }
-    }, 380);
+    }, 350);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
   }, [config.apiBaseUrl, fromAsset, toAsset, amount, activeAccount]);
+
+  const handleFlipPair = () => {
+    if (!toAsset) return;
+    triggerTelegramHaptic("selection");
+    const prevFrom = fromAsset;
+    setFromAsset(toAsset);
+    setToAsset(prevFrom);
+  };
+
+  const handleHandoffSwap = async () => {
+    if (!quote?.bestRoute) return;
+    if (!activeAccount || !sessionToken) {
+      setErrorMsg("Open inside Telegram and connect AstroWallet (AstroID) to sign swaps.");
+      return;
+    }
+    setSubmitting(true);
+    setErrorMsg(null);
+    setStatusMsg(null);
+    try {
+      const base = config.apiBaseUrl.replace(/\/+$/, "");
+      const toLabel = activeToToken?.code ?? toAsset;
+      const res = await fetch(`${base}/v1/intents`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({
+          subAction: "dex_swap",
+          sourceAddress: activeAccount.address,
+          unsignedXdr: quote.bestRoute.unsignedXdr,
+          swapSpec: quote.bestRoute.unsignedXdr
+            ? undefined
+            : {
+                venue: quote.bestRoute.venue,
+                fromAsset: quote.bestRoute.fromAsset,
+                toAsset: quote.bestRoute.toAsset,
+                amount: quote.bestRoute.inputAmount,
+                minOutputAmount: quote.bestRoute.minOutputAmount,
+                pathAssets: [...quote.bestRoute.pathAssets],
+                includeTrustlineIfMissing: quote.bestRoute.requiresTrustline,
+              },
+          humanSummary: `Swap ${quote.bestRoute.inputAmount} ${fromAsset === "XLM" ? "XLM" : "Token"} -> ~${quote.bestRoute.expectedOutputAmount} ${toLabel} via ${quote.bestRoute.venue}`,
+          returnStartAppParam: `token_${toAsset}`,
+          fromAsset: quote.bestRoute.fromAsset,
+          toAsset: quote.bestRoute.toAsset,
+          amount: quote.bestRoute.inputAmount,
+          expectedOutputAmount: quote.bestRoute.expectedOutputAmount,
+          provider: quote.bestRoute.venue,
+          priceImpactPct: quote.bestRoute.priceImpactPct,
+        }),
+      });
+      const json = (await res.json()) as { deepLink?: string; error?: string };
+      if (!res.ok || !json.deepLink) {
+        throw new Error(json.error ?? "Failed to create Swap Signed Intent");
+      }
+      triggerTelegramHaptic("success");
+      setStatusMsg("Swap pre-scanned cleanly. Opening AstroWallet for Clear-Sign...");
+      openTelegramDeepLink(json.deepLink);
+    } catch (err) {
+      triggerTelegramHaptic("error");
+      setErrorMsg(err instanceof Error ? err.message : "Failed to hand off swap intent");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleHandoffLimitOrder = async () => {
     if (!activeAccount || activeAccount.kind !== "classic") {
@@ -126,7 +220,7 @@ export function TradeChartView() {
             amount: limitAmount,
             price: limitPrice,
           },
-          humanSummary: `SDEX ${limitSide.toUpperCase()} ${limitAmount} ${toAsset} @ ${limitPrice} XLM`,
+          humanSummary: `SDEX ${limitSide.toUpperCase()} ${limitAmount} ${activeToToken?.code ?? toAsset} @ ${limitPrice} XLM`,
           returnStartAppParam: `token_${toAsset}`,
         }),
       });
@@ -147,39 +241,153 @@ export function TradeChartView() {
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      {catalog.length > 1 && (
+        <div className="ad-chip-row" aria-label="1-Tap Trading Pairs">
+          {catalog
+            .filter((item) => item.assetKey !== "XLM")
+            .slice(0, 8)
+            .map((item) => (
+              <button
+                key={item.assetKey}
+                type="button"
+                className={`glass-pill ${toAsset === item.assetKey ? "glass-pill--gold" : ""}`}
+                style={{ cursor: "pointer" }}
+                onClick={() => {
+                  setFromAsset("XLM");
+                  setToAsset(item.assetKey);
+                  setSelectedAsset(item.assetKey);
+                  setShowCustomTo(false);
+                }}
+              >
+                <span>XLM / {item.code}</span>
+                {item.reviewStatus === "unreviewed_warning" && <span>⚠️</span>}
+              </button>
+            ))}
+        </div>
+      )}
+
       <ChartCanvas mode={mode} candles={candles} depth={[]} quoteLabel="XLM" />
 
       <section className="glass-card" style={{ display: "grid", gap: 10 }}>
         <div className="ad-row">
           <strong style={{ fontSize: 15 }}>5-Way Smart Router Swap</strong>
           <span className="glass-pill">
-            {activeAccount?.kind === "smart" ? "Smart C... (Soroban)" : "Classic G... (Full SDEX+AMM)"}
+            {activeAccount?.kind === "smart" ? "Smart C... (Soroban)" : "Classic G... (SDEX+AMM)"}
           </span>
         </div>
 
         <div style={{ display: "grid", gap: 8 }}>
-          <input
-            type="text"
-            className="ad-input"
-            value={fromAsset}
-            onChange={(e) => setFromAsset(e.target.value)}
-            placeholder="From asset (XLM or CODE:G... or C...)"
-          />
-          <input
-            type="text"
-            className="ad-input"
-            value={toAsset}
-            onChange={(e) => setToAsset(e.target.value)}
-            placeholder="To asset (CODE:G... or C...)"
-          />
-          <input
-            type="text"
-            className="ad-input tabular-nums"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="Amount"
-          />
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", gap: 6, alignItems: "center" }}>
+            <select
+              className="ad-input"
+              value={fromAsset}
+              onChange={(e) => setFromAsset(e.target.value)}
+              aria-label="From Asset"
+            >
+              {catalog.length === 0 && <option value="XLM">XLM (Native)</option>}
+              {catalog.map((t) => (
+                <option key={`from-${t.assetKey}`} value={t.assetKey}>
+                  {t.code} {t.reviewStatus === "official" ? "🛡️" : t.reviewStatus === "unreviewed_warning" ? "⚠️" : "✓"}
+                </option>
+              ))}
+              {!catalog.some((t) => t.assetKey === fromAsset) && (
+                <option value={fromAsset}>{fromAsset}</option>
+              )}
+            </select>
+
+            <button
+              type="button"
+              className="ad-btn-secondary"
+              style={{ minWidth: 44, padding: "8px 10px" }}
+              onClick={handleFlipPair}
+              aria-label="Flip Swap Pair"
+            >
+              ⇄
+            </button>
+
+            <select
+              className="ad-input"
+              value={showCustomTo ? "__custom__" : toAsset}
+              onChange={(e) => {
+                if (e.target.value === "__custom__") {
+                  setShowCustomTo(true);
+                } else {
+                  setShowCustomTo(false);
+                  setToAsset(e.target.value);
+                  setSelectedAsset(e.target.value);
+                }
+              }}
+              aria-label="To Asset"
+            >
+              <option value="">Select token...</option>
+              {catalog.map((t) => (
+                <option key={`to-${t.assetKey}`} value={t.assetKey}>
+                  {t.code} {t.reviewStatus === "official" ? "🛡️" : t.reviewStatus === "unreviewed_warning" ? "⚠️ Unreviewed" : "✓"}
+                </option>
+              ))}
+              {!catalog.some((t) => t.assetKey === toAsset) && toAsset && (
+                <option value={toAsset}>{toAsset}</option>
+              )}
+              <option value="__custom__">+ Paste CODE:G... or C...</option>
+            </select>
+          </div>
+
+          {showCustomTo && (
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                type="text"
+                className="ad-input"
+                value={customToInput}
+                onChange={(e) => setCustomToInput(e.target.value)}
+                placeholder="Paste CODE:G... or Soroban C..."
+              />
+              <button
+                type="button"
+                className="ad-btn-secondary"
+                onClick={() => {
+                  if (customToInput.trim()) {
+                    setToAsset(customToInput.trim());
+                    setSelectedAsset(customToInput.trim());
+                    setShowCustomTo(false);
+                  }
+                }}
+              >
+                Use
+              </button>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gap: 6 }}>
+            <input
+              type="text"
+              className="ad-input tabular-nums"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount"
+              aria-label="Swap Amount"
+            />
+            <div className="ad-chip-row">
+              {QUICK_AMOUNTS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  className={`glass-pill tabular-nums ${amount === preset ? "glass-pill--gold" : ""}`}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setAmount(preset)}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
+
+        {activeToToken?.reviewStatus === "unreviewed_warning" && (
+          <div className="ad-banner ad-banner--warn">
+            <strong>⚠️ Unreviewed Community Token:</strong>{" "}
+            {activeToToken.reviewNote ?? "Not yet reviewed by AstroDex moderators. Verify before signing."}
+          </div>
+        )}
 
         <div className="ad-quote-slot">
           {quoting ? (
@@ -190,12 +398,12 @@ export function TradeChartView() {
             <div className="ad-banner">
               <strong>Best Route ({quote.bestRoute.venue}):</strong>{" "}
               <span className="tabular-nums">
-                {quote.bestRoute.expectedOutputAmount} {quote.bestRoute.toAsset}
+                {quote.bestRoute.expectedOutputAmount} {activeToToken?.code ?? quote.bestRoute.toAsset}
               </span>{" "}
               (Min {quote.bestRoute.minOutputAmount})
             </div>
           ) : (
-            <div className="ad-banner">Enter pair &amp; amount for live 5-Way routing quote.</div>
+            <div className="ad-banner">Pick a pair &amp; amount for a live 5-Way routing quote.</div>
           )}
         </div>
 
@@ -206,17 +414,9 @@ export function TradeChartView() {
           type="button"
           className="ad-btn-primary"
           disabled={submitting || Boolean(quote?.blockedReason) || !quote?.bestRoute}
-          onClick={() => {
-            if (quote?.bestRoute?.unsignedXdr && sessionToken && activeAccount) {
-              // Handoff unsignedXdr directly
-            } else {
-              setStatusMsg(
-                "Route quoted cleanly. Connect AstroWallet and build unsigned swap XDR to authorize.",
-              );
-            }
-          }}
+          onClick={() => void handleHandoffSwap()}
         >
-          Sign Swap in AstroWallet
+          {submitting ? "Pre-Scanning Swap XDR..." : "Sign Swap in AstroWallet"}
         </button>
       </section>
 

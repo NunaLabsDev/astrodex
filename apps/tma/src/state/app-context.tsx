@@ -1,6 +1,7 @@
 import {
   parseTmaConfig,
   type AstroIdProfile,
+  type CatalogTokenItem,
   type ResolvedAccount,
   type TmaConfig,
 } from "@astrodex/domain";
@@ -39,6 +40,18 @@ interface AppContextValue {
   setActiveTab: (tab: DockTab) => void;
   selectedAsset: string;
   setSelectedAsset: (assetId: string) => void;
+  catalog: CatalogTokenItem[];
+  xlmUsd: number | null;
+  launchpadTokens: Array<{
+    id?: string;
+    symbol?: string;
+    name?: string;
+    graduationPercent?: number;
+    graduated?: boolean;
+    reserveXlm?: string;
+  }>;
+  catalogLoading: boolean;
+  refreshCatalog: () => Promise<void>;
   retryAuth: () => void;
 }
 
@@ -63,23 +76,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTabState] = useState<DockTab>("radar");
   const [selectedAsset, setSelectedAsset] = useState<string>("XLM");
   const [authAttempt, setAuthAttempt] = useState(0);
+  const [catalog, setCatalog] = useState<CatalogTokenItem[]>([]);
+  const [xlmUsd, setXlmUsd] = useState<number | null>(null);
+  const [launchpadTokens, setLaunchpadTokens] = useState<AppContextValue["launchpadTokens"]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+
+  const refreshCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const base = config.apiBaseUrl.replace(/\/+$/, "");
+      const res = await fetch(`${base}/v1/markets/overview`);
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        xlmUsd?: { priceUsd?: number } | null;
+        launchpadTokens?: AppContextValue["launchpadTokens"];
+        catalog?: CatalogTokenItem[];
+      };
+      setXlmUsd(json.xlmUsd?.priceUsd ?? null);
+      setLaunchpadTokens(json.launchpadTokens ?? []);
+      if (Array.isArray(json.catalog) && json.catalog.length > 0) {
+        setCatalog(json.catalog);
+      }
+    } catch {
+      // Keep graceful offline fallback
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [config.apiBaseUrl]);
+
+  useEffect(() => {
+    void refreshCatalog();
+  }, [refreshCatalog]);
+
+  const applyStartParam = useCallback((rawParam: string) => {
+    const parsed = parseAstroDexStartAppParam(rawParam);
+    if (!parsed) return;
+    if (parsed.kind === "token") {
+      setSelectedAsset(parsed.assetId);
+      setActiveTabState("trade");
+    } else if (parsed.kind === "scan") {
+      setSelectedAsset(parsed.assetId);
+      setActiveTabState("scanner");
+    } else if (parsed.kind === "pair") {
+      setSelectedAsset(parsed.pairId);
+      setActiveTabState("trade");
+    } else if (parsed.kind === "tab") {
+      const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
+      if (tabSet.has(parsed.tab as DockTab)) {
+        setActiveTabState(parsed.tab as DockTab);
+      }
+    }
+  }, []);
 
   const authenticate = useCallback(async () => {
     initTelegramMiniApp();
     const wa = getTelegramWebApp();
     const startParam = wa?.initDataUnsafe?.start_param ?? "";
     if (startParam) {
-      const parsed = parseAstroDexStartAppParam(startParam);
-      if (parsed?.kind === "token") {
-        setSelectedAsset(parsed.assetId);
-        setActiveTabState("trade");
-      } else if (parsed?.kind === "scan") {
-        setSelectedAsset(parsed.assetId);
-        setActiveTabState("scanner");
-      } else if (parsed?.kind === "pair") {
-        setSelectedAsset(parsed.pairId);
-        setActiveTabState("trade");
-      }
+      applyStartParam(startParam);
     }
 
     const inTg = isInsideTelegramMiniApp();
@@ -99,11 +153,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       const json = (await res.json()) as {
         sessionToken?: string;
+        startParam?: string;
         astroId?: AstroIdProfile;
         error?: string;
       };
       if (!res.ok || !json.sessionToken) {
         throw new Error(json.error ?? `Auth failed (${res.status})`);
+      }
+      if (json.startParam) {
+        applyStartParam(json.startParam);
       }
       setSessionToken(json.sessionToken);
       if (json.astroId) {
@@ -114,7 +172,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAuthError(err instanceof Error ? err.message : "Telegram verification failed");
       setAuthStatus("error");
     }
-  }, [config.allowDevOutsideTelegram, config.apiBaseUrl]);
+  }, [applyStartParam, config.allowDevOutsideTelegram, config.apiBaseUrl]);
 
   useEffect(() => {
     void authenticate();
@@ -160,6 +218,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActiveTab,
         selectedAsset,
         setSelectedAsset,
+        catalog,
+        xlmUsd,
+        launchpadTokens,
+        catalogLoading,
+        refreshCatalog,
         retryAuth: () => setAuthAttempt((n) => n + 1),
       }}
     >

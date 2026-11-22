@@ -28,6 +28,14 @@ export interface AstroIdResolverConfig {
   fetchFn?: FetchLike | undefined;
 }
 
+function sanitizeSvgMarkup(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!/^<svg[\s>]/i.test(trimmed) || !/<\/svg>$/i.test(trimmed)) return undefined;
+  if (/<script\b|<foreignObject\b|javascript:/i.test(trimmed)) return undefined;
+  return trimmed.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+}
+
 function normalizeAccounts(
   rawAccounts: ReadonlyArray<{
     address?: string;
@@ -124,7 +132,7 @@ export function createAstroIdResolver(config: AstroIdResolverConfig): IdentityRe
                   primaryAddress,
                   accounts,
                   sorobitTokenId: json.sorobitTokenId,
-                  sorobitSvg: json.sorobitSvg,
+                  sorobitSvg: sanitizeSvgMarkup(json.sorobitSvg),
                 });
               }
             }

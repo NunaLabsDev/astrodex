@@ -358,7 +358,7 @@ export function buildClassicLimitOrderXdr(
     networkPassphrase,
   });
 
-  if (spec.includeTrustlineIfMissing) {
+  if (spec.includeTrustlineIfMissing && spec.amount !== "0") {
     const trustAsset = spec.side === "buy" ? baseAsset : quoteAsset;
     if (!trustAsset.isNative()) {
       builder.addOperation(Operation.changeTrust({ asset: trustAsset }));
@@ -386,6 +386,53 @@ export function buildClassicLimitOrderXdr(
       }),
     );
   }
+
+  return builder.setTimeout(300).build().toXDR();
+}
+
+/**
+ * Builds an unsigned Classic SDEX `pathPaymentStrictSend` transaction XDR
+ * (with optional prepended `changeTrust` when the destination asset trustline is missing).
+ */
+export function buildClassicSwapXdr(input: {
+  sourceAddress: string;
+  fromAsset: string;
+  toAsset: string;
+  amount: string;
+  minOutputAmount: string;
+  pathAssets?: readonly string[] | undefined;
+  includeTrustlineIfMissing?: boolean | undefined;
+  networkPassphrase: string;
+  sequence?: string | undefined;
+}): string {
+  const sendAsset = toSdkAsset(input.fromAsset);
+  const destAsset = toSdkAsset(input.toAsset);
+  const builder = new TransactionBuilder(new Account(input.sourceAddress, input.sequence ?? "0"), {
+    fee: "10000",
+    networkPassphrase: input.networkPassphrase,
+  });
+
+  if (input.includeTrustlineIfMissing && !destAsset.isNative()) {
+    builder.addOperation(Operation.changeTrust({ asset: destAsset }));
+  }
+
+  const intermediatePath: Asset[] = [];
+  if (input.pathAssets && input.pathAssets.length > 2) {
+    for (const rawHop of input.pathAssets.slice(1, -1)) {
+      intermediatePath.push(toSdkAsset(rawHop));
+    }
+  }
+
+  builder.addOperation(
+    Operation.pathPaymentStrictSend({
+      sendAsset,
+      sendAmount: input.amount,
+      destination: input.sourceAddress,
+      destAsset,
+      destMin: input.minOutputAmount,
+      path: intermediatePath,
+    }),
+  );
 
   return builder.setTimeout(300).build().toXDR();
 }

@@ -3,6 +3,7 @@ import type {
   OhlcvCandle,
   OhlcvTimeframe,
   SignedIntent,
+  TokenReviewStatus,
   WhaleTrade,
 } from "@astrodex/domain";
 import type { D1Database } from "@cloudflare/workers-types";
@@ -12,11 +13,17 @@ export interface DexTokenRecord {
   kind: "native" | "classic" | "soroban";
   sacId?: string | undefined;
   code: string;
+  name?: string | undefined;
   issuer?: string | undefined;
   decimals: number;
   logoUrl?: string | undefined;
   shieldScore: number;
   verifiedLaunchpad: boolean;
+  reviewStatus?: TokenReviewStatus | undefined;
+  reviewNote?: string | undefined;
+  ammVenue?: string | undefined;
+  pairId?: string | undefined;
+  communityUrl?: string | undefined;
   updatedAt: number;
 }
 
@@ -43,7 +50,7 @@ export interface PriceAlertRecord {
 }
 
 export interface DexServerRepository {
-  upsertToken(token: DexTokenRecord): Promise<void>;
+  upsertToken(token: DexTokenRecord): Promise<DexTokenRecord>;
   listTokens(limit?: number): Promise<readonly DexTokenRecord[]>;
   upsertPair(pair: DexPairRecord): Promise<void>;
   listPairs(limit?: number): Promise<readonly DexPairRecord[]>;
@@ -89,30 +96,101 @@ export interface DexServerRepository {
 export function createD1Repository(db: D1Database): DexServerRepository {
   return {
     async upsertToken(token) {
-      await db
-        .prepare(
-          `INSERT INTO dex_tokens (asset_key, kind, sac_id, code, issuer, decimals, logo_url, shield_score, verified_launchpad, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-           ON CONFLICT(asset_key) DO UPDATE SET
-             sac_id = COALESCE(excluded.sac_id, dex_tokens.sac_id),
-             logo_url = COALESCE(excluded.logo_url, dex_tokens.logo_url),
-             shield_score = excluded.shield_score,
-             verified_launchpad = MAX(dex_tokens.verified_launchpad, excluded.verified_launchpad),
-             updated_at = excluded.updated_at`,
-        )
-        .bind(
-          token.assetKey,
-          token.kind,
-          token.sacId ?? null,
-          token.code,
-          token.issuer ?? null,
-          token.decimals,
-          token.logoUrl ?? null,
-          token.shieldScore,
-          token.verifiedLaunchpad ? 1 : 0,
-          token.updatedAt,
-        )
-        .run();
+      const reviewStatus = token.reviewStatus ?? "verified";
+      try {
+        await db
+          .prepare(
+            `INSERT INTO dex_tokens (asset_key, kind, sac_id, code, name, issuer, decimals, logo_url, shield_score, verified_launchpad, review_status, review_note, amm_venue, pair_id, community_url, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+             ON CONFLICT(asset_key) DO UPDATE SET
+               sac_id = COALESCE(excluded.sac_id, dex_tokens.sac_id),
+               name = COALESCE(excluded.name, dex_tokens.name),
+               logo_url = COALESCE(excluded.logo_url, dex_tokens.logo_url),
+               shield_score = excluded.shield_score,
+               verified_launchpad = MAX(dex_tokens.verified_launchpad, excluded.verified_launchpad),
+               review_status = CASE WHEN dex_tokens.review_status = 'official' THEN 'official' ELSE excluded.review_status END,
+               review_note = COALESCE(excluded.review_note, dex_tokens.review_note),
+               amm_venue = COALESCE(dex_tokens.amm_venue, excluded.amm_venue),
+               pair_id = COALESCE(dex_tokens.pair_id, excluded.pair_id),
+               community_url = COALESCE(dex_tokens.community_url, excluded.community_url),
+               updated_at = excluded.updated_at`,
+          )
+          .bind(
+            token.assetKey,
+            token.kind,
+            token.sacId ?? null,
+            token.code,
+            token.name ?? null,
+            token.issuer ?? null,
+            token.decimals,
+            token.logoUrl ?? null,
+            token.shieldScore,
+            token.verifiedLaunchpad ? 1 : 0,
+            reviewStatus,
+            token.reviewNote ?? null,
+            token.ammVenue ?? null,
+            token.pairId ?? null,
+            token.communityUrl ?? null,
+            token.updatedAt,
+          )
+          .run();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (!/column|no such/i.test(msg)) throw err;
+        // Fallback when running against D1 before 0002_community_listings.sql is applied
+        await db
+          .prepare(
+            `INSERT INTO dex_tokens (asset_key, kind, sac_id, code, issuer, decimals, logo_url, shield_score, verified_launchpad, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(asset_key) DO UPDATE SET
+               sac_id = COALESCE(excluded.sac_id, dex_tokens.sac_id),
+               logo_url = COALESCE(excluded.logo_url, dex_tokens.logo_url),
+               shield_score = excluded.shield_score,
+               verified_launchpad = MAX(dex_tokens.verified_launchpad, excluded.verified_launchpad),
+               updated_at = excluded.updated_at`,
+          )
+          .bind(
+            token.assetKey,
+            token.kind,
+            token.sacId ?? null,
+            token.code,
+            token.issuer ?? null,
+            token.decimals,
+            token.logoUrl ?? null,
+            token.shieldScore,
+            token.verifiedLaunchpad ? 1 : 0,
+            token.updatedAt,
+          )
+          .run();
+      }
+      const row = await db
+        .prepare("SELECT * FROM dex_tokens WHERE asset_key = ?1")
+        .bind(token.assetKey)
+        .first<Record<string, unknown>>();
+      if (!row) return token;
+      return {
+        assetKey: String(row.asset_key),
+        kind: row.kind as DexTokenRecord["kind"],
+        sacId: typeof row.sac_id === "string" ? row.sac_id : undefined,
+        code: String(row.code),
+        name: typeof row.name === "string" ? row.name : undefined,
+        issuer: typeof row.issuer === "string" ? row.issuer : undefined,
+        decimals: Number(row.decimals ?? 7),
+        logoUrl: typeof row.logo_url === "string" ? row.logo_url : undefined,
+        shieldScore: Number(row.shield_score ?? 50),
+        verifiedLaunchpad: Number(row.verified_launchpad ?? 0) === 1,
+        reviewStatus:
+          row.review_status === "official" ||
+          row.review_status === "verified" ||
+          row.review_status === "unreviewed_warning"
+            ? row.review_status
+            : undefined,
+        reviewNote: typeof row.review_note === "string" ? row.review_note : undefined,
+        ammVenue: typeof row.amm_venue === "string" ? row.amm_venue : undefined,
+        pairId: typeof row.pair_id === "string" ? row.pair_id : undefined,
+        communityUrl: typeof row.community_url === "string" ? row.community_url : undefined,
+        updatedAt: Number(row.updated_at ?? 0),
+      };
     },
 
     async listTokens(limit = 50) {
@@ -125,11 +203,22 @@ export function createD1Repository(db: D1Database): DexServerRepository {
         kind: r.kind as DexTokenRecord["kind"],
         sacId: typeof r.sac_id === "string" ? r.sac_id : undefined,
         code: String(r.code),
+        name: typeof r.name === "string" ? r.name : undefined,
         issuer: typeof r.issuer === "string" ? r.issuer : undefined,
         decimals: Number(r.decimals ?? 7),
         logoUrl: typeof r.logo_url === "string" ? r.logo_url : undefined,
         shieldScore: Number(r.shield_score ?? 50),
         verifiedLaunchpad: Number(r.verified_launchpad ?? 0) === 1,
+        reviewStatus:
+          r.review_status === "official" ||
+          r.review_status === "verified" ||
+          r.review_status === "unreviewed_warning"
+            ? r.review_status
+            : undefined,
+        reviewNote: typeof r.review_note === "string" ? r.review_note : undefined,
+        ammVenue: typeof r.amm_venue === "string" ? r.amm_venue : undefined,
+        pairId: typeof r.pair_id === "string" ? r.pair_id : undefined,
+        communityUrl: typeof r.community_url === "string" ? r.community_url : undefined,
         updatedAt: Number(r.updated_at ?? 0),
       }));
     },
@@ -466,7 +555,22 @@ export function createInMemoryRepository(): DexServerRepository {
 
   return {
     async upsertToken(token) {
-      tokens.set(token.assetKey, token);
+      const existing = tokens.get(token.assetKey);
+      const saved: DexTokenRecord = {
+        ...token,
+        sacId: token.sacId ?? existing?.sacId,
+        name: token.name ?? existing?.name,
+        logoUrl: token.logoUrl ?? existing?.logoUrl,
+        verifiedLaunchpad: Boolean(existing?.verifiedLaunchpad || token.verifiedLaunchpad),
+        reviewStatus:
+          existing?.reviewStatus === "official" ? "official" : token.reviewStatus,
+        reviewNote: token.reviewNote ?? existing?.reviewNote,
+        ammVenue: existing?.ammVenue ?? token.ammVenue,
+        pairId: existing?.pairId ?? token.pairId,
+        communityUrl: existing?.communityUrl ?? token.communityUrl,
+      };
+      tokens.set(token.assetKey, saved);
+      return saved;
     },
     async listTokens(limit = 50) {
       return Array.from(tokens.values())

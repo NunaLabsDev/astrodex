@@ -345,4 +345,228 @@ describe("@astrodex/server", () => {
     expect(await repo.claimTelegramUpdateId(5001)).toBe(true);
     expect(await repo.claimTelegramUpdateId(5001)).toBe(false);
   });
+
+  it("hydrates official SEP-42 catalog, handles instant community listings with warning flags, and builds dex_swap intents", async () => {
+    const repo = createInMemoryRepository();
+    const UNLOCKED_ISSUER = "GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX";
+    const app = createApp({
+      createRepo: () => repo,
+      fetchFn: (async (url: string | URL | Request) => {
+        const u = typeof url === "string" ? url : url.toString();
+        if (u.includes("sep42.example.com")) {
+          return new Response(
+            JSON.stringify({
+              assets: [{ code: "USDC", issuer: OFFICIAL_USDC, name: "USD Coin" }],
+            }),
+            { status: 200 },
+          );
+        }
+        if (u.includes(`accounts/${UNLOCKED_ISSUER}`)) {
+          return new Response(
+            JSON.stringify({
+              thresholds: { low_threshold: 0, med_threshold: 0, high_threshold: 0 },
+              signers: [{ key: UNLOCKED_ISSUER, weight: 1, type: "ed25519_public_key" }],
+              flags: {},
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response("{}", { status: 404 });
+      }) as typeof fetch,
+    });
+
+    // 1. Overview auto-hydrates XLM + SEP-42 USDC
+    const overviewRes = await app.request("/v1/markets/overview", {}, makeBaseEnv());
+    expect(overviewRes.status).toBe(200);
+    const overviewJson = (await overviewRes.json()) as {
+      catalog: Array<{ assetKey: string; code: string; reviewStatus: string }>;
+    };
+    expect(overviewJson.catalog.some((t) => t.assetKey === "XLM" && t.reviewStatus === "official")).toBe(true);
+    expect(
+      overviewJson.catalog.some(
+        (t) => t.assetKey === `USDC:${OFFICIAL_USDC}` && t.reviewStatus === "official",
+      ),
+    ).toBe(true);
+
+    // 2. Spoofed USDC listing must be blocked (403)
+    const spoofListing = await app.request(
+      "/v1/markets/listings",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId: `USDC:${ATTACKER_PUB}`, ammVenue: "soroswap" }),
+      },
+      makeBaseEnv(),
+    );
+    expect(spoofListing.status).toBe(403);
+
+    // 3. Community token with unlocked issuer publishes immediately with unreviewed_warning
+    const communityListing = await app.request(
+      "/v1/markets/listings",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assetId: `ACT:${UNLOCKED_ISSUER}`,
+          ammVenue: "sdex_pool",
+          communityUrl: "t.me/EarnACT",
+        }),
+      },
+      makeBaseEnv(),
+    );
+    expect(communityListing.status).toBe(200);
+    const communityJson = (await communityListing.json()) as {
+      published: boolean;
+      reviewStatus: string;
+      reviewNote: string;
+    };
+    expect(communityJson.published).toBe(true);
+    expect(communityJson.reviewStatus).toBe("unreviewed_warning");
+    expect(communityJson.reviewNote.length).toBeGreaterThan(10);
+
+    // 4. End-to-end dex_swap intent builder via swapSpec
+    const initData = await makeSignedInitData();
+    const authRes = await app.request(
+      "/v1/tg/auth",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData }),
+      },
+      makeBaseEnv(),
+    );
+    const { sessionToken } = (await authRes.json()) as { sessionToken: string };
+
+    const swapIntentRes = await app.request(
+      "/v1/intents",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({
+          subAction: "dex_swap",
+          sourceAddress: USER_PUB,
+          swapSpec: {
+            venue: "sdex_horizon",
+            fromAsset: "XLM",
+            toAsset: `USDC:${OFFICIAL_USDC}`,
+            amount: "10.0000000",
+            minOutputAmount: "1.0000000",
+          },
+          humanSummary: "Swap 10 XLM to USDC via Classic SDEX",
+          returnStartAppParam: `token_USDC:${OFFICIAL_USDC}`,
+        }),
+      },
+      makeBaseEnv(),
+    );
+    expect(swapIntentRes.status).toBe(200);
+    const swapIntentJson = (await swapIntentRes.json()) as { actionType: string; deepLink: string };
+    expect(swapIntentJson.actionType).toBe("swap");
+    expect(swapIntentJson.deepLink).toContain("AstroWalletAppBot");
+
+    // 5. Existing community metadata (communityUrl) cannot be hijacked by subsequent listing calls
+    const overwriteAttempt = await app.request(
+      "/v1/markets/listings",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assetId: `ACT:${UNLOCKED_ISSUER}`,
+          ammVenue: "soroswap",
+          communityUrl: "https://phishing.example.com",
+        }),
+      },
+      makeBaseEnv(),
+    );
+    expect(overwriteAttempt.status).toBe(200);
+    const overwriteJson = (await overwriteAttempt.json()) as {
+      token: { communityUrl?: string; ammVenue?: string };
+    };
+    expect(overwriteJson.token.communityUrl).toBe("https://t.me/EarnACT");
+    expect(overwriteJson.token.ammVenue).toBe("sdex_pool");
+
+    // 6. Source account mismatch on unsignedXdr is blocked fail-closed (403)
+    const mismatchedTx = new TransactionBuilder(new Account(ATTACKER_PUB, "1"), {
+      fee: "100",
+      networkPassphrase: TESTNET_PASS,
+    })
+      .addOperation(
+        Operation.payment({
+          destination: USER_PUB,
+          asset: Asset.native(),
+          amount: "1",
+        }),
+      )
+      .setTimeout(60)
+      .build();
+    const mismatchRes = await app.request(
+      "/v1/intents",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({
+          subAction: "dex_swap",
+          sourceAddress: USER_PUB,
+          unsignedXdr: mismatchedTx.toXDR(),
+          humanSummary: "Mismatched source attempt",
+        }),
+      },
+      makeBaseEnv(),
+    );
+    expect(mismatchRes.status).toBe(403);
+
+    // 7. Protocol 23 soroban_extend_ttl intent builder + Alerts CRUD + Orders endpoint
+    const CONTRACT_ID = "CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE";
+    const ttlRes = await app.request(
+      "/v1/intents",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({
+          subAction: "soroban_extend_ttl",
+          sourceAddress: USER_PUB,
+          extendTtlContractId: CONTRACT_ID,
+          humanSummary: "Extend Protocol 23 TTL",
+        }),
+      },
+      makeBaseEnv(),
+    );
+    expect(ttlRes.status).toBe(200);
+
+    const createAlertRes = await app.request(
+      "/v1/alerts",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ assetKey: "XLM", condition: "above", threshold: 0.5 }),
+      },
+      makeBaseEnv(),
+    );
+    expect(createAlertRes.status).toBe(200);
+    const createdAlert = (await createAlertRes.json()) as { alert: { id: string } };
+
+    const deleteAlertRes = await app.request(
+      `/v1/alerts/${createdAlert.alert.id}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      },
+      makeBaseEnv(),
+    );
+    expect(deleteAlertRes.status).toBe(200);
+
+    const ordersRes = await app.request(`/v1/orders/${USER_PUB}`, {}, makeBaseEnv());
+    expect(ordersRes.status).toBe(200);
+  });
 });

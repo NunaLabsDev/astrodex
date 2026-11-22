@@ -1,14 +1,24 @@
 import {
   buildClassicLimitOrderXdr,
+  buildClassicSwapXdr,
+  buildSoroswapRouterSwapXdr,
   createSmartLiquidityRouter,
 } from "@astrodex/dex-aggregator";
 import {
   AstroDexSubActionSchema,
+  ContractAddressSchema,
+  normalizeAssetIdentifier,
+  parseDecimalToStroops7,
   StellarAddressSchema,
   type ServerConfig,
 } from "@astrodex/domain";
 import { createPreSignSecurityShield } from "@astrodex/security-shield";
-import { fetchSep42VerifiedAssets } from "@astrodex/stellar-scanner";
+import {
+  buildExtendContractTtlXdr,
+  deriveSacContractId,
+  fetchDirectoryTags,
+  fetchSep42VerifiedAssets,
+} from "@astrodex/stellar-scanner";
 import {
   buildAstroWalletIntentLink,
   buildCrossAppIntentEnvelope,
@@ -20,6 +30,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import type { DexServerRepository } from "../db/repository.js";
+import { checkRateLimit, clientKeyFromHeaders } from "../rate-limit.js";
 import {
   adaptFetch,
   verifyTransactionConfirmed,
@@ -52,6 +63,18 @@ const CreateIntentBodySchema = z.object({
       includeTrustlineIfMissing: z.boolean().optional(),
     })
     .optional(),
+  swapSpec: z
+    .object({
+      venue: z.string().optional(),
+      fromAsset: z.string().min(1),
+      toAsset: z.string().min(1),
+      amount: z.string().regex(/^\d+(\.\d{1,7})?$/),
+      minOutputAmount: z.string().regex(/^\d+(\.\d{1,7})?$/),
+      pathAssets: z.array(z.string()).optional(),
+      includeTrustlineIfMissing: z.boolean().optional(),
+    })
+    .optional(),
+  extendTtlContractId: ContractAddressSchema.optional(),
   humanSummary: z.string().trim().min(1).max(280),
   returnStartAppParam: z.string().max(128).optional(),
   fromAsset: z.string().max(80).optional(),
@@ -78,11 +101,72 @@ export interface TradingRoutesDeps {
   fetchFn?: FetchLike | undefined;
   verifyTxFn?:
     | ((
-        config: Pick<ServerConfig, "horizonUrls" | "rpcUrls">,
+        config: Pick<ServerConfig, "horizonUrls" | "rpcUrls" | "networkPassphrase">,
         txHash: string,
         expected?: { expectedSourceAccount?: string | undefined },
       ) => Promise<TxVerificationResult>)
     | undefined;
+}
+
+interface HorizonAccountSnapshot {
+  sequence: string;
+  trustlines: Set<string> | null;
+}
+
+async function loadHorizonAccountState(
+  horizonUrls: readonly string[],
+  sourceAddress: string,
+  fetchFn: ReturnType<typeof adaptFetch>,
+): Promise<HorizonAccountSnapshot> {
+  if (!sourceAddress.startsWith("G")) {
+    return { sequence: "0", trustlines: null };
+  }
+  for (const base of horizonUrls) {
+    const clean = base.replace(/\/+$/, "");
+    try {
+      const res = await fetchFn(`${clean}/accounts/${encodeURIComponent(sourceAddress)}`, {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) continue;
+      const body = (await res.json()) as {
+        sequence?: string;
+        balances?: Array<{
+          asset_type?: string;
+          asset_code?: string;
+          asset_issuer?: string;
+        }>;
+      };
+      const trustlines = new Set<string>(["XLM"]);
+      for (const bal of body.balances ?? []) {
+        if (bal.asset_type === "native") {
+          trustlines.add("XLM");
+        } else if (bal.asset_code && bal.asset_issuer) {
+          trustlines.add(`${bal.asset_code.toUpperCase()}:${bal.asset_issuer.toUpperCase()}`);
+        }
+      }
+      return {
+        sequence: typeof body.sequence === "string" && /^\d+$/.test(body.sequence) ? body.sequence : "0",
+        trustlines,
+      };
+    } catch {
+      // Fail over to next Horizon URL
+    }
+  }
+  return { sequence: "0", trustlines: null };
+}
+
+function isTrustlineMissing(
+  trustlines: Set<string> | null,
+  assetIdentifier: string,
+): boolean {
+  if (!trustlines) return false;
+  try {
+    const norm = normalizeAssetIdentifier(assetIdentifier);
+    if (norm.kind !== "classic" || !norm.issuer) return false;
+    return !trustlines.has(`${norm.code.toUpperCase()}:${norm.issuer.toUpperCase()}`);
+  } catch {
+    return false;
+  }
 }
 
 export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingRouteEnv> {
@@ -92,6 +176,17 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
 
   router.post("/quote", async (c) => {
     const config = c.get("config");
+    const rl = await checkRateLimit({
+      repository: c.get("repo"),
+      scope: "quote",
+      clientKey: clientKeyFromHeaders(c.req.raw.headers),
+      limitPerMin: config.quoteRateLimitPerMin,
+    });
+    if (!rl.allowed) {
+      c.header("Retry-After", String(rl.retryAfterSeconds));
+      return c.json({ error: "Quote rate limit exceeded" }, 429);
+    }
+
     let body: z.infer<typeof QuoteBodySchema>;
     try {
       body = QuoteBodySchema.parse(await c.req.json());
@@ -146,6 +241,17 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     }
 
     let unsignedXdr = body.unsignedXdr?.trim();
+    const needsServerXdr =
+      !unsignedXdr &&
+      Boolean(
+        body.limitOrder ||
+          body.swapSpec ||
+          (body.subAction === "soroban_extend_ttl" && body.extendTtlContractId),
+      );
+    const accountState = needsServerXdr
+      ? await loadHorizonAccountState(config.horizonUrls, body.sourceAddress, fetchFn)
+      : { sequence: "0", trustlines: null };
+
     if (!unsignedXdr && body.limitOrder) {
       if (!body.sourceAddress.startsWith("G")) {
         return c.json(
@@ -153,17 +259,95 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
           400,
         );
       }
+      const receiveAsset =
+        body.limitOrder.side === "buy" ? body.limitOrder.baseAsset : body.limitOrder.quoteAsset;
+      const autoTrust =
+        body.limitOrder.includeTrustlineIfMissing ??
+        isTrustlineMissing(accountState.trustlines, receiveAsset);
       unsignedXdr = buildClassicLimitOrderXdr(
         {
           seller: body.sourceAddress,
           ...body.limitOrder,
+          includeTrustlineIfMissing: autoTrust,
         },
         config.networkPassphrase,
+        accountState.sequence,
       );
     }
 
+    if (!unsignedXdr && body.subAction === "soroban_extend_ttl" && body.extendTtlContractId) {
+      unsignedXdr = buildExtendContractTtlXdr({
+        sourceAddress: body.sourceAddress,
+        contractId: body.extendTtlContractId,
+        networkPassphrase: config.networkPassphrase,
+        sequence: accountState.sequence,
+      });
+    }
+
+    if (!unsignedXdr && body.swapSpec) {
+      try {
+        const fromNorm = normalizeAssetIdentifier(body.swapSpec.fromAsset);
+        const toNorm = normalizeAssetIdentifier(body.swapSpec.toAsset);
+        if (
+          body.sourceAddress.startsWith("G") &&
+          fromNorm.kind !== "soroban" &&
+          toNorm.kind !== "soroban" &&
+          body.swapSpec.venue !== "soroswap_direct" &&
+          body.swapSpec.venue !== "soroswap_aggregator"
+        ) {
+          const autoTrust =
+            body.swapSpec.includeTrustlineIfMissing ??
+            isTrustlineMissing(accountState.trustlines, body.swapSpec.toAsset);
+          unsignedXdr = buildClassicSwapXdr({
+            sourceAddress: body.sourceAddress,
+            fromAsset: body.swapSpec.fromAsset,
+            toAsset: body.swapSpec.toAsset,
+            amount: body.swapSpec.amount,
+            minOutputAmount: body.swapSpec.minOutputAmount,
+            pathAssets: body.swapSpec.pathAssets,
+            includeTrustlineIfMissing: autoTrust,
+            networkPassphrase: config.networkPassphrase,
+            sequence: accountState.sequence,
+          });
+        } else if (config.soroswapRouterContractId) {
+          const fromContract =
+            fromNorm.kind === "soroban"
+              ? fromNorm.contractId!
+              : deriveSacContractId(fromNorm.code, fromNorm.issuer, config.networkPassphrase);
+          const toContract =
+            toNorm.kind === "soroban"
+              ? toNorm.contractId!
+              : deriveSacContractId(toNorm.code, toNorm.issuer, config.networkPassphrase);
+          const amountInStroops = parseDecimalToStroops7(body.swapSpec.amount);
+          const amountOutMinStroops = parseDecimalToStroops7(body.swapSpec.minOutputAmount);
+          if (
+            amountInStroops !== null &&
+            amountInStroops > 0n &&
+            amountOutMinStroops !== null &&
+            amountOutMinStroops > 0n
+          ) {
+            unsignedXdr = buildSoroswapRouterSwapXdr({
+              sourceAddress: body.sourceAddress,
+              routerContractId: config.soroswapRouterContractId,
+              amountInStroops,
+              amountOutMinStroops,
+              pathContracts: [fromContract, toContract],
+              deadlineUnix: Math.floor(Date.now() / 1000) + 300,
+              networkPassphrase: config.networkPassphrase,
+              sequence: accountState.sequence,
+            });
+          }
+        }
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : "Failed to build swap XDR" },
+          400,
+        );
+      }
+    }
+
     if (!unsignedXdr) {
-      return c.json({ error: "unsignedXdr or limitOrder specification is required" }, 400);
+      return c.json({ error: "unsignedXdr, swapSpec, or limitOrder specification is required" }, 400);
     }
 
     // Mandatory pre-sign Scan & Shield gate (fail-closed on malicious verdict)
@@ -175,6 +359,17 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       networkPassphrase: config.networkPassphrase,
       rpcUrls: config.rpcUrls,
       verifiedAssets,
+      directoryLookup: async (address) => {
+        const tags = await fetchDirectoryTags(
+          config.stellarExpertApiBase,
+          config.network,
+          address,
+          fetchFn,
+        );
+        return tags.length > 0
+          ? { address, tags, memoRequired: tags.includes("exchange") }
+          : null;
+      },
       fetchFn,
     });
 

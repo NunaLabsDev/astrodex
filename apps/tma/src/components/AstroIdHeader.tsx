@@ -36,10 +36,16 @@ export function AstroIdHeader() {
       <div className="ad-row">
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           {astroId.sorobitSvg ? (
-            <div
-              aria-label="Sorobit Avatar"
-              style={{ width: 32, height: 32, borderRadius: 10, overflow: "hidden", flexShrink: 0 }}
-              dangerouslySetInnerHTML={{ __html: astroId.sorobitSvg }}
+            <img
+              alt="Sorobit Avatar"
+              src={`data:image/svg+xml;utf8,${encodeURIComponent(astroId.sorobitSvg)}`}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 10,
+                objectFit: "cover",
+                flexShrink: 0,
+              }}
             />
           ) : (
             <div

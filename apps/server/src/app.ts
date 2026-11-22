@@ -20,12 +20,17 @@ export interface ServiceFetcher {
   fetch: (request: Request | string, init?: RequestInit) => Promise<Response>;
 }
 
+export interface WorkersAiBinding {
+  run: (model: string, input: unknown) => Promise<unknown>;
+}
+
 export interface WorkerBindings {
   DB?: D1Database;
   CACHE?: KVNamespace;
   DEX_INDEXER?: DurableObjectNamespace;
   ASTROWALLET?: ServiceFetcher;
   ASTROGATE?: ServiceFetcher;
+  AI?: WorkersAiBinding;
   [key: string]: unknown;
 }
 

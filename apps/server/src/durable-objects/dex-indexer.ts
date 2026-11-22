@@ -104,10 +104,27 @@ export class DexIndexerDO {
         };
 
         const events = eventsJson.result?.events ?? [];
+        const nowUnix = Math.floor(Date.now() / 1000);
         let maxLedger = startLedger;
         for (const ev of events) {
           if (typeof ev.ledger === "number" && ev.ledger > maxLedger) {
             maxLedger = ev.ledger;
+          }
+          if (ev.contractId && ev.txHash) {
+            await repo.upsertPair({
+              pairId: ev.contractId,
+              venue:
+                ev.contractId === config.astroGateLaunchpadContractId
+                  ? "astrogate_curve"
+                  : "soroswap",
+              baseAssetKey: ev.contractId,
+              quoteAssetKey: "XLM",
+              reserveBase: "0",
+              reserveQuote: "0",
+              lpLockKind: "indexed_onchain",
+              lastLedger: ev.ledger ?? maxLedger,
+              updatedAt: nowUnix,
+            });
           }
         }
         if (eventsJson.result?.latestLedger && eventsJson.result.latestLedger > maxLedger) {
@@ -116,7 +133,6 @@ export class DexIndexerDO {
         if (maxLedger > lastLedger) {
           await this.state.storage.put("lastLedger", maxLedger);
         }
-        void repo;
         return;
       } catch {
         // Try next RPC node

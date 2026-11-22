@@ -1,4 +1,5 @@
 import type { ServerConfig } from "@astrodex/domain";
+import { decodeTransactionEnvelope } from "@astrodex/security-shield";
 
 export type FetchLike = typeof fetch;
 
@@ -26,7 +27,7 @@ export type TxVerificationResult =
  * Verifies a submitted Stellar transaction hash against Horizon and Soroban RPC failover pools.
  */
 export async function verifyTransactionConfirmed(
-  config: Pick<ServerConfig, "horizonUrls" | "rpcUrls">,
+  config: Pick<ServerConfig, "horizonUrls" | "rpcUrls" | "networkPassphrase">,
   txHash: string,
   expected?: { expectedSourceAccount?: string | undefined },
   fetchFn: FetchLike = fetch,
@@ -79,9 +80,25 @@ export async function verifyTransactionConfirmed(
       });
       if (!res.ok) continue;
       const body = (await res.json()) as {
-        result?: { status?: string; ledger?: number };
+        result?: { status?: string; ledger?: number; envelopeXdr?: string };
       };
       if (body.result?.status === "SUCCESS") {
+        if (expected?.expectedSourceAccount && body.result.envelopeXdr) {
+          try {
+            const decoded = decodeTransactionEnvelope(
+              body.result.envelopeXdr,
+              config.networkPassphrase,
+            );
+            if (
+              decoded.sourceAccount !== expected.expectedSourceAccount &&
+              decoded.feeSource !== expected.expectedSourceAccount
+            ) {
+              return { confirmed: false, reason: "Transaction source account mismatch" };
+            }
+          } catch {
+            return { confirmed: false, reason: "Unable to verify Soroban transaction envelope" };
+          }
+        }
         return { confirmed: true, ledger: body.result.ledger ?? 0 };
       }
       if (body.result?.status === "FAILED") {

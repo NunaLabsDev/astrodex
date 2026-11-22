@@ -99,7 +99,7 @@ export function createPreSignSecurityShield(config: PreSignShieldConfig): Securi
   return {
     async scanTransactionXdr(
       xdrBase64: string,
-      _sourceAddress?: StellarAddress,
+      sourceAddress?: StellarAddress,
     ): Promise<ScanReport> {
       const decoded = decodeTransactionEnvelope(xdrBase64, config.networkPassphrase);
       const directoryEntries = new Map<string, DirectoryTagEntry>();
@@ -146,9 +146,29 @@ export function createPreSignSecurityShield(config: PreSignShieldConfig): Securi
         simulatedBalanceDiffs: sim?.balanceDiffs,
       });
 
-      if (!sim) return baseReport;
-
       const findings: SecurityFinding[] = [...baseReport.findings];
+      if (
+        sourceAddress &&
+        decoded.sourceAccount !== sourceAddress &&
+        decoded.feeSource !== sourceAddress
+      ) {
+        findings.push({
+          code: "SOURCE_ACCOUNT_MISMATCH",
+          severity: "malicious",
+          title: "Source Account Mismatch Blocked",
+          description: `Transaction source (${decoded.sourceAccount}) does not match expected signer (${sourceAddress}).`,
+          blocksSigning: true,
+        });
+      }
+
+      if (!sim) {
+        return {
+          ...baseReport,
+          verdict: classifyVerdict(findings),
+          findings,
+        };
+      }
+
       if (!sim.ok) {
         findings.push({
           code: "SOROBAN_SIMULATION_FAILED",

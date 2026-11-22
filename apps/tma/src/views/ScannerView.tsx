@@ -1,12 +1,15 @@
 import type { TokenForensicAudit } from "@astrodex/domain";
 import { useEffect, useState } from "react";
 import { useAppState } from "../state/app-context.js";
+import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
 export function ScannerView() {
-  const { config, mode, selectedAsset } = useAppState();
+  const { config, mode, selectedAsset, activeAccount, sessionToken } = useAppState();
   const [audit, setAudit] = useState<TokenForensicAudit | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ttlStatusMsg, setTtlStatusMsg] = useState<string | null>(null);
+  const [extendingTtl, setExtendingTtl] = useState(false);
   const [rawXdrInput, setRawXdrInput] = useState("");
   const [rawXdrJson, setRawXdrJson] = useState<string | null>(null);
 
@@ -41,6 +44,45 @@ export function ScannerView() {
     const { inspectRawXdrInWorker } = await import("@astrodex/security-shield");
     const pretty = await inspectRawXdrInWorker(rawXdrInput.trim(), config.networkPassphrase);
     setRawXdrJson(pretty);
+  };
+
+  const handleExtendTtl = async (contractId: string) => {
+    if (!activeAccount || !sessionToken) {
+      setError("Open inside Telegram and connect AstroWallet (AstroID) to extend contract TTL.");
+      return;
+    }
+    setExtendingTtl(true);
+    setError(null);
+    setTtlStatusMsg(null);
+    try {
+      const base = config.apiBaseUrl.replace(/\/+$/, "");
+      const res = await fetch(`${base}/v1/intents`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({
+          subAction: "soroban_extend_ttl",
+          sourceAddress: activeAccount.address,
+          extendTtlContractId: contractId,
+          humanSummary: `Extend Protocol 23 TTL for ${audit?.code ?? contractId}`,
+          returnStartAppParam: `scan_${contractId}`,
+        }),
+      });
+      const json = (await res.json()) as { deepLink?: string; error?: string };
+      if (!res.ok || !json.deepLink) {
+        throw new Error(json.error ?? "Failed to create TTL extension intent");
+      }
+      triggerTelegramHaptic("success");
+      setTtlStatusMsg("Opening AstroWallet to sign Protocol 23 TTL extension...");
+      openTelegramDeepLink(json.deepLink);
+    } catch (err) {
+      triggerTelegramHaptic("error");
+      setError(err instanceof Error ? err.message : "TTL extension failed");
+    } finally {
+      setExtendingTtl(false);
+    }
   };
 
   return (
@@ -101,13 +143,26 @@ export function ScannerView() {
             )}
 
             {mode === "pro" && audit.sorobanAudit?.ttlStatus && (
-              <div className="ad-banner tabular-nums">
-                <strong>Protocol 23 TTL Status:</strong>{" "}
-                {audit.sorobanAudit.ttlStatus.approxDaysRemaining !== null
-                  ? `~${audit.sorobanAudit.ttlStatus.approxDaysRemaining} days left (Ledger ${audit.sorobanAudit.ttlStatus.liveUntilLedgerSeq})`
-                  : "TTL unavailable"}
+              <div className="ad-banner tabular-nums" style={{ display: "grid", gap: 6 }}>
+                <div>
+                  <strong>Protocol 23 TTL Status:</strong>{" "}
+                  {audit.sorobanAudit.ttlStatus.approxDaysRemaining !== null
+                    ? `~${audit.sorobanAudit.ttlStatus.approxDaysRemaining} days left (Ledger ${audit.sorobanAudit.ttlStatus.liveUntilLedgerSeq})`
+                    : "TTL unavailable"}
+                </div>
+                {audit.contractId && (
+                  <button
+                    type="button"
+                    className="ad-btn-secondary"
+                    disabled={extendingTtl}
+                    onClick={() => void handleExtendTtl(audit.contractId!)}
+                  >
+                    {extendingTtl ? "Building ExtendFootprintTtl..." : "Extend Contract TTL via AstroWallet"}
+                  </button>
+                )}
               </div>
             )}
+            {ttlStatusMsg && <div className="ad-banner">{ttlStatusMsg}</div>}
           </div>
         )}
       </section>
