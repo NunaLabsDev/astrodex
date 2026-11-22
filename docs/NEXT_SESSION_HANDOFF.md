@@ -31,9 +31,11 @@
 - **Monorepo & Packages:** `@astrodex/domain`, `@astrodex/tg-protocol`, `@astrodex/stellar-scanner`, `@astrodex/dex-aggregator`, `@astrodex/oracles-and-charts`, `@astrodex/security-shield` enforcing strict hexagonal DAG boundaries (`eslint.config.mjs`).
 - **Edge Server (`apps/server`):** Cloudflare Worker (Hono + `grammY` + D1 `0001_init.sql` & `0002_community_listings.sql` + KV + `DEX_INDEXER` Durable Object), `AstroID` SSO federation (`AstroWallet` primary + `AstroGate` fallback), SSRF-hardened proxies, `/mcp`, `/openapi.json`, `/llms.txt`, and 100% English `@AstroDexBot` (including `/list <asset> [venue]`).
 - **Minimalist Production UX & Instant Community Listing (`apps/tma` + `/v1/markets/*`):**
-  - Auto-hydrated token & pair catalog (`GET /v1/markets/overview`) merging `XLM`, `SEP42_ASSET_LIST_URLS`, `AstroGate v4.5`, and D1 `dex_tokens` (`48` assets live on Testnet) with 1-tap pair chips and visual token pickers in `RadarView`, `TradeChartView`, and `BookPoolsView` (no raw contract memorizing required).
-  - Self-serve instant listing (`POST /v1/markets/listings` + `+ List Token` drawer + `/list` bot command): hard-blocks spoofed/malicious tokens (`403`), auto-verifies clean tokens (`score >= 75`, `safe`), and immediately publishes flagged/unreviewed tokens with an explicit `unreviewed_warning` badge + optional Cloudflare Workers AI (`@cf/meta/llama-3.1-8b-instruct-fast`) anomaly summary, while protecting existing `communityUrl`/`ammVenue` from overwrite.
-  - End-to-end `dex_swap` XDR builder (`buildClassicSwapXdr` + `buildSoroswapRouterSwapXdr`) with live Horizon `sequence` + auto-`changeTrust` detection, 1-tap SDEX offer cancellation (`sdex_limit_order_cancel`) & price alerts CRUD in `OrdersAlertsView`, and 1-tap Protocol 23 `soroban_extend_ttl` in `ScannerView`.
+  - Auto-hydrated token & pair catalog (`GET /v1/markets/overview`) merging `XLM`, `SEP42_ASSET_LIST_URLS`, `AstroGate v4.5`, and D1 `dex_tokens` (`49` assets live on Testnet, live `XLM/USD` spot price) + live autocomplete search (`GET /v1/markets/search?q=...` across local catalog, AstroGate, StellarExpert, and Horizon) via `TokenSearchInput` across `RadarView`, `TradeChartView`, `BookPoolsView`, `ScannerView`, and `OrdersAlertsView`.
+  - Ticker/name resolution across `/v1/scanner/:assetId`, `/v1/markets/listings`, `/v1/quote`, `/v1/intents`, `/v1/orderbook/:pair`, `/v1/candles/:pair`, `@AstroDexBot`, and `/mcp` (`search_stellar_assets` + `scan_stellar_asset` + `get_best_swap_route` + `get_sdex_orderbook_depth`).
+  - Live 5-Way quoting (`createSmartLiquidityRouter` wired with `fetchSoroswapDirectPairReserves` and AstroGate v4.5 `curveStateLoader`), proportional AMM synthetic orderbook depth & live reserves in `BookPoolsView`, 24-point chart spot fallback, `AstroIdHeader` 1-tap AstroWallet SSO + `@AstroID`/`G...`/`C...` preview lookup, and `DexIndexerDO` `getHealth().oldestLedger` clamping + SEP-41 `transfer` whale indexing.
+  - Self-serve instant listing (`POST /v1/markets/listings` + `+ List` drawer + `/list` bot command): hard-blocks spoofed/malicious tokens (`403`), auto-verifies clean tokens (`score >= 75`, `safe`), and immediately publishes flagged/unreviewed tokens with an explicit `unreviewed_warning` badge + optional Cloudflare Workers AI (`@cf/meta/llama-3.1-8b-instruct-fast`) anomaly summary, while protecting existing `communityUrl`/`ammVenue` from overwrite.
+  - End-to-end `dex_swap` XDR builder (`buildClassicSwapXdr` + `buildSoroswapRouterSwapXdr` + `buildAstroGateCurveBuyXdr`/`SellXdr`) with live Horizon `sequence` + auto-`changeTrust` detection, 1-tap SDEX offer cancellation (`sdex_limit_order_cancel`) & price alerts CRUD in `OrdersAlertsView`, and 1-tap Protocol 23 `soroban_extend_ttl` in `ScannerView`.
 - **Security Audit Hardening:**
   - Sanitized `sorobitSvg` rendered via isolated `<img src="data:image/svg+xml;utf8,..." />` (zero `dangerouslySetInnerHTML`).
   - `SOURCE_ACCOUNT_MISMATCH` blocking and live StellarExpert Directory lookup inside `scanTransactionXdr` / `POST /v1/intents`.
@@ -48,12 +50,12 @@
 
 ## 3. Live Testnet Deployment & Next-Session Roadmap
 
-1. **Live Testnet Resources Already Deployed (`fa19e2c`):**
-   - **D1 (`astrodex`, `4f7684e0-86dd-4696-b725-d7b109f4dd67`):** `0001_init.sql` & `0002_community_listings.sql` applied remotely.
-   - **Worker (`astrodex-server`):** Deployed (`Version ID: 93f1d022-1fd3-4ad1-8832-db459d29a8b7`) with `ASTROWALLET`, `ASTROGATE`, `DB`, `CACHE`, and `DEX_INDEXER` bindings.
-   - **Pages + Functions (`astrodex-testnet`):** Live at `https://astrodex-testnet.pages.dev` (`GET /health` -> `200 ok`, `GET /v1/markets/overview` -> `48` hydrated catalog items).
+1. **Live Testnet Resources Deployed (`15cf4d9`):**
+   - **D1 (`astrodex`, `4f7684e0-86dd-4696-b725-d7b109f4dd67`):** `0001_init.sql` & `0002_community_listings.sql` applied remotely (`$ASTRO`, `DOGEE`, `HEY` seeded).
+   - **Worker (`astrodex-server`):** Deployed (`Version ID: 8f05fdde-668a-42cd-a510-4b661859ddc6`) with `ASTROWALLET`, `ASTROGATE`, `DB`, `CACHE`, and `DEX_INDEXER` bindings.
+   - **Pages + Functions (`astrodex-testnet`):** Live at `https://astrodex-testnet.pages.dev` (`GET /health` -> `200 ok`, `GET /v1/markets/overview` -> `49` hydrated catalog items + live `xlmUsd`, `GET /v1/orderbook/astro-XLM` -> live Soroswap reserves + 5 bid/ask levels).
 2. **Next Session — Live Telegram E2E & Optional Enhancements:**
-   - Test `@AstroDexBot` (`/start`, `/scan`, `/list`, `/route`, Mini App 1-tap swap & `+ List Token`) live in Telegram and verify Boomerang round-trip signing with `@AstroWalletAppBot`.
-   - Optionally add `[ai] binding = "AI"` to `apps/server/wrangler.toml` for Workers AI summaries on `unreviewed_warning` listings, and add `list - Auto-scan and list a Stellar token and AMM` to `@BotFather` `/setcommands`.
+   - Test `@AstroDexBot` (`/start`, `/scan`, `/list`, `/route`, Mini App 1-tap swap & `+ List`) live in Telegram and verify Boomerang round-trip signing with `@AstroWalletAppBot`.
+   - Optionally add `[ai] binding = "AI"` to `apps/server/wrangler.toml` for Workers AI summaries on `unreviewed_warning` listings.
 3. **Mainnet Cutover Gate (When Ready):**
    - Provision `[env.mainnet]` D1/KV IDs and secrets, keep `FRIENDBOT_URL` / `VITE_FRIENDBOT_URL` unset and `VITE_ALLOW_DEV_OUTSIDE_TELEGRAM=false`, and re-run `pnpm check` + external security audit before onboarding Mainnet users.
