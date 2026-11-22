@@ -71,9 +71,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Default to Mainnet Live Visualizer (read-only market data, execution disabled)
-  const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>("mainnet");
-  const executionDisabled = true;
+  const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>(config.defaultFeedNetwork);
+  const executionDisabled = !config.executionEnabled;
 
   const [authStatus, setAuthStatus] = useState<TelegramAuthStatus>("checking");
   const [authError, setAuthError] = useState<string | null>(null);

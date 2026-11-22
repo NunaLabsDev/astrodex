@@ -1,4 +1,5 @@
 import type { BalanceDiff } from "@astrodex/domain";
+import { TransactionBuilder, rpc } from "@stellar/stellar-sdk";
 
 export interface MinimalRpcResponse {
   ok: boolean;
@@ -21,12 +22,14 @@ export interface SimulatedSorobanResult {
   minResourceFeeStroops: string;
   requiresProtocol23Restore: boolean;
   balanceDiffs: BalanceDiff[];
+  assembledXdr?: string | undefined;
 }
 
 export async function simulateSorobanTransaction(
   rpcUrls: readonly string[],
   xdrBase64: string,
   fetchFn: ShieldFetchLike,
+  networkPassphrase?: string,
 ): Promise<SimulatedSorobanResult> {
   for (const url of rpcUrls) {
     try {
@@ -37,7 +40,7 @@ export async function simulateSorobanTransaction(
           jsonrpc: "2.0",
           id: 1,
           method: "simulateTransaction",
-          params: { transaction: xdrBase64, xdrFormat: "json" },
+          params: { transaction: xdrBase64 },
         }),
       });
       if (!res.ok) continue;
@@ -45,6 +48,7 @@ export async function simulateSorobanTransaction(
         result?: {
           error?: string;
           minResourceFee?: string;
+          transactionData?: string;
           restorePreamble?: { minResourceFee?: string };
         };
         error?: { message?: string };
@@ -67,11 +71,21 @@ export async function simulateSorobanTransaction(
           balanceDiffs: [],
         };
       }
+      let assembledXdr: string | undefined;
+      if (networkPassphrase && body.result?.transactionData) {
+        try {
+          const parsedTx = TransactionBuilder.fromXDR(xdrBase64, networkPassphrase);
+          assembledXdr = rpc.assembleTransaction(parsedTx, body.result as never).build().toXDR();
+        } catch {
+          assembledXdr = undefined;
+        }
+      }
       return {
         ok: true,
         minResourceFeeStroops: body.result?.minResourceFee ?? "0",
         requiresProtocol23Restore: Boolean(body.result?.restorePreamble),
         balanceDiffs: [],
+        assembledXdr,
       };
     } catch {
       // Fail over to next RPC

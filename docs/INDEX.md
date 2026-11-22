@@ -12,6 +12,7 @@
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | PR quality gates and contributor checklist | **Active** |
 | [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) | Apple Liquid Glass tokens, `Basic ↔ Pro` Progressive Disclosure, GPU blur budgets, anti-jitter layout | **Active Design Spec** |
 | [`ENV_MATRIX.md`](ENV_MATRIX.md) | Complete Zod environment matrix for `apps/tma` (`VITE_*`) and `apps/server` (Cloudflare env/secrets) | **Active Env Spec** |
+| [`MAINNET_CUTOVER_RUNBOOK.md`](MAINNET_CUTOVER_RUNBOOK.md) | Deterministic Testnet-to-Mainnet cutover checklist, D1/KV provisioning, and 60s Kill-Switch runbook | **Active Ops Runbook** |
 | [`ECOSYSTEM_INTEGRATION.md`](ECOSYSTEM_INTEGRATION.md) | 3-Pillar Harmony contract: **AstroWallet (`AstroID` SSO & Signer)**, **AstroGate v4.5**, and **AstroDex** | **Active Integration Spec** |
 | [`NEXT_SESSION_HANDOFF.md`](NEXT_SESSION_HANDOFF.md) | Completed Testnet verification summary, reference IDs & Cloudflare deployment checklist | **Testnet Ready — Deploy Guide** |
 

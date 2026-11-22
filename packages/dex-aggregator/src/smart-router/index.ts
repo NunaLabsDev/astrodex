@@ -11,6 +11,7 @@ import {
 } from "@astrodex/domain";
 import {
   curveFeeBpsForOrder,
+  curveVirtualReserves,
   localCurveQuoteBuy,
   localCurveQuoteSell,
 } from "../astrogate-curve/curve-math.js";
@@ -103,6 +104,14 @@ function compareExpectedOutDesc(a: RouteQuote, b: RouteQuote): number {
   return aS > bS ? -1 : aS < bS ? 1 : 0;
 }
 
+function computeAmmPriceImpactPct(idealOutStroops: bigint, actualOutStroops: bigint): string {
+  if (idealOutStroops <= 0n || actualOutStroops >= idealOutStroops) {
+    return "0.00";
+  }
+  const impactBps = ((idealOutStroops - actualOutStroops) * 10_000n) / idealOutStroops;
+  return (Number(impactBps) / 100).toFixed(2);
+}
+
 function resolveClassicEquivalent(
   assetIdentifier: string,
   verifiedAssets: readonly VerifiedTickerEntry[] = [],
@@ -187,12 +196,17 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
           const tokenId = isCurveBuy ? toNorm.contractId! : fromNorm.contractId!;
           const state = await config.curveStateLoader(tokenId);
           if (!state || state.graduated || state.curveClosed) return null;
+          const reserves = curveVirtualReserves(state.curveXlmNet, state.tokensSold);
           if (isCurveBuy) {
             const q = localCurveQuoteBuy(state.curveXlmNet, state.tokensSold, amountStroops);
             if (!q) return null;
             const minOut =
               (q.tokens_out * BigInt(10_000 - Math.max(1, Math.min(5000, input.slippageBps)))) /
               10_000n;
+            const idealOut =
+              reserves.virtualXlm > 0n
+                ? (q.net_xlm_to_curve * reserves.virtualTokens) / reserves.virtualXlm
+                : 0n;
             return {
               venue: "astrogate_curve",
               fromAsset: input.fromAsset,
@@ -200,7 +214,7 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
               inputAmount: input.amount,
               expectedOutputAmount: formatStroops7(q.tokens_out),
               minOutputAmount: formatStroops7(minOut),
-              priceImpactPct: "0.00",
+              priceImpactPct: computeAmmPriceImpactPct(idealOut, q.tokens_out),
               feeBps: Number(q.total_fee_bps),
               requiresTrustline: false,
               requiresSacBridgeForSmartAccount: false,
@@ -212,6 +226,10 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
           const minOut =
             (q.net_xlm_out * BigInt(10_000 - Math.max(1, Math.min(5000, input.slippageBps)))) /
             10_000n;
+          const idealGrossXlm =
+            reserves.virtualTokens > 0n
+              ? (amountStroops * reserves.virtualXlm) / reserves.virtualTokens
+              : 0n;
           void curveFeeBpsForOrder;
           return {
             venue: "astrogate_curve",
@@ -220,7 +238,7 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
             inputAmount: input.amount,
             expectedOutputAmount: formatStroops7(q.net_xlm_out),
             minOutputAmount: formatStroops7(minOut),
-            priceImpactPct: "0.00",
+            priceImpactPct: computeAmmPriceImpactPct(idealGrossXlm, q.gross_xlm_out),
             feeBps: Number(q.total_fee_bps),
             requiresTrustline: false,
             requiresSacBridgeForSmartAccount: false,
@@ -258,6 +276,10 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
           if (out <= 0n) return null;
           const minOut =
             (out * BigInt(10_000 - Math.max(1, Math.min(5000, input.slippageBps)))) / 10_000n;
+          const idealOut =
+            pair.reserveIn > 0n
+              ? (amountStroops * 997n * pair.reserveOut) / (pair.reserveIn * 1000n)
+              : 0n;
           return {
             venue: "soroswap_direct",
             fromAsset: input.fromAsset,
@@ -265,7 +287,7 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
             inputAmount: input.amount,
             expectedOutputAmount: formatStroops7(out),
             minOutputAmount: formatStroops7(minOut),
-            priceImpactPct: "0.30",
+            priceImpactPct: computeAmmPriceImpactPct(idealOut, out),
             feeBps: 30,
             requiresTrustline: false,
             requiresSacBridgeForSmartAccount: false,

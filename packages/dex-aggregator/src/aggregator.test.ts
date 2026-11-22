@@ -124,4 +124,41 @@ describe("@astrodex/dex-aggregator", () => {
     expect(depth[0]?.side).toBe("bid");
     expect(depth[2]?.side).toBe("ask");
   });
+
+  it("computes dynamic priceImpactPct and curve stage boundary quotes accurately", async () => {
+    const lowQuote = localCurveQuoteBuy(249n * 10_000_000n, 0n, 5n * 10_000_000n);
+    const midQuote = localCurveQuoteBuy(250n * 10_000_000n, 0n, 5n * 10_000_000n);
+    const sprintQuote = localCurveQuoteBuy(500n * 10_000_000n, 0n, 5n * 10_000_000n);
+    const gradQuote = localCurveQuoteBuy(995n * 10_000_000n, 0n, 20n * 10_000_000n);
+    expect(lowQuote?.total_fee_bps).toBe(30n);
+    expect(midQuote?.total_fee_bps).toBe(50n);
+    expect(sprintQuote?.total_fee_bps).toBe(25n);
+    expect(gradQuote?.will_graduate).toBe(true);
+
+    const router = createSmartLiquidityRouter({
+      horizonUrls: ["https://horizon.example.com"],
+      directPairReservesLoader: async () => ({
+        pairId: "CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP",
+        reserveIn: 1_000n * 10_000_000n,
+        reserveOut: 5_000n * 10_000_000n,
+      }),
+      fetchFn: async () => ({ ok: false, status: 404, json: async () => ({}) }),
+    });
+    const smallTrade = await router.quoteBestRoutes({
+      fromAsset: "XLM",
+      toAsset: ASTRO_TOKEN,
+      amount: "1",
+      slippageBps: 50,
+      accountKind: "smart",
+    });
+    const largeTrade = await router.quoteBestRoutes({
+      fromAsset: "XLM",
+      toAsset: ASTRO_TOKEN,
+      amount: "500",
+      slippageBps: 50,
+      accountKind: "smart",
+    });
+    expect(Number(smallTrade.bestRoute?.priceImpactPct)).toBeLessThan(1);
+    expect(Number(largeTrade.bestRoute?.priceImpactPct)).toBeGreaterThan(25);
+  });
 });

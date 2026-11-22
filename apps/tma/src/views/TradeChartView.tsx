@@ -173,6 +173,7 @@ export function TradeChartView() {
       return undefined;
     }
     let cancelled = false;
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       setQuoting(true);
       setErrorMsg(null);
@@ -181,6 +182,7 @@ export function TradeChartView() {
         const res = await fetch(`${base}/v1/quote`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             fromAsset: fromAsset.trim(),
             toAsset: toAsset.trim(),
@@ -197,6 +199,7 @@ export function TradeChartView() {
           setQuote(json.quote);
         }
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
         if (!cancelled) setErrorMsg(err instanceof Error ? err.message : "Quote error");
       } finally {
         if (!cancelled) setQuoting(false);
@@ -204,6 +207,7 @@ export function TradeChartView() {
     }, 300);
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [config.apiBaseUrl, feedNetwork, fromAsset, toAsset, amount, slippageBps, activeAccount]);

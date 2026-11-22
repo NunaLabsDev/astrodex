@@ -28,6 +28,7 @@ export interface PreSignShieldConfig {
   verifiedAssets?: readonly VerifiedAssetEntry[] | undefined;
   directoryLookup?: ((address: string) => Promise<DirectoryTagEntry | null>) | undefined;
   memoRequiredLookup?: ((address: string) => Promise<boolean>) | undefined;
+  failClosedOnSimulationError?: boolean | undefined;
   fetchFn?: ShieldFetchLike | undefined;
 }
 
@@ -122,7 +123,7 @@ export function createPreSignSecurityShield(config: PreSignShieldConfig): Securi
 
       const [sim] = await Promise.all([
         hasSorobanOp && config.rpcUrls.length > 0
-          ? simulateSorobanTransaction(config.rpcUrls, xdrBase64, fetchFn)
+          ? simulateSorobanTransaction(config.rpcUrls, xdrBase64, fetchFn, config.networkPassphrase)
           : Promise.resolve(null),
         Promise.all(
           [...inspectTargets].map(async (addr) => {
@@ -170,12 +171,14 @@ export function createPreSignSecurityShield(config: PreSignShieldConfig): Securi
       }
 
       if (!sim.ok) {
+        const shouldBlock =
+          config.failClosedOnSimulationError ?? /\bpublic\b/i.test(config.networkPassphrase);
         findings.push({
           code: "SOROBAN_SIMULATION_FAILED",
-          severity: "warning",
+          severity: shouldBlock ? "malicious" : "warning",
           title: "Soroban RPC Simulation Warning",
           description: sim.error ?? "Unable to simulate Soroban transaction",
-          blocksSigning: false,
+          blocksSigning: shouldBlock,
         });
       } else if (sim.requiresProtocol23Restore) {
         findings.push({
@@ -200,6 +203,7 @@ export function createPreSignSecurityShield(config: PreSignShieldConfig): Securi
         findings,
         estimatedFeeStroops,
         requiresProtocol23Restore: sim.requiresProtocol23Restore,
+        ...(sim.assembledXdr ? { assembledXdr: sim.assembledXdr } : {}),
       };
     },
 

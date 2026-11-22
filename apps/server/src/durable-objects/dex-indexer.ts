@@ -4,7 +4,33 @@ import { nativeToScVal, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { createD1Repository } from "../db/repository.js";
 
 const ALARM_INTERVAL_MS = 12_000;
+const HIBERNATE_IDLE_SECONDS = 600;
 const WHALE_THRESHOLD_STROOPS = 250n * 10_000_000n;
+
+function extractEmbeddedContractIds(val: unknown, exclude: ReadonlySet<string>): string[] {
+  const found = new Set<string>();
+  const walk = (node: unknown, depth: number): void => {
+    if (depth > 4 || node == null) return;
+    if (typeof node === "string") {
+      const upper = node.trim().toUpperCase();
+      if (/^C[A-Z2-7]{55}$/.test(upper) && !exclude.has(upper)) {
+        found.add(upper);
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
+    if (typeof node === "object") {
+      for (const v of Object.values(node as Record<string, unknown>)) {
+        walk(v, depth + 1);
+      }
+    }
+  };
+  walk(val, 0);
+  return [...found];
+}
 
 interface DoBindings {
   DB?: D1Database;
@@ -46,6 +72,7 @@ export class DexIndexerDO {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/ensure" && request.method === "POST") {
+      await this.state.storage.put("lastActiveUnix", Math.floor(Date.now() / 1000));
       const existing = await this.state.storage.getAlarm();
       if (!existing) {
         await this.state.storage.setAlarm(Date.now() + 2_000);
@@ -68,7 +95,11 @@ export class DexIndexerDO {
     } catch {
       // Keep alarm resilient across transient RPC downtime
     } finally {
-      await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
+      const lastActiveUnix = (await this.state.storage.get<number>("lastActiveUnix")) ?? 0;
+      const nowUnix = Math.floor(Date.now() / 1000);
+      if (nowUnix - lastActiveUnix <= HIBERNATE_IDLE_SECONDS) {
+        await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
+      }
     }
   }
 
@@ -160,13 +191,31 @@ export class DexIndexerDO {
             ev.contractId === config.soroswapFactoryContractId ||
             ev.contractId === config.astroGateLaunchpadContractId
           ) {
+            const exclude = new Set(
+              [
+                config.soroswapFactoryContractId,
+                config.astroGateLaunchpadContractId,
+                config.xlmSacContractId,
+              ]
+                .filter((x): x is NonNullable<typeof x> => Boolean(x))
+                .map((x) => x.toUpperCase()),
+            );
+            const decodedVal = ev.value ? decodeScValSafe(ev.value) : null;
+            const decodedTopics = Array.isArray(ev.topic) ? ev.topic.map(decodeScValSafe) : [];
+            const embeddedContracts = [
+              ...extractEmbeddedContractIds(decodedVal, exclude),
+              ...extractEmbeddedContractIds(decodedTopics, exclude),
+            ];
+            const discoveredPairId = embeddedContracts[0];
+            if (!discoveredPairId) continue;
+            const baseAssetKey = embeddedContracts[1] ?? discoveredPairId;
             await repo.upsertPair({
-              pairId: ev.contractId,
+              pairId: discoveredPairId,
               venue:
                 ev.contractId === config.astroGateLaunchpadContractId
                   ? "astrogate_curve"
                   : "soroswap",
-              baseAssetKey: ev.contractId,
+              baseAssetKey,
               quoteAssetKey: "XLM",
               reserveBase: "0",
               reserveQuote: "0",

@@ -52,6 +52,7 @@ export function OrdersAlertsView() {
     readLocalJson<PriceAlertItem[]>(LOCAL_ALERTS_KEY, []),
   );
   const [offers, setOffers] = useState<OpenLimitOffer[]>([]);
+  const [accountFunded, setAccountFunded] = useState<boolean>(true);
   const [alertQuery, setAlertQuery] = useState("");
   const [alertCondition, setAlertCondition] = useState<"above" | "below">("above");
   const [alertThreshold, setAlertThreshold] = useState("0.20");
@@ -96,13 +97,15 @@ export function OrdersAlertsView() {
         )
           .then(async (r) => {
             if (!r.ok) return;
-            const json = (await r.json()) as { offers?: OpenLimitOffer[] };
+            const json = (await r.json()) as { offers?: OpenLimitOffer[]; accountFunded?: boolean };
             if (json.offers) setOffers(json.offers);
+            if (typeof json.accountFunded === "boolean") setAccountFunded(json.accountFunded);
           })
           .catch(() => {}),
       );
     } else {
       setOffers([]);
+      setAccountFunded(true);
     }
 
     await Promise.all(tasks);
@@ -310,7 +313,9 @@ export function OrdersAlertsView() {
           <div className="ad-text-sm ad-text-muted">
             {activeAccount
               ? activeAccount.kind === "classic"
-                ? "No open Classic SDEX offers found on this G... account."
+                ? accountFunded === false
+                  ? `This G... account is not yet activated on Stellar ${feedNetwork === "mainnet" ? "Mainnet" : "Testnet"} (requires 1 XLM base reserve).`
+                  : "No open Classic SDEX offers found on this G... account."
                 : "Smart Accounts (C...) trade via Soroban AMMs; switch to a Classic G... account to place SDEX limit orders."
               : "Connect or preview a Classic G... address above to inspect live resting SDEX offers."}
           </div>

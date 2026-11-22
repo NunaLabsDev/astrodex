@@ -1,5 +1,12 @@
 import type { OraclePriceQuote } from "@astrodex/domain";
-import { Account, Contract, TransactionBuilder, scValToNative, xdr } from "@stellar/stellar-sdk";
+import {
+  Account,
+  Address,
+  Contract,
+  TransactionBuilder,
+  scValToNative,
+  xdr,
+} from "@stellar/stellar-sdk";
 
 export interface MinimalFetchResponse {
   ok: boolean;
@@ -22,6 +29,7 @@ async function simulateReadOnlyContractCall(input: {
   rpcUrls: readonly string[];
   contractId: string;
   method: string;
+  args?: xdr.ScVal[] | undefined;
   networkPassphrase: string;
   fetchFn: OracleFetchLike;
 }): Promise<unknown | null> {
@@ -30,7 +38,7 @@ async function simulateReadOnlyContractCall(input: {
     fee: "100",
     networkPassphrase: input.networkPassphrase,
   })
-    .addOperation(contract.call(input.method))
+    .addOperation(contract.call(input.method, ...(input.args ?? [])))
     .setTimeout(30)
     .build();
 
@@ -94,6 +102,59 @@ export async function fetchChainlinkXlmUsd(input: {
     assetKey: "XLM",
     priceUsd: Number(priceUsd.toFixed(6)),
     source: "chainlink",
+    updatedAtUnix: Math.floor(Date.now() / 1000),
+  };
+}
+
+/**
+ * Queries a SEP-40 compliant Reflector Network DEX Oracle on Soroban for a 14-decimal USD price.
+ */
+export async function fetchReflectorSep40Price(input: {
+  rpcUrls: readonly string[];
+  reflectorOracleContractId?: string | undefined;
+  tokenContractId?: string | undefined;
+  assetKey: string;
+  networkPassphrase: string;
+  fetchFn: OracleFetchLike;
+}): Promise<OraclePriceQuote | null> {
+  if (
+    !input.reflectorOracleContractId ||
+    !input.tokenContractId ||
+    !/^C[A-Z2-7]{55}$/.test(input.tokenContractId)
+  ) {
+    return null;
+  }
+  const arg = xdr.ScVal.scvVec([
+    xdr.ScVal.scvSymbol("Stellar"),
+    new Address(input.tokenContractId).toScVal(),
+  ]);
+  const val = await simulateReadOnlyContractCall({
+    rpcUrls: input.rpcUrls,
+    contractId: input.reflectorOracleContractId,
+    method: "lastprice",
+    args: [arg],
+    networkPassphrase: input.networkPassphrase,
+    fetchFn: input.fetchFn,
+  });
+  if (!val || typeof val !== "object") return null;
+  const obj = val as Record<string, unknown>;
+  const rawPrice = obj.price;
+  const numeric =
+    typeof rawPrice === "bigint"
+      ? Number(rawPrice)
+      : typeof rawPrice === "number"
+        ? rawPrice
+        : typeof rawPrice === "string"
+          ? Number(rawPrice)
+          : 0;
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  const priceUsd = numeric / 1e14;
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0 || priceUsd >= 1_000_000) return null;
+
+  return {
+    assetKey: input.assetKey,
+    priceUsd: Number(priceUsd.toFixed(6)),
+    source: "reflector",
     updatedAtUnix: Math.floor(Date.now() / 1000),
   };
 }

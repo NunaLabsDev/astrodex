@@ -154,6 +154,8 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       rpcUrls: config.rpcUrls,
       horizonUrls: config.horizonUrls,
       chainlinkPriceProxyContractId: config.chainlinkPriceProxyContractId,
+      reflectorDexOracleContractId: config.reflectorDexOracleContractId,
+      xlmSacContractId: config.xlmSacContractId,
       stellarPricesApiBase: config.stellarPricesApiBase,
       stellarPricesApiKey: config.stellarPricesApiKey,
       usdcIssuer,
@@ -532,10 +534,28 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const rawAddress = decodeURIComponent(c.req.param("address")).trim();
     const parsed = StellarAddressSchema.safeParse(rawAddress);
     if (!parsed.success || !parsed.data.startsWith("G")) {
-      return c.json({ ok: true, offers: [] });
+      return c.json({ ok: true, network: config.network, accountFunded: false, offers: [] });
     }
-    const offers = await listClassicOpenOffers(config.horizonUrls, parsed.data, fetchFn);
-    return c.json({ ok: true, network: config.network, offers });
+    const checkAccountFunded = async (): Promise<boolean> => {
+      for (const base of config.horizonUrls) {
+        const clean = base.replace(/\/+$/, "");
+        try {
+          const res = await fetchFn(`${clean}/accounts/${encodeURIComponent(parsed.data)}`, {
+            headers: { Accept: "application/json" },
+          });
+          if (res.ok) return true;
+          if (res.status === 404) return false;
+        } catch {
+          // Fail over to next Horizon URL
+        }
+      }
+      return true;
+    };
+    const [offers, accountFunded] = await Promise.all([
+      listClassicOpenOffers(config.horizonUrls, parsed.data, fetchFn),
+      checkAccountFunded(),
+    ]);
+    return c.json({ ok: true, network: config.network, accountFunded, offers });
   });
 
   return router;

@@ -49,6 +49,7 @@ export async function verifyTransactionConfirmed(
         successful?: boolean;
         ledger?: number;
         source_account?: string;
+        envelope_xdr?: string;
       };
       if (body.successful === false) {
         return { confirmed: false, reason: "Transaction failed on-chain" };
@@ -59,6 +60,22 @@ export async function verifyTransactionConfirmed(
         body.source_account !== expected.expectedSourceAccount
       ) {
         return { confirmed: false, reason: "Transaction source account mismatch" };
+      }
+      if (expected?.expectedSourceAccount && body.envelope_xdr) {
+        try {
+          const decoded = decodeTransactionEnvelope(body.envelope_xdr, config.networkPassphrase);
+          if (
+            decoded.sourceAccount !== expected.expectedSourceAccount &&
+            decoded.feeSource !== expected.expectedSourceAccount
+          ) {
+            return { confirmed: false, reason: "Transaction source account mismatch" };
+          }
+          if (decoded.operations.length === 0) {
+            return { confirmed: false, reason: "Transaction envelope contains no operations" };
+          }
+        } catch {
+          return { confirmed: false, reason: "Unable to verify Horizon transaction envelope" };
+        }
       }
       return { confirmed: true, ledger: body.ledger ?? 0 };
     } catch {

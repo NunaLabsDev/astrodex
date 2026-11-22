@@ -92,6 +92,7 @@ const CreateIntentBodySchema = z.object({
   expectedOutputAmount: z.string().max(40).optional(),
   provider: z.string().max(48).optional(),
   priceImpactPct: z.string().max(24).optional(),
+  network: z.enum(["testnet", "mainnet"]).optional(),
 });
 
 const ConfirmIntentBodySchema = z.object({
@@ -258,6 +259,9 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
 
     const config = c.get("config");
     const repo = c.get("repo");
+    if (!config.executionEnabled) {
+      return c.json({ error: "Transaction execution is disabled in Read-Only Visualizer mode" }, 403);
+    }
     let body: z.infer<typeof CreateIntentBodySchema>;
     try {
       body = CreateIntentBodySchema.parse(await c.req.json());
@@ -265,6 +269,12 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       return c.json(
         { error: "Invalid intent request", details: err instanceof Error ? err.message : undefined },
         400,
+      );
+    }
+    if (body.network && body.network !== config.network) {
+      return c.json(
+        { error: `Network mismatch: requested ${body.network} on ${config.network} signer` },
+        409,
       );
     }
 
@@ -453,6 +463,9 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
         },
         403,
       );
+    }
+    if (scanReport.assembledXdr) {
+      unsignedXdr = scanReport.assembledXdr;
     }
 
     const now = Math.floor(Date.now() / 1000);

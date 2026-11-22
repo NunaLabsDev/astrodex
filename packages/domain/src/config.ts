@@ -246,6 +246,11 @@ const RawTmaEnvSchema = z
       "VITE_SOROBAN_MAX_RESOURCE_FEE_STROOPS",
       "5000000",
     ),
+    VITE_DEFAULT_FEED_NETWORK: z.preprocess(
+      emptyToUndefined,
+      StellarNetworkSchema.default("mainnet"),
+    ),
+    VITE_EXECUTION_ENABLED: parseBooleanWithDefault(false),
   })
   .superRefine((env, ctx) => {
     if (env.VITE_STELLAR_NETWORK === "mainnet" && env.VITE_FRIENDBOT_URL) {
@@ -310,6 +315,8 @@ export interface TmaConfig {
   friendbotUrl?: string | undefined;
   smartAccountWasmHash?: string | undefined;
   sorobanMaxResourceFeeStroops: string;
+  defaultFeedNetwork: StellarNetwork;
+  executionEnabled: boolean;
 }
 
 export function parseTmaConfig(rawEnv: Record<string, unknown>): TmaConfig {
@@ -342,6 +349,8 @@ export function parseTmaConfig(rawEnv: Record<string, unknown>): TmaConfig {
     friendbotUrl: parsed.VITE_FRIENDBOT_URL,
     smartAccountWasmHash: parsed.VITE_SMART_ACCOUNT_WASM_HASH,
     sorobanMaxResourceFeeStroops: parsed.VITE_SOROBAN_MAX_RESOURCE_FEE_STROOPS,
+    defaultFeedNetwork: parsed.VITE_DEFAULT_FEED_NETWORK,
+    executionEnabled: parsed.VITE_EXECUTION_ENABLED,
   };
 }
 
@@ -384,8 +393,11 @@ const RawServerEnvSchema = z
     MAINNET_HORIZON_URLS: parseUrlCsv("MAINNET_HORIZON_URLS", false),
     MAINNET_SEP42_ASSET_LIST_URLS: parseUrlCsv("MAINNET_SEP42_ASSET_LIST_URLS", false),
     MAINNET_SOROSWAP_FACTORY_CONTRACT_ID: OptionalContractAddressSchema,
+    MAINNET_SOROSWAP_ROUTER_CONTRACT_ID: OptionalContractAddressSchema,
     MAINNET_XLM_SAC_CONTRACT_ID: OptionalContractAddressSchema,
+    MAINNET_REFLECTOR_DEX_ORACLE_CONTRACT_ID: OptionalContractAddressSchema,
     MAINNET_CHAINLINK_PRICE_PROXY_CONTRACT_ID: OptionalContractAddressSchema,
+    EXECUTION_ENABLED: parseBooleanWithDefault(true),
     PROXY_RATE_LIMIT_PER_MIN: parsePositiveIntWithDefault(60, 5000),
     QUOTE_RATE_LIMIT_PER_MIN: parsePositiveIntWithDefault(40, 2000),
     TG_BOT_TOKEN: z
@@ -479,8 +491,11 @@ export interface ServerConfig {
   mainnetHorizonUrls: string[];
   mainnetSep42AssetListUrls: string[];
   mainnetSoroswapFactoryContractId?: ContractAddress | undefined;
+  mainnetSoroswapRouterContractId?: ContractAddress | undefined;
   mainnetXlmSacContractId?: ContractAddress | undefined;
+  mainnetReflectorDexOracleContractId?: ContractAddress | undefined;
   mainnetChainlinkPriceProxyContractId?: ContractAddress | undefined;
+  executionEnabled: boolean;
   proxyRateLimitPerMin: number;
   quoteRateLimitPerMin: number;
   tgBotToken: string;
@@ -529,8 +544,11 @@ export function parseServerConfig(rawEnv: Record<string, unknown>): ServerConfig
     mainnetHorizonUrls: parsed.MAINNET_HORIZON_URLS,
     mainnetSep42AssetListUrls: parsed.MAINNET_SEP42_ASSET_LIST_URLS,
     mainnetSoroswapFactoryContractId: parsed.MAINNET_SOROSWAP_FACTORY_CONTRACT_ID,
+    mainnetSoroswapRouterContractId: parsed.MAINNET_SOROSWAP_ROUTER_CONTRACT_ID,
     mainnetXlmSacContractId: parsed.MAINNET_XLM_SAC_CONTRACT_ID,
+    mainnetReflectorDexOracleContractId: parsed.MAINNET_REFLECTOR_DEX_ORACLE_CONTRACT_ID,
     mainnetChainlinkPriceProxyContractId: parsed.MAINNET_CHAINLINK_PRICE_PROXY_CONTRACT_ID,
+    executionEnabled: parsed.EXECUTION_ENABLED,
     proxyRateLimitPerMin: parsed.PROXY_RATE_LIMIT_PER_MIN,
     quoteRateLimitPerMin: parsed.QUOTE_RATE_LIMIT_PER_MIN,
     tgBotToken: parsed.TG_BOT_TOKEN,

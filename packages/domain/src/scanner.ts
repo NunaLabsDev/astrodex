@@ -26,6 +26,7 @@ export const ScanReportSchema = z.object({
   requiresMemoCheck: z.boolean(),
   estimatedFeeStroops: z.string().regex(/^\d+$/),
   requiresProtocol23Restore: z.boolean().optional(),
+  assembledXdr: z.string().min(16).optional(),
 });
 
 export interface ClassicIssuerLockResult {

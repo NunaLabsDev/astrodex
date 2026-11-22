@@ -98,12 +98,20 @@ export async function fetchHorizonOrderbook(
         asks?: Array<{ price?: string; amount?: string }>;
       };
 
+      const formatLevelTotal = (priceStr: string, amtStr: string): string => {
+        const pS = parseDecimalToStroops7(priceStr);
+        const aS = parseDecimalToStroops7(amtStr);
+        if (pS !== null && aS !== null) {
+          return formatStroops7((pS * aS) / 10_000_000n);
+        }
+        return (Number(priceStr) * Number(amtStr)).toFixed(7);
+      };
       const bids: OrderbookLevel[] = (body.bids ?? [])
         .filter((b) => b.price && b.amount)
         .map((b) => ({
           price: b.price!,
           amount: b.amount!,
-          totalQuote: (Number(b.price) * Number(b.amount)).toFixed(7),
+          totalQuote: formatLevelTotal(b.price!, b.amount!),
           venue: "sdex",
         }));
       const asks: OrderbookLevel[] = (body.asks ?? [])
@@ -111,7 +119,7 @@ export async function fetchHorizonOrderbook(
         .map((a) => ({
           price: a.price!,
           amount: a.amount!,
-          totalQuote: (Number(a.price) * Number(a.amount)).toFixed(7),
+          totalQuote: formatLevelTotal(a.price!, a.amount!),
           venue: "sdex",
         }));
 

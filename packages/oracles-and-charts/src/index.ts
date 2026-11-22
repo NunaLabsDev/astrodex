@@ -8,6 +8,7 @@ import { fetchHorizonOhlcvCandles, mergeOhlcvCandles } from "./charts/index.js";
 import {
   fetchChainlinkXlmUsd,
   fetchHorizonUsdcSpotXlmUsd,
+  fetchReflectorSep40Price,
   fetchRumbleFishVwapPrice,
   type OracleFetchLike,
 } from "./oracles/index.js";
@@ -21,6 +22,7 @@ export interface OraclesAndChartsConfig {
   horizonUrls: readonly string[];
   chainlinkPriceProxyContractId?: string | undefined;
   reflectorDexOracleContractId?: string | undefined;
+  xlmSacContractId?: string | undefined;
   stellarPricesApiBase?: string | undefined;
   stellarPricesApiKey?: string | undefined;
   usdcIssuer?: string | undefined;
@@ -45,6 +47,16 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
         fetchFn,
       });
       if (chainlink) return chainlink;
+
+      const reflector = await fetchReflectorSep40Price({
+        rpcUrls: config.rpcUrls,
+        reflectorOracleContractId: config.reflectorDexOracleContractId,
+        tokenContractId: config.xlmSacContractId,
+        assetKey: "XLM",
+        networkPassphrase: config.networkPassphrase,
+        fetchFn,
+      });
+      if (reflector) return reflector;
 
       const rumble = await fetchRumbleFishVwapPrice({
         stellarPricesApiBase: config.stellarPricesApiBase,
@@ -84,6 +96,17 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
     async getAssetUsdPrice(assetKey: string): Promise<OraclePriceQuote | null> {
       if (assetKey.toUpperCase() === "XLM") {
         return this.getXlmUsdPrice();
+      }
+      if (/^C[A-Z2-7]{55}$/.test(assetKey) && config.reflectorDexOracleContractId) {
+        const reflector = await fetchReflectorSep40Price({
+          rpcUrls: config.rpcUrls,
+          reflectorOracleContractId: config.reflectorDexOracleContractId,
+          tokenContractId: assetKey,
+          assetKey,
+          networkPassphrase: config.networkPassphrase,
+          fetchFn,
+        });
+        if (reflector) return reflector;
       }
       return fetchRumbleFishVwapPrice({
         stellarPricesApiBase: config.stellarPricesApiBase,

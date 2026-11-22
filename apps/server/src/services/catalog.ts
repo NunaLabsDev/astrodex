@@ -87,8 +87,9 @@ export function resolveReadFeedConfig(
           ? baseConfig.mainnetSep42AssetListUrls
           : baseConfig.sep42AssetListUrls,
       soroswapFactoryContractId: baseConfig.mainnetSoroswapFactoryContractId,
-      soroswapRouterContractId: undefined,
+      soroswapRouterContractId: baseConfig.mainnetSoroswapRouterContractId,
       xlmSacContractId: baseConfig.mainnetXlmSacContractId,
+      reflectorDexOracleContractId: baseConfig.mainnetReflectorDexOracleContractId,
       chainlinkPriceProxyContractId: baseConfig.mainnetChainlinkPriceProxyContractId,
       astroGateApiBaseUrl: undefined,
       astroGateLaunchpadContractId: undefined,
