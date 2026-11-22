@@ -29,11 +29,11 @@ export function ChartCanvas({
   const highs = candles.map((c) => c.high);
   const minPrice = Math.min(...lows);
   const maxPrice = Math.max(...highs);
-  const range = maxPrice - minPrice || 1;
+  const span = maxPrice - minPrice;
   const latest = candles[candles.length - 1]!;
 
   const toY = (price: number) =>
-    height - pad - ((price - minPrice) / range) * (height - pad * 2);
+    span === 0 ? height / 2 : height - pad - ((price - minPrice) / span) * (height - pad * 2);
 
   const linePath = candles
     .map((c, idx) => {

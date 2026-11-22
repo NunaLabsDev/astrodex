@@ -1,10 +1,18 @@
 import type { TokenForensicAudit } from "@astrodex/domain";
 import { useEffect, useState } from "react";
+import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
+function shortId(id: string): string {
+  if (id.length <= 16) return id;
+  return `${id.slice(0, 6)}…${id.slice(-4)}`;
+}
+
 export function ScannerView() {
-  const { config, mode, selectedAsset, activeAccount, sessionToken } = useAppState();
+  const { config, mode, selectedAsset, setSelectedAsset, setActiveTab, activeAccount, sessionToken } =
+    useAppState();
+  const [searchQuery, setSearchQuery] = useState("");
   const [audit, setAudit] = useState<TokenForensicAudit | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -12,6 +20,7 @@ export function ScannerView() {
   const [extendingTtl, setExtendingTtl] = useState(false);
   const [rawXdrInput, setRawXdrInput] = useState("");
   const [rawXdrJson, setRawXdrJson] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,6 +46,17 @@ export function ScannerView() {
       cancelled = true;
     };
   }, [config.apiBaseUrl, selectedAsset]);
+
+  const handleCopy = async (val: string) => {
+    try {
+      await navigator.clipboard.writeText(val);
+      setCopiedId(true);
+      triggerTelegramHaptic("selection");
+      setTimeout(() => setCopiedId(false), 1500);
+    } catch {
+      // Clipboard unavailable
+    }
+  };
 
   const handleInspectRawXdr = async () => {
     if (!rawXdrInput.trim()) return;
@@ -87,6 +107,28 @@ export function ScannerView() {
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      <section className="glass-card" style={{ display: "grid", gap: 8 }}>
+        <TokenSearchInput
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          placeholder="Scan by name/ticker (ASTRO, USDC, STELA) or CODE:G... / C..."
+          submitLabel="Scan"
+          primaryActionLabel="Scan"
+          secondaryActionLabel="Trade"
+          onSelectToken={(item, action) => {
+            setSelectedAsset(item.assetKey);
+            setSearchQuery("");
+            if (action === "secondary") {
+              setActiveTab("trade");
+            }
+          }}
+          onSubmitRaw={(raw, bestMatch) => {
+            setSelectedAsset(bestMatch ? bestMatch.assetKey : raw);
+            setSearchQuery("");
+          }}
+        />
+      </section>
+
       <section className="glass-card ad-scanner-matrix">
         <div className="ad-row">
           <div>
@@ -94,7 +136,7 @@ export function ScannerView() {
               SDEX Reboot + Soroban X-Ray
             </div>
             <h2 style={{ margin: "2px 0 0", fontSize: 18 }}>
-              {audit ? `${audit.code} (${audit.kind.toUpperCase()})` : selectedAsset}
+              {audit ? `${audit.code}${audit.name ? ` · ${audit.name}` : ""} (${audit.kind.toUpperCase()})` : selectedAsset}
             </h2>
           </div>
           {audit && (
@@ -111,6 +153,49 @@ export function ScannerView() {
             </span>
           )}
         </div>
+
+        {audit && (
+          <div className="ad-row" style={{ flexWrap: "wrap", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="glass-pill"
+                style={{ cursor: "pointer" }}
+                onClick={() => void handleCopy(audit.assetKey)}
+              >
+                {copiedId ? "Copied!" : `ID: ${shortId(audit.assetKey)}`}
+              </button>
+              <span className="glass-pill">Tier: {audit.trustTier}</span>
+              <span className="glass-pill">Decimals: {audit.decimals}</span>
+            </div>
+            {audit.assetKey !== "XLM" && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  type="button"
+                  className="ad-btn-secondary"
+                  style={{ minHeight: 34, padding: "4px 10px", fontSize: 12 }}
+                  onClick={() => {
+                    setSelectedAsset(audit.assetKey);
+                    setActiveTab("trade");
+                  }}
+                >
+                  Trade
+                </button>
+                <button
+                  type="button"
+                  className="glass-pill"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => {
+                    setSelectedAsset(audit.assetKey);
+                    setActiveTab("book");
+                  }}
+                >
+                  Book
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {loading && <div className="ad-banner">Auditing Issuer Lock, SEP-42, and Soroban TTL...</div>}
         {error && <div className="ad-banner ad-banner--danger">{error}</div>}
@@ -134,6 +219,15 @@ export function ScannerView() {
               </div>
             ))}
 
+            {audit.sorobanAudit?.astroGate?.isLaunchpadToken && (
+              <div className="ad-banner">
+                <strong>AstroGate v4.5 Verified:</strong>{" "}
+                LP {audit.sorobanAudit.astroGate.lpProtection} ({audit.sorobanAudit.astroGate.lpLockedPercent}%) ·
+                48h Timelock: {audit.sorobanAudit.astroGate.has48hTimelock ? "Yes" : "No"} ·
+                Progress: {audit.sorobanAudit.astroGate.graduationProgressPct}%
+              </div>
+            )}
+
             {mode === "pro" && audit.classicAudit && (
               <div className="ad-banner tabular-nums">
                 <strong>Classic Issuer Lock Matrix:</strong> Locked={String(audit.classicAudit.locked)} ·
@@ -148,7 +242,7 @@ export function ScannerView() {
                   <strong>Protocol 23 TTL Status:</strong>{" "}
                   {audit.sorobanAudit.ttlStatus.approxDaysRemaining !== null
                     ? `~${audit.sorobanAudit.ttlStatus.approxDaysRemaining} days left (Ledger ${audit.sorobanAudit.ttlStatus.liveUntilLedgerSeq})`
-                    : "TTL unavailable"}
+                    : `Active on Ledger ${audit.sorobanAudit.ttlStatus.currentLedger || "live"}`}
                 </div>
                 {audit.contractId && (
                   <button

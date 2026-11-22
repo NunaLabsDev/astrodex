@@ -10,6 +10,13 @@ import {
 } from "@astrodex/tg-protocol";
 import { Bot } from "grammy";
 import type { DexServerRepository } from "./db/repository.js";
+import {
+  buildUnifiedCatalog,
+  createConfiguredCurveStateLoader,
+  createConfiguredPairReservesLoader,
+  loadLiveAmmOrderbookAndSpot,
+  resolveAssetTarget,
+} from "./services/catalog.js";
 import { adaptFetch, type FetchLike } from "./stellar-verifier.js";
 
 export function createAstroDexBot(
@@ -36,12 +43,6 @@ export function createAstroDexBot(
     sep42AssetListUrls: config.sep42AssetListUrls,
     stellarExpertApiBase: config.stellarExpertApiBase,
     astroGateApiBaseUrl: config.astroGateApiBaseUrl,
-    fetchFn,
-  });
-
-  const routerEngine = createSmartLiquidityRouter({
-    horizonUrls: config.horizonUrls,
-    xoxnoApiBase: config.xoxnoSwapApiBase,
     fetchFn,
   });
 
@@ -96,32 +97,39 @@ export function createAstroDexBot(
   bot.command("scan", async (ctx) => {
     const arg = ctx.match.trim();
     if (!arg) {
-      await ctx.reply("Usage: <code>/scan XLM</code> or <code>/scan CODE:G...</code> or <code>/scan C...</code>", {
+      await ctx.reply("Usage: <code>/scan XLM</code>, <code>/scan ASTRO</code>, <code>/scan CODE:G...</code> or <code>/scan C...</code>", {
         parse_mode: "HTML",
       });
       return;
     }
-    const audit = await scanner.auditToken(arg);
-    const deepLink = buildAstroDexDeepLink({
-      tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
-      tgMiniAppShortName: config.tgMiniAppShortName,
-      startParam: `scan_${audit.assetKey}`,
-    });
-    await ctx.reply(formatScanCard(audit), {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "📊 Inspect in AstroDex", url: deepLink },
-            {
-              text: "🚀 AstroGate Curve",
-              url: `https://t.me/${astroGateBot}/app?startapp=${encodeURIComponent(audit.assetKey)}`,
-            },
+    try {
+      const { target } = await resolveAssetTarget({ config, repo, fetchFn, rawAsset: arg });
+      const audit = await scanner.auditToken(target.resolvedKey);
+      const deepLink = buildAstroDexDeepLink({
+        tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
+        tgMiniAppShortName: config.tgMiniAppShortName,
+        startParam: `scan_${audit.assetKey}`,
+      });
+      await ctx.reply(formatScanCard(audit), {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "📊 Inspect in AstroDex", url: deepLink },
+              {
+                text: "🚀 AstroGate Curve",
+                url: `https://t.me/${astroGateBot}/app?startapp=${encodeURIComponent(audit.assetKey)}`,
+              },
+            ],
+            [{ text: "🛡️ Sign in AstroWallet", url: astroWalletUrl }],
           ],
-          [{ text: "🛡️ Sign in AstroWallet", url: astroWalletUrl }],
-        ],
-      },
-    });
+        },
+      });
+    } catch (err) {
+      await ctx.reply(
+        `Could not scan asset: ${err instanceof Error ? err.message : "Asset not found"}`,
+      );
+    }
   });
 
   bot.command("list", async (ctx) => {
@@ -139,7 +147,8 @@ export function createAstroDexBot(
     const ammVenue = allowedVenues.has(rawVenue) ? rawVenue : "soroswap";
 
     try {
-      const audit = await scanner.auditToken(assetId);
+      const { target } = await resolveAssetTarget({ config, repo, fetchFn, rawAsset: assetId });
+      const audit = await scanner.auditToken(target.resolvedKey);
       if (audit.verdict === "malicious" || audit.trustTier === "spoof_blocked") {
         await ctx.reply(
           `<b>Listing Blocked by Astro Shield</b>\n<code>${audit.code}</code> was flagged as spoofed or malicious and cannot be listed.`,
@@ -226,22 +235,52 @@ export function createAstroDexBot(
 
   bot.command("book", async (ctx) => {
     const parts = ctx.match.trim().split(/\s+/).filter(Boolean);
-    const baseAsset = parts[0] ?? "XLM";
-    const quoteAsset = parts[1] ?? "XLM";
-    const book = await fetchHorizonOrderbook(config.horizonUrls, baseAsset, quoteAsset, 10, fetchFn);
+    const rawBase = parts[0] ?? "XLM";
+    const rawQuote = parts[1] ?? "XLM";
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawBase, snapshot }),
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawQuote, snapshot }),
+    ]);
+    const horizonBook = await fetchHorizonOrderbook(
+      config.horizonUrls,
+      baseTarget.classicAsset ?? baseTarget.resolvedKey,
+      quoteTarget.classicAsset ?? quoteTarget.resolvedKey,
+      10,
+      fetchFn,
+    );
+    const book =
+      horizonBook.bids.length === 0 && horizonBook.asks.length === 0
+        ? (await loadLiveAmmOrderbookAndSpot({ config, snapshot, baseTarget, quoteTarget, fetchFn })
+            .then((r) => r.syntheticSnapshot)
+            .catch(() => null)) ?? horizonBook
+        : horizonBook;
     await ctx.reply(formatOrderbookCard(book), { parse_mode: "HTML" });
   });
 
   bot.command("route", async (ctx) => {
     const parts = ctx.match.trim().split(/\s+/).filter(Boolean);
     if (parts.length < 3) {
-      await ctx.reply("Usage: <code>/route 100 XLM C...</code>", { parse_mode: "HTML" });
+      await ctx.reply("Usage: <code>/route 100 XLM ASTRO</code>", { parse_mode: "HTML" });
       return;
     }
-    const [amount = "10", fromAsset = "XLM", toAsset = ""] = parts;
+    const [amount = "10", rawFrom = "XLM", rawTo = ""] = parts;
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const [{ target: fromTarget }, { target: toTarget }] = await Promise.all([
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawFrom, snapshot }),
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawTo, snapshot }),
+    ]);
+    const routerEngine = createSmartLiquidityRouter({
+      horizonUrls: config.horizonUrls,
+      xoxnoApiBase: config.xoxnoSwapApiBase,
+      verifiedAssets: snapshot.sep42Assets,
+      curveStateLoader: createConfiguredCurveStateLoader(config, fetchFn),
+      directPairReservesLoader: createConfiguredPairReservesLoader(config, snapshot, fetchFn),
+      fetchFn,
+    });
     const quote = await routerEngine.quoteBestRoutes({
-      fromAsset,
-      toAsset,
+      fromAsset: fromTarget.resolvedKey,
+      toAsset: toTarget.resolvedKey,
       amount,
       slippageBps: 50,
       accountKind: "classic",
@@ -303,7 +342,8 @@ export function createAstroDexBot(
     let cardText = `<b>AstroDex Market Card — ${query}</b>\nTap below to open Pro Chart & Forensic X-Ray.`;
     let assetKey = query;
     try {
-      const audit = await scanner.auditToken(query);
+      const { target } = await resolveAssetTarget({ config, repo, fetchFn, rawAsset: query });
+      const audit = await scanner.auditToken(target.resolvedKey);
       cardText = formatScanCard(audit);
       assetKey = audit.assetKey;
     } catch {

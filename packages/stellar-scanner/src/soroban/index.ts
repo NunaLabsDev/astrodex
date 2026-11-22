@@ -2,9 +2,11 @@ import type { AstroGateLaunchpadAudit, Protocol23TtlStatus } from "@astrodex/dom
 import {
   Account,
   Address,
+  Contract,
   Operation,
   SorobanDataBuilder,
   TransactionBuilder,
+  scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
 import type { ScannerFetchLike } from "../classic/index.js";
@@ -88,21 +90,22 @@ export async function inspectProtocol23ContractTtl(
 
   const currentLedger = result?.latestLedger ?? 0;
   const entry = result?.entries?.[0];
-  const liveUntilLedgerSeq =
+  const rawLiveUntil =
     typeof entry?.liveUntilLedgerSeq === "number" ? entry.liveUntilLedgerSeq : null;
 
-  if (!entry || liveUntilLedgerSeq === null || currentLedger <= 0) {
+  if (!entry || rawLiveUntil === null || rawLiveUntil <= 0 || currentLedger <= 0) {
     return {
       contractId,
       currentLedger,
       liveUntilLedgerSeq: null,
       ledgersRemaining: null,
       approxDaysRemaining: null,
-      needsExtension: true,
+      needsExtension: entry === undefined && currentLedger > 0,
       isExpiredOrArchived: entry === undefined && currentLedger > 0,
     };
   }
 
+  const liveUntilLedgerSeq = rawLiveUntil;
   const ledgersRemaining = Math.max(0, liveUntilLedgerSeq - currentLedger);
   const approxDaysRemaining = Number((ledgersRemaining / LEDGERS_PER_DAY).toFixed(1));
   return {
@@ -163,6 +166,81 @@ export function detectDangerousSorobanMethods(exportedFunctions: readonly string
   return DANGEROUS_SOROBAN_METHODS.filter((method) => lowerSet.has(method));
 }
 
+export interface SorobanTokenMetadata {
+  symbol?: string | undefined;
+  name?: string | undefined;
+  decimals?: number | undefined;
+}
+
+async function simulateReadOnlyContractStringOrNumber(
+  rpcUrls: readonly string[],
+  contractId: string,
+  method: string,
+  networkPassphrase: string,
+  fetchFn: ScannerFetchLike,
+): Promise<unknown | null> {
+  try {
+    const contract = new Contract(contractId);
+    const tx = new TransactionBuilder(new Account(CANONICAL_STELLAR_BURN_ADDRESS, "0"), {
+      fee: "100",
+      networkPassphrase,
+    })
+      .addOperation(contract.call(method))
+      .setTimeout(30)
+      .build();
+    const result = await callSorobanRpc<SorobanRpcJsonResult>(
+      rpcUrls,
+      "simulateTransaction",
+      { transaction: tx.toXDR() },
+      fetchFn,
+    );
+    const rawXdr = result?.results?.[0]?.xdr;
+    if (!rawXdr) return null;
+    return scValToNative(xdr.ScVal.fromXDR(rawXdr, "base64"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads SEP-41 `symbol()`, `name()`, and `decimals()` from any Soroban token contract via RPC simulation.
+ */
+export async function fetchSorobanTokenMetadata(
+  rpcUrls: readonly string[],
+  contractId: string,
+  networkPassphrase: string,
+  fetchFn: ScannerFetchLike,
+): Promise<SorobanTokenMetadata> {
+  const [rawSymbol, rawName, rawDecimals] = await Promise.all([
+    simulateReadOnlyContractStringOrNumber(rpcUrls, contractId, "symbol", networkPassphrase, fetchFn),
+    simulateReadOnlyContractStringOrNumber(rpcUrls, contractId, "name", networkPassphrase, fetchFn),
+    simulateReadOnlyContractStringOrNumber(rpcUrls, contractId, "decimals", networkPassphrase, fetchFn),
+  ]);
+
+  const symbol =
+    typeof rawSymbol === "string" && rawSymbol.trim().length > 0
+      ? rawSymbol.trim().slice(0, 24)
+      : undefined;
+  const name =
+    typeof rawName === "string" && rawName.trim().length > 0
+      ? rawName.trim().slice(0, 64)
+      : undefined;
+  const decimals =
+    typeof rawDecimals === "number" && Number.isInteger(rawDecimals) && rawDecimals >= 0 && rawDecimals <= 18
+      ? rawDecimals
+      : typeof rawDecimals === "bigint" && rawDecimals >= 0n && rawDecimals <= 18n
+        ? Number(rawDecimals)
+        : undefined;
+
+  return { symbol, name, decimals };
+}
+
+export interface AstroGateTokenAuditResult extends AstroGateLaunchpadAudit {
+  symbol?: string | undefined;
+  name?: string | undefined;
+  decimals?: number | undefined;
+}
+
 /**
  * Queries AstroGate public token detail & audit endpoints when configured so AstroDex gets
  * exact v4.5 Launchpad curve, 48h timelock, 7Y LP lock, 30d CurveClosed, and SHA-256 logo data.
@@ -171,8 +249,8 @@ export async function fetchAstroGateTokenAudit(
   astroGateApiBaseUrl: string | undefined,
   contractId: string,
   fetchFn: ScannerFetchLike,
-): Promise<AstroGateLaunchpadAudit> {
-  const empty: AstroGateLaunchpadAudit = {
+): Promise<AstroGateTokenAuditResult> {
+  const empty: AstroGateTokenAuditResult = {
     isLaunchpadToken: false,
     version: "none",
     graduated: false,
@@ -200,6 +278,10 @@ export async function fetchAstroGateTokenAudit(
     const detail = detailRes.ok
       ? ((await detailRes.json()) as {
           ok?: boolean;
+          symbol?: string;
+          name?: string;
+          decimals?: number;
+          dexReserveXlmStroops?: string | null;
           curve?: {
             graduated?: boolean;
             curveClosed?: boolean;
@@ -223,29 +305,47 @@ export async function fetchAstroGateTokenAudit(
         })
       : null;
 
-    if (!detail?.curve && !audit?.status?.startsWith("verified-fair")) {
-      return empty;
+    const hasDexReserve =
+      typeof detail?.dexReserveXlmStroops === "string" &&
+      /^\d+$/.test(detail.dexReserveXlmStroops) &&
+      BigInt(detail.dexReserveXlmStroops) > 0n;
+    const isVerifiedFair = Boolean(audit?.status?.startsWith("verified-fair"));
+
+    if (!detail?.curve && !hasDexReserve && !isVerifiedFair) {
+      return {
+        ...empty,
+        symbol: typeof detail?.symbol === "string" ? detail.symbol : undefined,
+        name: typeof detail?.name === "string" ? detail.name : undefined,
+        decimals: typeof detail?.decimals === "number" ? detail.decimals : undefined,
+        logoSha256Url: detail?.logoUrl,
+      };
     }
 
     const hasLaunchpadCheck = audit?.checks?.some(
       (c) => c.id === "launchpad_verified" && c.passed,
     );
-    const isLaunchpadToken = Boolean(detail?.curve) || Boolean(hasLaunchpadCheck);
+    const isLaunchpadToken =
+      Boolean(detail?.curve) || hasDexReserve || Boolean(hasLaunchpadCheck) || isVerifiedFair;
+    const graduated = Boolean(detail?.curve?.graduated) || (!detail?.curve && hasDexReserve);
 
     return {
       isLaunchpadToken,
       version: "v4.5",
-      graduated: Boolean(detail?.curve?.graduated),
+      graduated,
       curveClosed: Boolean(detail?.curve?.curveClosed),
-      curveXlmNetStroops: detail?.curve?.curveXlmNetStroops ?? "0",
-      graduationProgressPct: detail?.curve?.graduationPercent ?? 0,
-      lpProtection: audit?.lpProtection ?? (detail?.curve?.graduated ? "locked_7y" : "bonding_curve"),
+      curveXlmNetStroops:
+        detail?.curve?.curveXlmNetStroops ?? detail?.dexReserveXlmStroops ?? "0",
+      graduationProgressPct: detail?.curve?.graduationPercent ?? (graduated ? 100 : 0),
+      lpProtection: audit?.lpProtection ?? (graduated ? "locked_7y" : "bonding_curve"),
       lpLockedPercent: audit?.lpLockedPercent ?? (isLaunchpadToken ? 100 : 0),
       has48hTimelock: isLaunchpadToken,
       pairId: detail?.curve?.pairId ?? audit?.pairId ?? undefined,
       creator: detail?.curve?.creator,
       logoSha256Url: detail?.logoUrl,
       sorobitXpEligible: isLaunchpadToken,
+      symbol: typeof detail?.symbol === "string" ? detail.symbol : undefined,
+      name: typeof detail?.name === "string" ? detail.name : undefined,
+      decimals: typeof detail?.decimals === "number" ? detail.decimals : undefined,
     };
   } catch {
     return empty;

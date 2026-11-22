@@ -1,8 +1,11 @@
 import {
+  buildAstroGateCurveBuyXdr,
+  buildAstroGateCurveSellXdr,
   buildClassicLimitOrderXdr,
   buildClassicSwapXdr,
   buildSoroswapRouterSwapXdr,
   createSmartLiquidityRouter,
+  deriveContractIdForAsset,
 } from "@astrodex/dex-aggregator";
 import {
   AstroDexSubActionSchema,
@@ -15,9 +18,7 @@ import {
 import { createPreSignSecurityShield } from "@astrodex/security-shield";
 import {
   buildExtendContractTtlXdr,
-  deriveSacContractId,
   fetchDirectoryTags,
-  fetchSep42VerifiedAssets,
 } from "@astrodex/stellar-scanner";
 import {
   buildAstroWalletIntentLink,
@@ -31,6 +32,12 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { DexServerRepository } from "../db/repository.js";
 import { checkRateLimit, clientKeyFromHeaders } from "../rate-limit.js";
+import {
+  buildUnifiedCatalog,
+  createConfiguredCurveStateLoader,
+  createConfiguredPairReservesLoader,
+  resolveAssetTarget,
+} from "../services/catalog.js";
 import {
   adaptFetch,
   verifyTransactionConfirmed,
@@ -176,8 +183,9 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
 
   router.post("/quote", async (c) => {
     const config = c.get("config");
+    const repo = c.get("repo");
     const rl = await checkRateLimit({
-      repository: c.get("repo"),
+      repository: repo,
       scope: "quote",
       clientKey: clientKeyFromHeaders(c.req.raw.headers),
       limitPerMin: config.quoteRateLimitPerMin,
@@ -197,22 +205,35 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       );
     }
 
-    const verifiedAssets = await fetchSep42VerifiedAssets(
-      config.sep42AssetListUrls,
-      fetchFn,
-    ).catch(() => []);
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const [{ target: fromTarget }, { target: toTarget }] = await Promise.all([
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.fromAsset, snapshot }),
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.toAsset, snapshot }),
+    ]);
+
+    try {
+      normalizeAssetIdentifier(fromTarget.resolvedKey);
+      normalizeAssetIdentifier(toTarget.resolvedKey);
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : "Unknown or invalid token identifier" },
+        400,
+      );
+    }
 
     const routerEngine = createSmartLiquidityRouter({
       horizonUrls: config.horizonUrls,
       soroswapProxyQuoteUrl: config.soroswapApiBase ? `${config.tmaOrigin.replace(/\/+$/, "")}/v1/proxy/soroswap/quote` : undefined,
       xoxnoApiBase: config.xoxnoSwapApiBase,
-      verifiedAssets,
+      verifiedAssets: snapshot.sep42Assets,
+      curveStateLoader: createConfiguredCurveStateLoader(config, fetchFn),
+      directPairReservesLoader: createConfiguredPairReservesLoader(config, snapshot, fetchFn),
       fetchFn,
     });
 
     const quote = await routerEngine.quoteBestRoutes({
-      fromAsset: body.fromAsset,
-      toAsset: body.toAsset,
+      fromAsset: fromTarget.resolvedKey,
+      toAsset: toTarget.resolvedKey,
       amount: body.amount,
       slippageBps: body.slippageBps,
       sourceAddress: body.sourceAddress,
@@ -286,22 +307,64 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
 
     if (!unsignedXdr && body.swapSpec) {
       try {
-        const fromNorm = normalizeAssetIdentifier(body.swapSpec.fromAsset);
-        const toNorm = normalizeAssetIdentifier(body.swapSpec.toAsset);
+        const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+        const [{ target: fromTarget }, { target: toTarget }] = await Promise.all([
+          resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.swapSpec.fromAsset, snapshot }),
+          resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.swapSpec.toAsset, snapshot }),
+        ]);
+
+        const fromNorm = normalizeAssetIdentifier(fromTarget.resolvedKey);
+        const toNorm = normalizeAssetIdentifier(toTarget.resolvedKey);
+        const amountInStroops = parseDecimalToStroops7(body.swapSpec.amount);
+        const amountOutMinStroops = parseDecimalToStroops7(body.swapSpec.minOutputAmount);
+
         if (
+          body.swapSpec.venue === "astrogate_curve" &&
+          config.astroGateLaunchpadContractId &&
+          amountInStroops !== null &&
+          amountInStroops > 0n &&
+          amountOutMinStroops !== null &&
+          amountOutMinStroops > 0n
+        ) {
+          if (fromNorm.kind === "native" && toTarget.sorobanContractId) {
+            unsignedXdr = buildAstroGateCurveBuyXdr({
+              sourceAddress: body.sourceAddress,
+              launchpadContractId: config.astroGateLaunchpadContractId,
+              tokenContractId: toTarget.sorobanContractId,
+              maxXlmInStroops: amountInStroops,
+              minTokensOutBase: amountOutMinStroops,
+              networkPassphrase: config.networkPassphrase,
+              sequence: accountState.sequence,
+            });
+          } else if (toNorm.kind === "native" && fromTarget.sorobanContractId) {
+            unsignedXdr = buildAstroGateCurveSellXdr({
+              sourceAddress: body.sourceAddress,
+              launchpadContractId: config.astroGateLaunchpadContractId,
+              tokenContractId: fromTarget.sorobanContractId,
+              tokenAmountBase: amountInStroops,
+              minXlmOutStroops: amountOutMinStroops,
+              networkPassphrase: config.networkPassphrase,
+              sequence: accountState.sequence,
+            });
+          }
+        }
+
+        if (
+          !unsignedXdr &&
           body.sourceAddress.startsWith("G") &&
-          fromNorm.kind !== "soroban" &&
-          toNorm.kind !== "soroban" &&
+          fromTarget.classicAsset &&
+          toTarget.classicAsset &&
           body.swapSpec.venue !== "soroswap_direct" &&
-          body.swapSpec.venue !== "soroswap_aggregator"
+          body.swapSpec.venue !== "soroswap_aggregator" &&
+          body.swapSpec.venue !== "astrogate_curve"
         ) {
           const autoTrust =
             body.swapSpec.includeTrustlineIfMissing ??
-            isTrustlineMissing(accountState.trustlines, body.swapSpec.toAsset);
+            isTrustlineMissing(accountState.trustlines, toTarget.classicAsset);
           unsignedXdr = buildClassicSwapXdr({
             sourceAddress: body.sourceAddress,
-            fromAsset: body.swapSpec.fromAsset,
-            toAsset: body.swapSpec.toAsset,
+            fromAsset: fromTarget.classicAsset,
+            toAsset: toTarget.classicAsset,
             amount: body.swapSpec.amount,
             minOutputAmount: body.swapSpec.minOutputAmount,
             pathAssets: body.swapSpec.pathAssets,
@@ -309,17 +372,21 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
             networkPassphrase: config.networkPassphrase,
             sequence: accountState.sequence,
           });
-        } else if (config.soroswapRouterContractId) {
+        } else if (!unsignedXdr && config.soroswapRouterContractId) {
           const fromContract =
-            fromNorm.kind === "soroban"
-              ? fromNorm.contractId!
-              : deriveSacContractId(fromNorm.code, fromNorm.issuer, config.networkPassphrase);
+            fromTarget.sorobanContractId ??
+            deriveContractIdForAsset(
+              fromTarget.resolvedKey,
+              config.networkPassphrase,
+              config.xlmSacContractId,
+            );
           const toContract =
-            toNorm.kind === "soroban"
-              ? toNorm.contractId!
-              : deriveSacContractId(toNorm.code, toNorm.issuer, config.networkPassphrase);
-          const amountInStroops = parseDecimalToStroops7(body.swapSpec.amount);
-          const amountOutMinStroops = parseDecimalToStroops7(body.swapSpec.minOutputAmount);
+            toTarget.sorobanContractId ??
+            deriveContractIdForAsset(
+              toTarget.resolvedKey,
+              config.networkPassphrase,
+              config.xlmSacContractId,
+            );
           if (
             amountInStroops !== null &&
             amountInStroops > 0n &&
@@ -351,10 +418,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     }
 
     // Mandatory pre-sign Scan & Shield gate (fail-closed on malicious verdict)
-    const verifiedAssets = await fetchSep42VerifiedAssets(
-      config.sep42AssetListUrls,
-      fetchFn,
-    ).catch(() => []);
+    const { sep42Assets: verifiedAssets } = await buildUnifiedCatalog(config, repo, fetchFn);
     const shield = createPreSignSecurityShield({
       networkPassphrase: config.networkPassphrase,
       rpcUrls: config.rpcUrls,

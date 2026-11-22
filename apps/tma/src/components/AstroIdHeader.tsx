@@ -2,6 +2,7 @@ import {
   buildAstroGateDeepLink,
   buildAstroWalletOnboardingLink,
 } from "@astrodex/tg-protocol";
+import { useState, type FormEvent } from "react";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink } from "../telegram/webapp.js";
 
@@ -15,9 +16,16 @@ export function AstroIdHeader() {
     astroId,
     activeAccount,
     setActiveAccountAddress,
+    resolvePublicIdentity,
+    disconnectPublicIdentity,
     mode,
     setMode,
   } = useAppState();
+
+  const [showConnectSheet, setShowConnectSheet] = useState(false);
+  const [lookupInput, setLookupInput] = useState("");
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [lookupFeedback, setLookupFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
   const walletConnectUrl = buildAstroWalletOnboardingLink({
     astroWalletBotUsername: config.astroWalletBotUsername,
@@ -30,6 +38,19 @@ export function AstroIdHeader() {
         startParam: "launch",
       })
     : null;
+
+  const handleResolveSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!lookupInput.trim()) return;
+    setLookupBusy(true);
+    setLookupFeedback(null);
+    const res = await resolvePublicIdentity(lookupInput);
+    setLookupFeedback({ ok: res.ok, text: res.message });
+    setLookupBusy(false);
+    if (res.ok) {
+      setLookupInput("");
+    }
+  };
 
   return (
     <header className="glass-card" style={{ display: "grid", gap: 10 }}>
@@ -73,7 +94,7 @@ export function AstroIdHeader() {
             <div style={{ fontSize: 11, color: "var(--ad-ink-secondary)" }}>
               {astroId.found && activeAccount
                 ? `@${astroId.usernameLower ?? "astroid"} · ${shortAddr(activeAccount.address)}`
-                : "Read-Only Mode · Connect via AstroWallet"}
+                : "Read-Only Mode · Tap Connect for AstroID"}
             </div>
           </div>
         </div>
@@ -129,7 +150,7 @@ export function AstroIdHeader() {
                 style={{ cursor: "pointer" }}
                 onClick={() => setActiveAccountAddress(acc.address)}
               >
-                {acc.kind === "smart" ? "C..." : "G..."} {shortAddr(acc.address)}
+                {acc.kind === "smart" ? "C... Smart" : "G... Classic"} {shortAddr(acc.address)}
               </button>
             ))
           ) : (
@@ -137,14 +158,22 @@ export function AstroIdHeader() {
               type="button"
               className="glass-pill glass-pill--gold"
               style={{ cursor: "pointer" }}
-              onClick={() => openTelegramDeepLink(walletConnectUrl)}
+              onClick={() => setShowConnectSheet((prev) => !prev)}
             >
-              Connect AstroWallet (AstroID)
+              ⚡ Connect AstroID / Address
             </button>
           )}
         </div>
 
         <div style={{ display: "flex", gap: 6 }}>
+          <button
+            type="button"
+            className="glass-pill"
+            style={{ cursor: "pointer" }}
+            onClick={() => setShowConnectSheet((prev) => !prev)}
+          >
+            {showConnectSheet ? "Close" : astroId.found ? "Switch" : "Lookup"}
+          </button>
           <button
             type="button"
             className="glass-pill"
@@ -165,6 +194,72 @@ export function AstroIdHeader() {
           )}
         </div>
       </div>
+
+      {showConnectSheet && (
+        <div
+          style={{
+            display: "grid",
+            gap: 8,
+            padding: 10,
+            borderRadius: 14,
+            background: "rgba(11, 20, 51, 0.78)",
+            border: "1px solid rgba(165, 139, 224, 0.3)",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "var(--ad-ink-secondary)" }}>
+            Non-custodial SSO powered exclusively by <strong>AstroWallet</strong>. Sign transactions inside Telegram or preview any public <code>@AstroID</code> / <code>G...</code> / <code>C...</code> address.
+          </div>
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="ad-btn-primary"
+              style={{ minHeight: 38, fontSize: 13 }}
+              onClick={() => openTelegramDeepLink(walletConnectUrl)}
+            >
+              Open AstroWallet SSO
+            </button>
+            {astroId.found && (
+              <button
+                type="button"
+                className="ad-btn-secondary"
+                style={{ minHeight: 38, fontSize: 12 }}
+                onClick={() => {
+                  disconnectPublicIdentity();
+                  setLookupFeedback(null);
+                }}
+              >
+                Disconnect Preview
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={(e) => void handleResolveSubmit(e)} style={{ display: "flex", gap: 6 }}>
+            <input
+              type="text"
+              className="ad-input"
+              style={{ minHeight: 38 }}
+              placeholder="@AstroID username or public G... / C... address"
+              value={lookupInput}
+              onChange={(e) => setLookupInput(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="ad-btn-secondary"
+              style={{ minHeight: 38 }}
+              disabled={lookupBusy}
+            >
+              {lookupBusy ? "..." : "Load"}
+            </button>
+          </form>
+
+          {lookupFeedback && (
+            <div className={`ad-banner ${lookupFeedback.ok ? "" : "ad-banner--danger"}`}>
+              {lookupFeedback.text}
+            </div>
+          )}
+        </div>
+      )}
     </header>
   );
 }

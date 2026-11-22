@@ -27,6 +27,7 @@ export interface OraclesAndChartsConfig {
   sorobanCandlesLoader?:
     | ((pairId: string, timeframe: OhlcvTimeframe, limit: number) => Promise<OhlcvCandle[]>)
     | undefined;
+  spotMidPriceLoader?: (() => Promise<number | null>) | undefined;
   cexXlmUsdFetcher?: (() => Promise<number | null>) | undefined;
   fetchFn?: OracleFetchLike | undefined;
 }
@@ -100,7 +101,7 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
       limit?: number | undefined;
     }): Promise<readonly OhlcvCandle[]> {
       const limit = input.limit ?? 120;
-      const [d1Candles, horizonCandles] = await Promise.all([
+      const [d1Candles, horizonCandles, spotPrice] = await Promise.all([
         config.sorobanCandlesLoader
           ? config.sorobanCandlesLoader(input.pairId, input.timeframe, limit).catch(() => [])
           : Promise.resolve([]),
@@ -112,8 +113,38 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
           limit,
           fetchFn,
         }),
+        config.spotMidPriceLoader
+          ? config.spotMidPriceLoader().catch(() => null)
+          : Promise.resolve(null),
       ]);
-      return mergeOhlcvCandles(d1Candles, horizonCandles, limit);
+      const merged = mergeOhlcvCandles(d1Candles, horizonCandles, limit);
+      if (merged.length > 0) return merged;
+      if (spotPrice !== null && Number.isFinite(spotPrice) && spotPrice > 0) {
+        const stepSeconds: Record<OhlcvTimeframe, number> = {
+          "1m": 60,
+          "5m": 300,
+          "15m": 900,
+          "1h": 3600,
+          "4h": 14400,
+          "1d": 86400,
+        };
+        const step = stepSeconds[input.timeframe] ?? 3600;
+        const nowBucket = Math.floor(Date.now() / 1000 / step) * step;
+        const series: OhlcvCandle[] = [];
+        const points = 24;
+        for (let i = points - 1; i >= 0; i -= 1) {
+          series.push({
+            time: nowBucket - i * step,
+            open: spotPrice,
+            high: spotPrice,
+            low: spotPrice,
+            close: spotPrice,
+            volume: 0,
+          });
+        }
+        return series;
+      }
+      return [];
     },
   };
 }

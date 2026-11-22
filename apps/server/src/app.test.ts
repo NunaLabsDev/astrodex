@@ -569,4 +569,80 @@ describe("@astrodex/server", () => {
     const ordersRes = await app.request(`/v1/orders/${USER_PUB}`, {}, makeBaseEnv());
     expect(ordersRes.status).toBe(200);
   });
+
+  it("supports ticker search (/v1/markets/search), ticker-resolved /v1/scanner/:assetId, and safe Soroban C... /v1/orderbook/:pair", async () => {
+    const repo = createInMemoryRepository();
+    const ASTRO_CONTRACT = "CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE";
+    const ASTRO_PAIR = "CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP";
+    const USDC_CONTRACT = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA";
+
+    await repo.upsertToken({
+      assetKey: ASTRO_CONTRACT,
+      kind: "soroban",
+      sacId: ASTRO_CONTRACT,
+      code: "ASTRO",
+      name: "Astro Test",
+      decimals: 7,
+      shieldScore: 90,
+      verifiedLaunchpad: true,
+      reviewStatus: "verified",
+      ammVenue: "soroswap",
+      pairId: ASTRO_PAIR,
+      updatedAt: Math.floor(Date.now() / 1000),
+    });
+
+    const app = createApp({
+      createRepo: () => repo,
+      fetchFn: (async (url: string | URL | Request) => {
+        const u = typeof url === "string" ? url : url.toString();
+        if (u.includes("sep42.example.com")) {
+          return new Response(
+            JSON.stringify({
+              assets: [
+                {
+                  code: "USDC",
+                  issuer: OFFICIAL_USDC,
+                  contract: USDC_CONTRACT,
+                  name: "USD Coin",
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response("{}", { status: 404 });
+      }) as typeof fetch,
+    });
+
+    const searchRes = await app.request("/v1/markets/search?q=astro", {}, makeBaseEnv());
+    expect(searchRes.status).toBe(200);
+    const searchJson = (await searchRes.json()) as {
+      ok: boolean;
+      results: Array<{ assetKey: string; code: string }>;
+    };
+    expect(searchJson.ok).toBe(true);
+    expect(searchJson.results[0]?.assetKey).toBe(ASTRO_CONTRACT);
+    expect(searchJson.results[0]?.code).toBe("ASTRO");
+
+    const scanRes = await app.request("/v1/scanner/astro", {}, makeBaseEnv());
+    expect(scanRes.status).toBe(200);
+    const scanJson = (await scanRes.json()) as {
+      ok: boolean;
+      audit: { assetKey: string };
+    };
+    expect(scanJson.ok).toBe(true);
+    expect(scanJson.audit.assetKey).toBe(ASTRO_CONTRACT);
+
+    // Soroban C... orderbook request must never throw 500 Internal Server Error
+    // Dual SEP-42 token resolves to Classic CODE:G... for Horizon SDEX lookup
+    const bookRes = await app.request(`/v1/orderbook/${USDC_CONTRACT}-XLM`, {}, makeBaseEnv());
+    expect(bookRes.status).toBe(200);
+    const bookJson = (await bookRes.json()) as { ok: boolean; snapshot: { baseAsset: string } };
+    expect(bookJson.ok).toBe(true);
+    expect(bookJson.snapshot.baseAsset).toBe(`USDC:${OFFICIAL_USDC}`);
+
+    // Pure Soroban C... token orderbook also returns 200 safely without throwing
+    const sorobanBookRes = await app.request(`/v1/orderbook/${ASTRO_CONTRACT}-XLM`, {}, makeBaseEnv());
+    expect(sorobanBookRes.status).toBe(200);
+  });
 });

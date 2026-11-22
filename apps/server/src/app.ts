@@ -181,6 +181,24 @@ export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
   app.use("/tg/webhook", attachRepo);
   app.use("/v1/*", attachRepo);
   app.use("/v1/proxy/*", attachOptionalRepo);
+  app.use("/mcp", attachOptionalRepo);
+
+  app.use("/v1/markets/overview", async (c, next) => {
+    const config = c.get("config");
+    if (c.env.DEX_INDEXER) {
+      try {
+        const id = c.env.DEX_INDEXER.idFromName(`dex:${config.network}`);
+        const stub = c.env.DEX_INDEXER.get(id);
+        c.executionCtx.waitUntil(
+          stub.fetch("https://dex-indexer.internal/ensure", { method: "POST" }).catch(() => {}),
+        );
+      } catch {
+        // Ignore when running outside Cloudflare Worker ExecutionContext (e.g. Vitest)
+      }
+    }
+    await next();
+    return undefined;
+  });
 
   app.post("/tg/webhook", async (c) => {
     const config = c.get("config");

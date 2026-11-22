@@ -20,6 +20,7 @@ import {
   buildExtendContractTtlXdr,
   checkStellarRegistryStatus,
   fetchAstroGateTokenAudit,
+  fetchSorobanTokenMetadata,
   inspectProtocol23ContractTtl,
 } from "./soroban/index.js";
 
@@ -146,17 +147,24 @@ export function createStellarForensicScanner(config: StellarScannerConfig): Scan
 
       // Soroban contract token (C...)
       const contractId = normalized.contractId!;
-      const [ttlStatus, astroGate, registry, directoryTags] = await Promise.all([
+      const [ttlStatus, astroGate, registry, directoryTags, sep41Meta] = await Promise.all([
         inspectProtocol23ContractTtl(config.rpcUrls, contractId, fetchFn),
         fetchAstroGateTokenAudit(config.astroGateApiBaseUrl, contractId, fetchFn),
         checkStellarRegistryStatus(config.stellarRegistryApiBase, contractId, fetchFn),
         fetchDirectoryTags(config.stellarExpertApiBase, config.network, contractId, fetchFn),
+        fetchSorobanTokenMetadata(config.rpcUrls, contractId, config.networkPassphrase, fetchFn),
       ]);
 
       const sep42Match = sep42Assets.find(
         (a) => a.contract?.toUpperCase() === contractId.toUpperCase(),
       );
       const isSep42Verified = Boolean(sep42Match);
+      const resolvedCode =
+        sep42Match?.code ?? astroGate.symbol ?? sep41Meta.symbol ?? normalized.code;
+      const resolvedName =
+        sep42Match?.name ?? astroGate.name ?? sep41Meta.name;
+      const resolvedDecimals = astroGate.decimals ?? sep41Meta.decimals ?? 7;
+
       const sorobanAudit = {
         owner: astroGate.isLaunchpadToken ? null : undefined,
         ownerRenounced: astroGate.isLaunchpadToken,
@@ -169,7 +177,7 @@ export function createStellarForensicScanner(config: StellarScannerConfig): Scan
 
       const scored = computeAstroShieldScore({
         kind: "soroban",
-        code: sep42Match?.code ?? normalized.code,
+        code: resolvedCode,
         isSpoofedProtectedTicker: false,
         isSep42Verified,
         directoryTags,
@@ -187,10 +195,11 @@ export function createStellarForensicScanner(config: StellarScannerConfig): Scan
       return {
         assetKey: contractId,
         kind: "soroban",
-        code: sep42Match?.code ?? normalized.code,
-        name: sep42Match?.name,
+        code: resolvedCode,
+        name: resolvedName,
+        issuer: sep42Match?.issuer,
         contractId,
-        decimals: 7,
+        decimals: resolvedDecimals,
         logoUrl: astroGate.logoSha256Url ?? sep42Match?.icon,
         ...scored,
         sorobanAudit: {

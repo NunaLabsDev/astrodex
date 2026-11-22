@@ -49,8 +49,37 @@ export async function fetchHorizonOrderbook(
   limit = 20,
   fetchFn: AggregatorFetchLike,
 ): Promise<OrderbookSnapshot> {
-  const sellingParams = horizonAssetQueryParams("selling", baseAsset);
-  const buyingParams = horizonAssetQueryParams("buying", quoteAsset);
+  let sellingParams: Record<string, string>;
+  let buyingParams: Record<string, string>;
+  try {
+    const baseNorm = normalizeAssetIdentifier(baseAsset);
+    const quoteNorm = normalizeAssetIdentifier(quoteAsset);
+    if (baseNorm.canonicalKey === quoteNorm.canonicalKey) {
+      return {
+        baseAsset,
+        quoteAsset,
+        bids: [],
+        asks: [],
+        bestBid: null,
+        bestAsk: null,
+        spreadPct: null,
+        timestampUnix: Math.floor(Date.now() / 1000),
+      };
+    }
+    sellingParams = horizonAssetQueryParams("selling", baseAsset);
+    buyingParams = horizonAssetQueryParams("buying", quoteAsset);
+  } catch {
+    return {
+      baseAsset,
+      quoteAsset,
+      bids: [],
+      asks: [],
+      bestBid: null,
+      bestAsk: null,
+      spreadPct: null,
+      timestampUnix: Math.floor(Date.now() / 1000),
+    };
+  }
   const qs = encodeQuery({
     ...sellingParams,
     ...buyingParams,

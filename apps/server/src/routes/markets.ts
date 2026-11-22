@@ -5,23 +5,25 @@ import {
 } from "@astrodex/dex-aggregator";
 import {
   StellarAddressSchema,
-  type CatalogTokenItem,
   type OhlcvTimeframe,
   type ServerConfig,
   type TokenForensicAudit,
   type TokenReviewStatus,
 } from "@astrodex/domain";
 import { createOraclesAndChartsEngine } from "@astrodex/oracles-and-charts";
-import {
-  createStellarForensicScanner,
-  fetchSep42VerifiedAssets,
-} from "@astrodex/stellar-scanner";
+import { createStellarForensicScanner } from "@astrodex/stellar-scanner";
 import type { KVNamespace } from "@cloudflare/workers-types";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { WorkersAiBinding } from "../app.js";
 import type { DexServerRepository, DexTokenRecord } from "../db/repository.js";
 import { checkRateLimit, clientKeyFromHeaders } from "../rate-limit.js";
+import {
+  buildUnifiedCatalog,
+  loadLiveAmmOrderbookAndSpot,
+  resolveAssetTarget,
+  searchCatalogAndNetworkAssets,
+} from "../services/catalog.js";
 import { adaptFetch, type FetchLike } from "../stellar-verifier.js";
 import { fetchStellarTomlSafe } from "./proxy.js";
 import { authenticateMiniAppSession } from "./tg-auth.js";
@@ -139,133 +141,76 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   router.get("/markets/overview", async (c) => {
     const config = c.get("config");
     const repo = c.get("repo");
-    const [tokens, pairs, oracle, sep42Assets] = await Promise.all([
-      repo.listTokens(60),
-      repo.listPairs(40),
-      createOraclesAndChartsEngine({
-        networkPassphrase: config.networkPassphrase,
-        rpcUrls: config.rpcUrls,
-        horizonUrls: config.horizonUrls,
-        chainlinkPriceProxyContractId: config.chainlinkPriceProxyContractId,
-        stellarPricesApiBase: config.stellarPricesApiBase,
-        stellarPricesApiKey: config.stellarPricesApiKey,
-        fetchFn,
-      })
-        .getXlmUsdPrice()
-        .catch(() => null),
-      fetchSep42VerifiedAssets(config.sep42AssetListUrls, fetchFn).catch(() => []),
-    ]);
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const usdcIssuer = snapshot.sep42Assets.find(
+      (a) => a.code.toUpperCase() === "USDC" && a.issuer,
+    )?.issuer;
 
-    let launchpadTokens: unknown[] = [];
-    if (config.astroGateApiBaseUrl) {
-      const base = config.astroGateApiBaseUrl.replace(/\/+$/, "");
-      const res = await fetchFn(`${base}/api/v1/tokens`, {
-        headers: { Accept: "application/json" },
-      }).catch(() => null);
-      if (res?.ok) {
-        const json = (await res.json().catch(() => null)) as { tokens?: unknown[] } | null;
-        if (Array.isArray(json?.tokens)) {
-          launchpadTokens = json.tokens;
+    let oracle = await createOraclesAndChartsEngine({
+      networkPassphrase: config.networkPassphrase,
+      rpcUrls: config.rpcUrls,
+      horizonUrls: config.horizonUrls,
+      chainlinkPriceProxyContractId: config.chainlinkPriceProxyContractId,
+      stellarPricesApiBase: config.stellarPricesApiBase,
+      stellarPricesApiKey: config.stellarPricesApiKey,
+      usdcIssuer,
+      fetchFn,
+    })
+      .getXlmUsdPrice()
+      .catch(() => null);
+
+    if ((!oracle || oracle.priceUsd <= 0) && usdcIssuer) {
+      const usdcAsset = snapshot.catalog.find(
+        (t) => t.code.toUpperCase() === "USDC" && t.issuer === usdcIssuer,
+      );
+      if (usdcAsset) {
+        const [{ target: baseT }, { target: quoteT }] = await Promise.all([
+          resolveAssetTarget({ config, repo, fetchFn, rawAsset: "XLM", snapshot }),
+          resolveAssetTarget({ config, repo, fetchFn, rawAsset: usdcAsset.assetKey, snapshot }),
+        ]);
+        const amm = await loadLiveAmmOrderbookAndSpot({
+          config,
+          snapshot,
+          baseTarget: baseT,
+          quoteTarget: quoteT,
+          fetchFn,
+        }).catch(() => null);
+        if (amm?.ammPairInfo && amm.ammPairInfo.spotPriceQuotePerBase > 0 && amm.ammPairInfo.spotPriceQuotePerBase < 100) {
+          oracle = {
+            assetKey: "XLM",
+            priceUsd: Number(amm.ammPairInfo.spotPriceQuotePerBase.toFixed(6)),
+            source: "horizon_spot",
+            updatedAtUnix: Math.floor(Date.now() / 1000),
+          };
         }
       }
-    }
-
-    const catalogMap = new Map<string, CatalogTokenItem>();
-    catalogMap.set("XLM", {
-      assetKey: "XLM",
-      kind: "native",
-      code: "XLM",
-      name: "Stellar Lumens",
-      sacId: config.xlmSacContractId,
-      decimals: 7,
-      shieldScore: 100,
-      reviewStatus: "official",
-      ammVenue: "sdex_pool",
-    });
-
-    for (const item of sep42Assets) {
-      const assetKey = item.contract
-        ? item.contract.toUpperCase()
-        : item.issuer
-          ? `${item.code}:${item.issuer.toUpperCase()}`
-          : "";
-      if (!assetKey || assetKey === "XLM" || catalogMap.has(assetKey)) continue;
-      catalogMap.set(assetKey, {
-        assetKey,
-        kind: item.contract ? "soroban" : "classic",
-        code: item.code,
-        name: item.name,
-        issuer: item.issuer,
-        sacId: item.contract,
-        decimals: 7,
-        logoUrl: item.icon,
-        shieldScore: 95,
-        reviewStatus: "official",
-        ammVenue: item.contract ? "soroswap" : "sdex_pool",
-      });
-    }
-
-    for (const rawLaunch of launchpadTokens) {
-      if (!rawLaunch || typeof rawLaunch !== "object") continue;
-      const item = rawLaunch as {
-        id?: unknown;
-        symbol?: unknown;
-        name?: unknown;
-        logoUrl?: unknown;
-        graduated?: unknown;
-        pairId?: unknown;
-      };
-      if (typeof item.id !== "string" || !item.id.trim()) continue;
-      const assetKey = item.id.trim().toUpperCase();
-      if (catalogMap.has(assetKey)) continue;
-      catalogMap.set(assetKey, {
-        assetKey,
-        kind: "soroban",
-        code: typeof item.symbol === "string" && item.symbol ? item.symbol : "TOKEN",
-        name: typeof item.name === "string" ? item.name : undefined,
-        sacId: assetKey,
-        decimals: 7,
-        logoUrl: typeof item.logoUrl === "string" ? item.logoUrl : undefined,
-        shieldScore: 85,
-        reviewStatus: "verified",
-        ammVenue: item.graduated ? "soroswap" : "astrogate_curve",
-        pairId: typeof item.pairId === "string" ? item.pairId : undefined,
-      });
-    }
-
-    for (const t of tokens) {
-      const existing = catalogMap.get(t.assetKey);
-      const reviewStatus: TokenReviewStatus =
-        existing?.reviewStatus === "official"
-          ? "official"
-          : (t.reviewStatus ?? (t.shieldScore >= 75 ? "verified" : "unreviewed_warning"));
-      catalogMap.set(t.assetKey, {
-        assetKey: t.assetKey,
-        kind: t.kind,
-        code: t.code,
-        name: t.name ?? existing?.name,
-        issuer: t.issuer ?? existing?.issuer,
-        sacId: t.sacId ?? existing?.sacId,
-        decimals: t.decimals,
-        logoUrl: t.logoUrl ?? existing?.logoUrl,
-        shieldScore: existing ? Math.max(existing.shieldScore, t.shieldScore) : t.shieldScore,
-        reviewStatus,
-        reviewNote: t.reviewNote ?? existing?.reviewNote,
-        ammVenue: t.ammVenue ?? existing?.ammVenue,
-        pairId: t.pairId ?? existing?.pairId,
-        communityUrl: t.communityUrl ?? existing?.communityUrl,
-      });
     }
 
     return c.json({
       ok: true,
       network: config.network,
       xlmUsd: oracle,
-      tokens,
-      pairs,
-      launchpadTokens,
-      catalog: Array.from(catalogMap.values()),
+      tokens: snapshot.tokens,
+      pairs: snapshot.pairs,
+      launchpadTokens: snapshot.launchpadTokens,
+      catalog: snapshot.catalog,
     });
+  });
+
+  router.get("/markets/search", async (c) => {
+    const config = c.get("config");
+    const repo = c.get("repo");
+    const q = (c.req.query("q") ?? "").trim();
+    const limitParam = Number(c.req.query("limit") ?? "15");
+    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(30, Math.trunc(limitParam))) : 15;
+    const { results } = await searchCatalogAndNetworkAssets({
+      config,
+      repo,
+      fetchFn,
+      query: q,
+      limit,
+    });
+    return c.json({ ok: true, query: q, results });
   });
 
   router.post("/markets/listings", async (c) => {
@@ -297,10 +242,17 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       );
     }
 
+    const { target } = await resolveAssetTarget({
+      config,
+      repo,
+      fetchFn,
+      rawAsset: body.assetId,
+    });
+
     const scanner = createConfiguredScanner(config, c.env.CACHE, rawFetchFn, fetchFn);
     let audit: TokenForensicAudit;
     try {
-      audit = await scanner.auditToken(body.assetId);
+      audit = await scanner.auditToken(target.resolvedKey);
     } catch (err) {
       return c.json(
         {
@@ -337,7 +289,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
 
     const now = Math.floor(Date.now() / 1000);
     const communityUrl = normalizeOptionalCommunityUrl(body.communityUrl);
-    const pairId = body.pairId?.trim() || undefined;
+    const pairId = body.pairId?.trim() || audit.sorobanAudit?.astroGate?.pairId || target.pairId || undefined;
 
     const record: DexTokenRecord = {
       assetKey: audit.assetKey,
@@ -391,12 +343,19 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
 
   router.get("/scanner/:assetId", async (c) => {
     const config = c.get("config");
-    const assetId = decodeURIComponent(c.req.param("assetId"));
+    const repo = c.get("repo");
+    const rawAssetId = decodeURIComponent(c.req.param("assetId"));
+    const { target } = await resolveAssetTarget({
+      config,
+      repo,
+      fetchFn,
+      rawAsset: rawAssetId,
+    });
     const scanner = createConfiguredScanner(config, c.env.CACHE, rawFetchFn, fetchFn);
 
     try {
-      const audit = await scanner.auditToken(assetId);
-      return c.json({ ok: true, audit });
+      const audit = await scanner.auditToken(target.resolvedKey);
+      return c.json({ ok: true, audit, resolvedFrom: rawAssetId });
     } catch (err) {
       return c.json(
         { ok: false, error: err instanceof Error ? err.message : "Failed to scan asset" },
@@ -407,17 +366,42 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
 
   router.get("/orderbook/:pair", async (c) => {
     const config = c.get("config");
+    const repo = c.get("repo");
     const rawPair = decodeURIComponent(c.req.param("pair"));
-    const [baseAsset = "XLM", quoteAsset = "XLM"] = rawPair.split("-");
-    const snapshot = await fetchHorizonOrderbook(
-      config.horizonUrls,
-      baseAsset,
-      quoteAsset,
-      20,
-      fetchFn,
-    );
-    const depth = computeDepthChart(snapshot);
-    return c.json({ ok: true, snapshot, depth });
+    const [rawBase = "XLM", rawQuote = "XLM"] = rawPair.split("-");
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawBase, snapshot }),
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawQuote, snapshot }),
+    ]);
+
+    const horizonBase = baseTarget.classicAsset ?? baseTarget.resolvedKey;
+    const horizonQuote = quoteTarget.classicAsset ?? quoteTarget.resolvedKey;
+
+    const [horizonSnapshot, ammResult] = await Promise.all([
+      fetchHorizonOrderbook(config.horizonUrls, horizonBase, horizonQuote, 20, fetchFn),
+      loadLiveAmmOrderbookAndSpot({
+        config,
+        snapshot,
+        baseTarget,
+        quoteTarget,
+        fetchFn,
+      }).catch(() => ({ ammPairInfo: null, syntheticSnapshot: null })),
+    ]);
+
+    const hasHorizonDepth =
+      horizonSnapshot.bids.length > 0 || horizonSnapshot.asks.length > 0;
+    const effectiveSnapshot =
+      !hasHorizonDepth && ammResult.syntheticSnapshot
+        ? ammResult.syntheticSnapshot
+        : horizonSnapshot;
+    const depth = computeDepthChart(effectiveSnapshot);
+    return c.json({
+      ok: true,
+      snapshot: effectiveSnapshot,
+      depth,
+      ammPair: ammResult.ammPairInfo,
+    });
   });
 
   router.get("/candles/:pair", async (c) => {
@@ -426,7 +410,13 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const rawPair = decodeURIComponent(c.req.param("pair"));
     const tfParam = (c.req.query("tf") ?? "1h") as OhlcvTimeframe;
     const timeframe: OhlcvTimeframe = TIMEFRAMES.has(tfParam) ? tfParam : "1h";
-    const [baseAsset = "XLM", quoteAsset = "XLM"] = rawPair.split("-");
+    const [rawBase = "XLM", rawQuote = "XLM"] = rawPair.split("-");
+
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawBase, snapshot }),
+      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawQuote, snapshot }),
+    ]);
 
     const oracleEngine = createOraclesAndChartsEngine({
       networkPassphrase: config.networkPassphrase,
@@ -435,12 +425,22 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       sorobanCandlesLoader: async (pairId, tf, limit) => [
         ...(await repo.listCandles(pairId, tf, limit)),
       ],
+      spotMidPriceLoader: async () => {
+        const amm = await loadLiveAmmOrderbookAndSpot({
+          config,
+          snapshot,
+          baseTarget,
+          quoteTarget,
+          fetchFn,
+        });
+        return amm.ammPairInfo?.spotPriceQuotePerBase ?? null;
+      },
       fetchFn,
     });
     const candles = await oracleEngine.getOhlcvCandles({
       pairId: rawPair,
-      baseAsset,
-      quoteAsset,
+      baseAsset: baseTarget.classicAsset ?? baseTarget.resolvedKey,
+      quoteAsset: quoteTarget.classicAsset ?? quoteTarget.resolvedKey,
       timeframe,
       limit: 120,
     });

@@ -1,5 +1,6 @@
 import type { OpenLimitOffer } from "@astrodex/domain";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
@@ -11,10 +12,12 @@ interface PriceAlertItem {
 }
 
 export function OrdersAlertsView() {
-  const { config, sessionToken, activeAccount, catalog, selectedAsset } = useAppState();
+  const { config, sessionToken, activeAccount, catalog, selectedAsset, setSelectedAsset } =
+    useAppState();
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [alerts, setAlerts] = useState<PriceAlertItem[]>([]);
   const [offers, setOffers] = useState<OpenLimitOffer[]>([]);
+  const [alertQuery, setAlertQuery] = useState("");
   const [alertCondition, setAlertCondition] = useState<"above" | "below">("above");
   const [alertThreshold, setAlertThreshold] = useState("0.20");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -277,6 +280,17 @@ export function OrdersAlertsView() {
             </button>
           )}
         </div>
+
+        <TokenSearchInput
+          query={alertQuery}
+          onQueryChange={setAlertQuery}
+          placeholder="Select token for Watchlist / Alert (ASTRO, USDC, XLM)..."
+          primaryActionLabel="Pick"
+          onSelectToken={(item) => {
+            setSelectedAsset(item.assetKey);
+            setAlertQuery("");
+          }}
+        />
 
         {sessionToken && (
           <form

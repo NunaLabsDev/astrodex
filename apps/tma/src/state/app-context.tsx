@@ -1,4 +1,5 @@
 import {
+  defaultCapabilitiesForKind,
   parseTmaConfig,
   type AstroIdProfile,
   type CatalogTokenItem,
@@ -34,12 +35,15 @@ interface AppContextValue {
   astroId: AstroIdProfile;
   activeAccount: ResolvedAccount | null;
   setActiveAccountAddress: (addr: string) => void;
+  resolvePublicIdentity: (query: string) => Promise<{ ok: boolean; message: string }>;
+  disconnectPublicIdentity: () => void;
   mode: AppMode;
   setMode: (mode: AppMode) => void;
   activeTab: DockTab;
   setActiveTab: (tab: DockTab) => void;
   selectedAsset: string;
   setSelectedAsset: (assetId: string) => void;
+  defaultPairAsset: string;
   catalog: CatalogTokenItem[];
   xlmUsd: number | null;
   launchpadTokens: Array<{
@@ -202,6 +206,77 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActiveTabState(next);
   }, []);
 
+  const resolvePublicIdentity = useCallback(
+    async (rawQuery: string): Promise<{ ok: boolean; message: string }> => {
+      const q = rawQuery.trim();
+      if (!q) {
+        return { ok: false, message: "Enter an @AstroID username, Telegram ID, or public G.../C... address." };
+      }
+      if (/^S[A-Z2-7]{55}$/.test(q.toUpperCase())) {
+        return {
+          ok: false,
+          message: "Never enter a private S... secret seed here. AstroDex is 100% non-custodial; only public G.../C... addresses or @AstroID are allowed.",
+        };
+      }
+      const upper = q.toUpperCase();
+      if (/^[GC][A-Z2-7]{55}$/.test(upper)) {
+        const kind = upper.startsWith("C") ? "smart" : "classic";
+        setAstroId({
+          found: true,
+          source: "astrowallet",
+          primaryAddress: upper,
+          accounts: [
+            {
+              address: upper,
+              kind,
+              label: kind === "smart" ? "Smart Account" : "Classic Account",
+              isDefault: true,
+              capabilities: defaultCapabilitiesForKind(kind),
+            },
+          ],
+        });
+        setSelectedAddress(upper);
+        triggerTelegramHaptic("success");
+        return { ok: true, message: `Loaded public ${kind === "smart" ? "C..." : "G..."} address.` };
+      }
+
+      try {
+        const base = config.apiBaseUrl.replace(/\/+$/, "");
+        const res = await fetch(`${base}/v1/wallet/resolve?q=${encodeURIComponent(q)}`);
+        const json = (await res.json()) as AstroIdProfile & { ok?: boolean; error?: string };
+        if (!res.ok || !json.found || !Array.isArray(json.accounts) || json.accounts.length === 0) {
+          return {
+            ok: false,
+            message: json.error ?? `No AstroID found for "${q}". Open AstroWallet to create or link your AstroID.`,
+          };
+        }
+        setAstroId(json);
+        setSelectedAddress(json.primaryAddress ?? json.accounts[0]?.address ?? null);
+        triggerTelegramHaptic("success");
+        return { ok: true, message: `Connected AstroID (@${json.usernameLower ?? q}).` };
+      } catch (err) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : "Failed to resolve AstroID.",
+        };
+      }
+    },
+    [config.apiBaseUrl],
+  );
+
+  const disconnectPublicIdentity = useCallback(() => {
+    setAstroId({ found: false, source: "none", accounts: [] });
+    setSelectedAddress(null);
+  }, []);
+
+  const defaultPairAsset = useMemo(() => {
+    const astro = catalog.find((t) => t.code.toUpperCase() === "ASTRO");
+    if (astro) return astro.assetKey;
+    const usdc = catalog.find((t) => t.code.toUpperCase() === "USDC");
+    if (usdc) return usdc.assetKey;
+    return catalog.find((t) => t.assetKey !== "XLM")?.assetKey ?? "XLM";
+  }, [catalog]);
+
   return (
     <AppContext.Provider
       value={{
@@ -212,12 +287,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         astroId,
         activeAccount,
         setActiveAccountAddress: setSelectedAddress,
+        resolvePublicIdentity,
+        disconnectPublicIdentity,
         mode,
         setMode,
         activeTab,
         setActiveTab,
         selectedAsset,
         setSelectedAsset,
+        defaultPairAsset,
         catalog,
         xlmUsd,
         launchpadTokens,

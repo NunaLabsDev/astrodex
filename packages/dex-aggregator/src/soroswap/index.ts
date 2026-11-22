@@ -1,5 +1,19 @@
-import { formatStroops7, parseDecimalToStroops7, type RouteQuote } from "@astrodex/domain";
-import { Account, Address, Contract, TransactionBuilder, nativeToScVal, xdr } from "@stellar/stellar-sdk";
+import {
+  formatStroops7,
+  normalizeAssetIdentifier,
+  parseDecimalToStroops7,
+  type RouteQuote,
+} from "@astrodex/domain";
+import {
+  Account,
+  Address,
+  Asset,
+  Contract,
+  TransactionBuilder,
+  nativeToScVal,
+  scValToNative,
+  xdr,
+} from "@stellar/stellar-sdk";
 
 export interface MinimalFetchResponse {
   ok: boolean;
@@ -15,6 +29,159 @@ export type AggregatorFetchLike = (
     body?: string | undefined;
   },
 ) => Promise<MinimalFetchResponse>;
+
+const READONLY_SIM_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+
+/**
+ * Derives the Soroban C... contract ID (native XLM SAC, Classic SAC, or Soroban C...) for an asset identifier.
+ */
+export function deriveContractIdForAsset(
+  assetIdentifier: string,
+  networkPassphrase: string,
+  xlmSacContractId?: string,
+): string {
+  const norm = normalizeAssetIdentifier(assetIdentifier);
+  if (norm.kind === "soroban" && norm.contractId) {
+    return norm.contractId;
+  }
+  if (norm.kind === "native") {
+    return xlmSacContractId ?? Asset.native().contractId(networkPassphrase);
+  }
+  if (norm.kind === "classic" && norm.issuer) {
+    return new Asset(norm.code, norm.issuer).contractId(networkPassphrase);
+  }
+  throw new Error(`Cannot derive Soroban contract ID for "${assetIdentifier}"`);
+}
+
+async function simulateSoroswapReadOnly(input: {
+  rpcUrls: readonly string[];
+  contractId: string;
+  method: string;
+  args?: xdr.ScVal[];
+  networkPassphrase: string;
+  fetchFn: AggregatorFetchLike;
+}): Promise<unknown | null> {
+  const contract = new Contract(input.contractId);
+  const tx = new TransactionBuilder(new Account(READONLY_SIM_SOURCE, "0"), {
+    fee: "100",
+    networkPassphrase: input.networkPassphrase,
+  })
+    .addOperation(contract.call(input.method, ...(input.args ?? [])))
+    .setTimeout(30)
+    .build();
+
+  for (const url of input.rpcUrls) {
+    try {
+      const res = await input.fetchFn(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "simulateTransaction",
+          params: { transaction: tx.toXDR() },
+        }),
+      });
+      if (!res.ok) continue;
+      const body = (await res.json()) as {
+        result?: { results?: Array<{ xdr?: string }> };
+      };
+      const rawXdr = body.result?.results?.[0]?.xdr;
+      if (!rawXdr) continue;
+      return scValToNative(xdr.ScVal.fromXDR(rawXdr, "base64"));
+    } catch {
+      // Fail over to next RPC endpoint
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolves a Soroswap Pair contract via `pairContractId` or `Factory.get_pair(a, b)` and reads
+ * live `token_0()`, `token_1()`, and `get_reserves()` directly from Soroban RPC.
+ */
+export async function fetchSoroswapDirectPairReserves(input: {
+  rpcUrls: readonly string[];
+  factoryContractId?: string | undefined;
+  pairContractId?: string | undefined;
+  tokenInContractId: string;
+  tokenOutContractId: string;
+  networkPassphrase: string;
+  fetchFn: AggregatorFetchLike;
+}): Promise<{
+  pairId: string;
+  reserveIn: bigint;
+  reserveOut: bigint;
+} | null> {
+  let pairId = input.pairContractId;
+  if (!pairId && input.factoryContractId) {
+    const resolved = await simulateSoroswapReadOnly({
+      rpcUrls: input.rpcUrls,
+      contractId: input.factoryContractId,
+      method: "get_pair",
+      args: [
+        new Address(input.tokenInContractId).toScVal(),
+        new Address(input.tokenOutContractId).toScVal(),
+      ],
+      networkPassphrase: input.networkPassphrase,
+      fetchFn: input.fetchFn,
+    });
+    if (typeof resolved === "string" && /^C[A-Z2-7]{55}$/.test(resolved)) {
+      pairId = resolved;
+    }
+  }
+  if (!pairId) return null;
+
+  const [token0Raw, token1Raw, reservesRaw] = await Promise.all([
+    simulateSoroswapReadOnly({
+      rpcUrls: input.rpcUrls,
+      contractId: pairId,
+      method: "token_0",
+      networkPassphrase: input.networkPassphrase,
+      fetchFn: input.fetchFn,
+    }),
+    simulateSoroswapReadOnly({
+      rpcUrls: input.rpcUrls,
+      contractId: pairId,
+      method: "token_1",
+      networkPassphrase: input.networkPassphrase,
+      fetchFn: input.fetchFn,
+    }),
+    simulateSoroswapReadOnly({
+      rpcUrls: input.rpcUrls,
+      contractId: pairId,
+      method: "get_reserves",
+      networkPassphrase: input.networkPassphrase,
+      fetchFn: input.fetchFn,
+    }),
+  ]);
+
+  if (typeof token0Raw !== "string" || typeof token1Raw !== "string" || !Array.isArray(reservesRaw) || reservesRaw.length < 2) {
+    return null;
+  }
+
+  const toBigInt = (v: unknown): bigint => {
+    if (typeof v === "bigint") return v;
+    if (typeof v === "number" && Number.isFinite(v)) return BigInt(Math.trunc(v));
+    if (typeof v === "string" && /^\d+$/.test(v)) return BigInt(v);
+    return 0n;
+  };
+
+  const r0 = toBigInt(reservesRaw[0]);
+  const r1 = toBigInt(reservesRaw[1]);
+  const t0 = token0Raw.toUpperCase();
+  const t1 = token1Raw.toUpperCase();
+  const tIn = input.tokenInContractId.toUpperCase();
+  const tOut = input.tokenOutContractId.toUpperCase();
+
+  if (t0 === tIn && t1 === tOut) {
+    return { pairId, reserveIn: r0, reserveOut: r1 };
+  }
+  if (t1 === tIn && t0 === tOut) {
+    return { pairId, reserveIn: r1, reserveOut: r0 };
+  }
+  return null;
+}
 
 /**
  * Constant-product 30 bps Soroswap AMM formula matching Soroswap Router `router_get_amount_out`.

@@ -103,6 +103,27 @@ function compareExpectedOutDesc(a: RouteQuote, b: RouteQuote): number {
   return aS > bS ? -1 : aS < bS ? 1 : 0;
 }
 
+function resolveClassicEquivalent(
+  assetIdentifier: string,
+  verifiedAssets: readonly VerifiedTickerEntry[] = [],
+): string {
+  try {
+    const norm = normalizeAssetIdentifier(assetIdentifier);
+    if (norm.kind === "native" || norm.kind === "classic") return norm.canonicalKey;
+    if (norm.kind === "soroban" && norm.contractId) {
+      const match = verifiedAssets.find(
+        (v) => v.contract?.toUpperCase() === norm.contractId?.toUpperCase() && v.issuer,
+      );
+      if (match?.issuer) {
+        return `${match.code}:${match.issuer.toUpperCase()}`;
+      }
+    }
+  } catch {
+    // Keep original identifier
+  }
+  return assetIdentifier;
+}
+
 /**
  * 5-Way Parallel Smart Liquidity Router enforcing 3-tier anti-spoof protection and
  * honest Classic (G...) vs Smart Account (C...) protocol compatibility.
@@ -154,6 +175,8 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
 
       const fromNorm = normalizeAssetIdentifier(input.fromAsset);
       const toNorm = normalizeAssetIdentifier(input.toAsset);
+      const classicFromAsset = resolveClassicEquivalent(input.fromAsset, config.verifiedAssets);
+      const classicToAsset = resolveClassicEquivalent(input.toAsset, config.verifiedAssets);
       const isCurveBuy = fromNorm.kind === "native" && toNorm.kind === "soroban";
       const isCurveSell = fromNorm.kind === "soroban" && toNorm.kind === "native";
 
@@ -262,8 +285,8 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
           }
           return quoteHorizonSdexPath({
             horizonUrls: config.horizonUrls,
-            fromAsset: input.fromAsset,
-            toAsset: input.toAsset,
+            fromAsset: classicFromAsset,
+            toAsset: classicToAsset,
             amount: input.amount,
             slippageBps: input.slippageBps,
             fetchFn,
