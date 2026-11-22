@@ -12,7 +12,7 @@ interface AmmPairInfo {
 }
 
 export function BookPoolsView() {
-  const { config, mode, catalog, selectedAsset, defaultPairAsset, setSelectedAsset, setActiveTab } =
+  const { config, feedNetwork, mode, catalog, selectedAsset, defaultPairAsset, setSelectedAsset, setActiveTab } =
     useAppState();
   const [snapshot, setSnapshot] = useState<OrderbookSnapshot | null>(null);
   const [ammPair, setAmmPair] = useState<AmmPairInfo | null>(null);
@@ -49,7 +49,7 @@ export function BookPoolsView() {
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
         const pair = `${encodeURIComponent(effectiveAsset)}-XLM`;
-        const res = await fetch(`${base}/v1/orderbook/${pair}`);
+        const res = await fetch(`${base}/v1/orderbook/${pair}?net=${encodeURIComponent(feedNetwork)}`);
         if (!res.ok) return;
         const json = (await res.json()) as {
           snapshot?: OrderbookSnapshot;
@@ -69,7 +69,7 @@ export function BookPoolsView() {
     return () => {
       cancelled = true;
     };
-  }, [config.apiBaseUrl, effectiveAsset]);
+  }, [config.apiBaseUrl, effectiveAsset, feedNetwork]);
 
   const poolVenues = useMemo(
     () => [

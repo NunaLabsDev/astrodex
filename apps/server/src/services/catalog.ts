@@ -60,14 +60,54 @@ function isValidAssetKeyFormat(raw: string): boolean {
   }
 }
 
+/**
+ * Returns a read-only feed ServerConfig targeting Mainnet or Testnet when requested via `?net=mainnet`.
+ * Never alters signing/intent validation network rules.
+ */
+export function resolveReadFeedConfig(
+  baseConfig: ServerConfig,
+  requestedNet?: string | null,
+): ServerConfig {
+  const cleanNet = (requestedNet ?? "").trim().toLowerCase();
+  if (
+    cleanNet === "mainnet" &&
+    baseConfig.network !== "mainnet" &&
+    baseConfig.mainnetNetworkPassphrase &&
+    baseConfig.mainnetHorizonUrls.length > 0 &&
+    baseConfig.mainnetRpcUrls.length > 0
+  ) {
+    return {
+      ...baseConfig,
+      network: "mainnet",
+      networkPassphrase: baseConfig.mainnetNetworkPassphrase,
+      rpcUrls: baseConfig.mainnetRpcUrls,
+      horizonUrls: baseConfig.mainnetHorizonUrls,
+      sep42AssetListUrls:
+        baseConfig.mainnetSep42AssetListUrls.length > 0
+          ? baseConfig.mainnetSep42AssetListUrls
+          : baseConfig.sep42AssetListUrls,
+      soroswapFactoryContractId: baseConfig.mainnetSoroswapFactoryContractId,
+      soroswapRouterContractId: undefined,
+      xlmSacContractId: baseConfig.mainnetXlmSacContractId,
+      chainlinkPriceProxyContractId: baseConfig.mainnetChainlinkPriceProxyContractId,
+      astroGateApiBaseUrl: undefined,
+      astroGateLaunchpadContractId: undefined,
+      friendbotUrl: undefined,
+    };
+  }
+  return baseConfig;
+}
+
 export async function buildUnifiedCatalog(
   config: ServerConfig,
   repo: DexServerRepository,
   fetchFn: AdaptedFetch,
+  options: { includeRepoTokens?: boolean } = {},
 ): Promise<UnifiedCatalogSnapshot> {
+  const includeRepo = options.includeRepoTokens ?? true;
   const [tokens, pairs, sep42Assets, launchpadTokens] = await Promise.all([
-    repo.listTokens(100),
-    repo.listPairs(60),
+    includeRepo ? repo.listTokens(100) : Promise.resolve([]),
+    includeRepo ? repo.listPairs(60) : Promise.resolve([]),
     fetchSep42VerifiedAssets(config.sep42AssetListUrls, fetchFn).catch(() => []),
     (async (): Promise<LaunchpadTokenSummary[]> => {
       if (!config.astroGateApiBaseUrl) return [];
@@ -309,9 +349,13 @@ export async function searchCatalogAndNetworkAssets(input: {
   query: string;
   limit?: number;
   snapshot?: UnifiedCatalogSnapshot;
+  includeRepoTokens?: boolean;
 }): Promise<{ snapshot: UnifiedCatalogSnapshot; results: CatalogTokenItem[] }> {
   const snapshot =
-    input.snapshot ?? (await buildUnifiedCatalog(input.config, input.repo, input.fetchFn));
+    input.snapshot ??
+    (await buildUnifiedCatalog(input.config, input.repo, input.fetchFn, {
+      includeRepoTokens: input.includeRepoTokens ?? true,
+    }));
   const cleanQuery = input.query.trim();
   const limit = input.limit ?? 15;
 
@@ -355,9 +399,13 @@ export async function resolveAssetTarget(input: {
   fetchFn: AdaptedFetch;
   rawAsset: string;
   snapshot?: UnifiedCatalogSnapshot;
+  includeRepoTokens?: boolean;
 }): Promise<{ snapshot: UnifiedCatalogSnapshot; target: ResolvedAssetTarget }> {
   const snapshot =
-    input.snapshot ?? (await buildUnifiedCatalog(input.config, input.repo, input.fetchFn));
+    input.snapshot ??
+    (await buildUnifiedCatalog(input.config, input.repo, input.fetchFn, {
+      includeRepoTokens: input.includeRepoTokens ?? true,
+    }));
   const trimmed = input.rawAsset.trim();
 
   if (!trimmed) {

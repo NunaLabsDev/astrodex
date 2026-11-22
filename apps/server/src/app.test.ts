@@ -644,5 +644,47 @@ describe("@astrodex/server", () => {
     // Pure Soroban C... token orderbook also returns 200 safely without throwing
     const sorobanBookRes = await app.request(`/v1/orderbook/${ASTRO_CONTRACT}-XLM`, {}, makeBaseEnv());
     expect(sorobanBookRes.status).toBe(200);
+
+    // ?net=mainnet routes read-only market overview to configured Mainnet SEP-42 feed without leaking Testnet D1 tokens
+    const MAINNET_USDC_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+    const MAINNET_USDC_CONTRACT = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75";
+    const mainnetEnv = {
+      ...makeBaseEnv(),
+      MAINNET_NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015",
+      MAINNET_RPC_URLS: "https://mainnet-rpc.example.com",
+      MAINNET_HORIZON_URLS: "https://mainnet-horizon.example.com",
+      MAINNET_SEP42_ASSET_LIST_URLS: "https://mainnet-sep42.example.com/list.json",
+    };
+    const mainnetApp = createApp({
+      createRepo: () => repo,
+      fetchFn: (async (url: string | URL | Request) => {
+        const u = typeof url === "string" ? url : url.toString();
+        if (u.includes("mainnet-sep42.example.com")) {
+          return new Response(
+            JSON.stringify({
+              assets: [
+                {
+                  code: "USDC",
+                  issuer: MAINNET_USDC_ISSUER,
+                  contract: MAINNET_USDC_CONTRACT,
+                  name: "USD Coin",
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response("{}", { status: 404 });
+      }) as typeof fetch,
+    });
+    const mainnetOverview = await mainnetApp.request("/v1/markets/overview?net=mainnet", {}, mainnetEnv);
+    expect(mainnetOverview.status).toBe(200);
+    const mainnetJson = (await mainnetOverview.json()) as {
+      network: string;
+      catalog: Array<{ assetKey: string; code: string }>;
+    };
+    expect(mainnetJson.network).toBe("mainnet");
+    expect(mainnetJson.catalog.some((t) => t.assetKey === MAINNET_USDC_CONTRACT)).toBe(true);
+    expect(mainnetJson.catalog.some((t) => t.assetKey === ASTRO_CONTRACT)).toBe(false);
   });
 });

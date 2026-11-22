@@ -10,8 +10,17 @@ function shortId(id: string): string {
 }
 
 export function ScannerView() {
-  const { config, mode, selectedAsset, setSelectedAsset, setActiveTab, activeAccount, sessionToken } =
-    useAppState();
+  const {
+    config,
+    feedNetwork,
+    executionDisabled,
+    mode,
+    selectedAsset,
+    setSelectedAsset,
+    setActiveTab,
+    activeAccount,
+    sessionToken,
+  } = useAppState();
   const [searchQuery, setSearchQuery] = useState("");
   const [audit, setAudit] = useState<TokenForensicAudit | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,7 +38,9 @@ export function ScannerView() {
       setError(null);
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
-        const res = await fetch(`${base}/v1/scanner/${encodeURIComponent(selectedAsset || "XLM")}`);
+        const res = await fetch(
+          `${base}/v1/scanner/${encodeURIComponent(selectedAsset || "XLM")}?net=${encodeURIComponent(feedNetwork)}`,
+        );
         const json = (await res.json()) as { audit?: TokenForensicAudit; error?: string };
         if (!res.ok || !json.audit) {
           throw new Error(json.error ?? "Scan failed");
@@ -45,7 +56,7 @@ export function ScannerView() {
     return () => {
       cancelled = true;
     };
-  }, [config.apiBaseUrl, selectedAsset]);
+  }, [config.apiBaseUrl, feedNetwork, selectedAsset]);
 
   const handleCopy = async (val: string) => {
     try {
@@ -243,10 +254,14 @@ export function ScannerView() {
                   <button
                     type="button"
                     className="ad-btn-secondary"
-                    disabled={extendingTtl}
+                    disabled={executionDisabled || extendingTtl}
                     onClick={() => void handleExtendTtl(audit.contractId!)}
                   >
-                    {extendingTtl ? "Building ExtendFootprintTtl..." : "Extend Contract TTL via AstroWallet"}
+                    {executionDisabled
+                      ? "🔒 TTL Extension Paused (Visualizer Mode)"
+                      : extendingTtl
+                        ? "Building ExtendFootprintTtl..."
+                        : "Extend Contract TTL via AstroWallet"}
                   </button>
                 )}
               </div>

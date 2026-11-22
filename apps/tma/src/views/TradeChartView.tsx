@@ -47,6 +47,8 @@ function formatSelectLabel(
 export function TradeChartView() {
   const {
     config,
+    feedNetwork,
+    executionDisabled,
     mode,
     activeAccount,
     sessionToken,
@@ -138,9 +140,10 @@ export function TradeChartView() {
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
         const pair = `${encodeURIComponent(focusAsset)}-XLM`;
+        const netParam = encodeURIComponent(feedNetwork);
         const [candlesRes, bookRes] = await Promise.all([
-          fetch(`${base}/v1/candles/${pair}?tf=${timeframe}`),
-          fetch(`${base}/v1/orderbook/${pair}`),
+          fetch(`${base}/v1/candles/${pair}?tf=${timeframe}&net=${netParam}`),
+          fetch(`${base}/v1/orderbook/${pair}?net=${netParam}`),
         ]);
         if (!cancelled && candlesRes.ok) {
           const json = (await candlesRes.json()) as { candles?: OhlcvCandle[] };
@@ -162,7 +165,7 @@ export function TradeChartView() {
     return () => {
       cancelled = true;
     };
-  }, [config.apiBaseUrl, focusAsset, timeframe]);
+  }, [config.apiBaseUrl, feedNetwork, focusAsset, timeframe]);
 
   useEffect(() => {
     if (!toAsset.trim() || !amount.trim() || fromAsset.trim() === toAsset.trim()) {
@@ -185,6 +188,7 @@ export function TradeChartView() {
             slippageBps,
             sourceAddress: activeAccount?.address,
             accountKind: activeAccount?.kind ?? "classic",
+            network: feedNetwork,
           }),
         });
         const json = (await res.json()) as { quote?: MultiVenueQuoteResult; error?: string };
@@ -202,7 +206,7 @@ export function TradeChartView() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [config.apiBaseUrl, fromAsset, toAsset, amount, slippageBps, activeAccount]);
+  }, [config.apiBaseUrl, feedNetwork, fromAsset, toAsset, amount, slippageBps, activeAccount]);
 
   const spotXlmPerToken = useMemo(() => {
     if (ammPair?.spotPriceQuotePerBase && ammPair.spotPriceQuotePerBase > 0) {
@@ -461,7 +465,11 @@ export function TradeChartView() {
 
       <section className="glass-card ad-stack-10">
         <div className="ad-row">
-          <strong className="ad-text-lg">5-Way Smart Router Swap</strong>
+          <strong className="ad-text-lg">
+            {executionDisabled
+              ? `5-Way Router Simulator (${feedNetwork.toUpperCase()} Live)`
+              : "5-Way Smart Router Swap"}
+          </strong>
           <div className="ad-flex-6">
             <button
               type="button"
@@ -650,10 +658,14 @@ export function TradeChartView() {
         <button
           type="button"
           className="ad-btn-primary"
-          disabled={submitting || Boolean(quote?.blockedReason) || !quote?.bestRoute}
+          disabled={executionDisabled || submitting || Boolean(quote?.blockedReason) || !quote?.bestRoute}
           onClick={() => void handleHandoffSwap()}
         >
-          {submitting ? "Pre-Scanning Swap XDR..." : "Sign Swap in AstroWallet"}
+          {executionDisabled
+            ? `🔒 Trading Disabled (${feedNetwork.toUpperCase()} Visualizer Mode)`
+            : submitting
+              ? "Pre-Scanning Swap XDR..."
+              : "Sign Swap in AstroWallet"}
         </button>
       </section>
 
@@ -714,10 +726,14 @@ export function TradeChartView() {
               <button
                 type="button"
                 className="ad-btn-gold"
-                disabled={submitting || !toAsset}
+                disabled={executionDisabled || submitting || !toAsset}
                 onClick={() => void handleHandoffLimitOrder()}
               >
-                {submitting ? "Pre-Scanning XDR..." : "Place Limit Order via AstroWallet"}
+                {executionDisabled
+                  ? "🔒 Limit Orders Disabled (Visualizer Mode)"
+                  : submitting
+                    ? "Pre-Scanning XDR..."
+                    : "Place Limit Order via AstroWallet"}
               </button>
             </>
           )}

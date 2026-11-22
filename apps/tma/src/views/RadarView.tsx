@@ -42,11 +42,12 @@ function shortKey(key: string): string {
 
 function catalogRank(item: CatalogTokenItem): number {
   const code = item.code.toUpperCase();
-  if (code === "ASTRO") return 100;
-  if (item.assetKey === "XLM") return 95;
-  if (code === "USDC" && item.reviewStatus === "official") return 90;
-  if (code === "HEY" || code === "DOGEE" || code === "STELA") return 85;
-  if (code === "AQUA" || code === "EURC" || code === "CETES") return 80;
+  if (code === "USDC" && item.reviewStatus === "official") return 100;
+  if (item.assetKey === "XLM") return 96;
+  if (code === "YXLM" || code === "YUSDC" || code === "AQUA" || code === "EURC") return 90;
+  if (code === "XRP" || code === "BTCLN" || code === "SSLX") return 86;
+  if (code === "ASTRO") return 85;
+  if (code === "HEY" || code === "DOGEE" || code === "STELA") return 80;
   if (item.reviewStatus === "verified") return 70;
   if (item.reviewStatus === "official") return 50;
   return 20;
@@ -55,6 +56,8 @@ function catalogRank(item: CatalogTokenItem): number {
 export function RadarView() {
   const {
     config,
+    feedNetwork,
+    executionDisabled,
     mode,
     catalog,
     xlmUsd,
@@ -250,7 +253,9 @@ export function RadarView() {
       <section className="glass-card ad-stack-10">
         <div className="ad-row">
           <div>
-            <div className="ad-text-sm ad-text-muted">Live Stellar Market Radar</div>
+            <div className="ad-text-sm ad-text-muted">
+              Live {feedNetwork.toUpperCase()} Market Radar
+            </div>
             <h2 className="ad-heading-sm">
               XLM:{" "}
               <span className="tabular-nums ad-text-gold">
@@ -267,13 +272,15 @@ export function RadarView() {
             >
               {catalogLoading ? "Sync..." : "↻ Sync"}
             </button>
-            <button
-              type="button"
-              className="ad-btn-secondary"
-              onClick={() => setShowListForm((prev) => !prev)}
-            >
-              {showListForm ? "Close" : "+ List"}
-            </button>
+            {!executionDisabled && (
+              <button
+                type="button"
+                className="ad-btn-secondary"
+                onClick={() => setShowListForm((prev) => !prev)}
+              >
+                {showListForm ? "Close" : "+ List"}
+              </button>
+            )}
             {launchUrl && (
               <button
                 type="button"
@@ -292,9 +299,13 @@ export function RadarView() {
             setQuery(val);
             setSearchHint(null);
           }}
-          placeholder="Search name/ticker (ASTRO, USDC, STELA) or paste CODE:G... / C..."
+          placeholder={
+            feedNetwork === "mainnet"
+              ? "Search Mainnet token (USDC, AQUA, yXLM, EURC, XRP) or CODE:G... / C..."
+              : "Search Testnet token (ASTRO, USDC, STELA) or CODE:G... / C..."
+          }
           submitLabel="Scan"
-          primaryActionLabel="Trade"
+          primaryActionLabel="Quote"
           secondaryActionLabel="Scan"
           onSelectToken={(item, action) =>
             handleOpenAsset(item.assetKey, action === "secondary" ? "scanner" : "trade")
@@ -333,7 +344,7 @@ export function RadarView() {
 
         {mode === "basic" && (
           <div className="ad-text-xs ad-text-muted">
-            Tip: Tap <strong>Trade</strong> to swap across 5 Stellar venues, <strong>Book</strong> for live liquidity depth, or <strong>Scan</strong> for an instant safety audit.
+            Tip: Tap <strong>Quote</strong> for live charts &amp; 5-venue routing, <strong>Book</strong> for live liquidity depth, or <strong>Scan</strong> for an instant safety audit. (Execution is paused in Read-Only Visualizer mode.)
           </div>
         )}
       </section>
@@ -575,7 +586,7 @@ export function RadarView() {
                       className="ad-btn-secondary ad-btn-sm"
                       onClick={() => handleOpenAsset(item.assetKey, "trade")}
                     >
-                      Trade
+                      Quote
                     </button>
                     <button
                       type="button"

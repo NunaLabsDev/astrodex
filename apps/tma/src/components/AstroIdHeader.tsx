@@ -13,6 +13,9 @@ function shortAddr(addr: string): string {
 export function AstroIdHeader() {
   const {
     config,
+    feedNetwork,
+    setFeedNetwork,
+    executionDisabled,
     astroId,
     activeAccount,
     setActiveAccountAddress,
@@ -68,14 +71,23 @@ export function AstroIdHeader() {
             </div>
           )}
           <div className="ad-min-w-0">
-            <div className="ad-lg ad-font-extrabold ad-flex-6 ad-text-lg">
+            <div className="ad-font-extrabold ad-flex-wrap ad-text-lg">
               <span>AstroDex</span>
-              <span className="glass-pill">{config.network.toUpperCase()}</span>
+              <span
+                className={`glass-pill ${
+                  feedNetwork === "mainnet" ? "glass-pill--safe" : "glass-pill--gold"
+                }`}
+              >
+                {feedNetwork.toUpperCase()} LIVE
+              </span>
+              {executionDisabled && (
+                <span className="glass-pill glass-pill--warn">READ-ONLY</span>
+              )}
             </div>
             <div className="ad-text-xs ad-text-muted">
               {astroId.found && activeAccount
                 ? `@${astroId.usernameLower ?? "astroid"} · ${shortAddr(activeAccount.address)}`
-                : "Read-Only Mode · Tap Connect for AstroID"}
+                : "Live Market Visualizer · Trading Paused"}
             </div>
           </div>
         </div>
@@ -100,6 +112,20 @@ export function AstroIdHeader() {
 
       <div className="ad-row ad-row-wrap">
         <div className="ad-flex-wrap">
+          <button
+            type="button"
+            className={`glass-pill ad-clickable ${feedNetwork === "mainnet" ? "glass-pill--safe" : ""}`}
+            onClick={() => setFeedNetwork("mainnet")}
+          >
+            Mainnet
+          </button>
+          <button
+            type="button"
+            className={`glass-pill ad-clickable ${feedNetwork === "testnet" ? "glass-pill--gold" : ""}`}
+            onClick={() => setFeedNetwork("testnet")}
+          >
+            Testnet
+          </button>
           {astroId.accounts.length > 0 ? (
             astroId.accounts.map((acc) => (
               <button
@@ -108,16 +134,16 @@ export function AstroIdHeader() {
                 className={`glass-pill ad-clickable ${activeAccount?.address === acc.address ? "glass-pill--gold" : ""}`}
                 onClick={() => setActiveAccountAddress(acc.address)}
               >
-                {acc.kind === "smart" ? "C... Smart" : "G... Classic"} {shortAddr(acc.address)}
+                {acc.kind === "smart" ? "C..." : "G..."} {shortAddr(acc.address)}
               </button>
             ))
           ) : (
             <button
               type="button"
-              className="glass-pill glass-pill--gold ad-clickable"
+              className="glass-pill ad-clickable"
               onClick={() => setShowConnectSheet((prev) => !prev)}
             >
-              ⚡ Connect AstroID / Address
+              ⚡ Lookup Address / AstroID
             </button>
           )}
         </div>
@@ -128,7 +154,7 @@ export function AstroIdHeader() {
             className="glass-pill ad-clickable"
             onClick={() => setShowConnectSheet((prev) => !prev)}
           >
-            {showConnectSheet ? "Close" : astroId.found ? "Switch" : "Lookup"}
+            {showConnectSheet ? "Close" : astroId.found ? "Switch" : "Account"}
           </button>
           <button
             type="button"
@@ -152,16 +178,16 @@ export function AstroIdHeader() {
       {showConnectSheet && (
         <div className="ad-sub-panel">
           <div className="ad-text-sm ad-text-muted">
-            Non-custodial SSO powered exclusively by <strong>AstroWallet</strong>. Sign transactions inside Telegram or preview any public <code>@AstroID</code> / <code>G...</code> / <code>C...</code> address.
+            <strong>Visualizer Mode:</strong> Live {feedNetwork.toUpperCase()} quotes, charts, orderbooks, and X-Ray scans are active. On-chain transaction signing is paused. Load any public <code>@AstroID</code> or <code>G...</code>/<code>C...</code> address to inspect orders.
           </div>
 
           <div className="ad-flex-wrap">
             <button
               type="button"
-              className="ad-btn-primary ad-btn-md"
+              className="ad-btn-secondary ad-btn-md"
               onClick={() => openTelegramDeepLink(walletConnectUrl)}
             >
-              Open AstroWallet SSO
+              Open AstroWallet
             </button>
             {astroId.found && (
               <button
@@ -172,7 +198,7 @@ export function AstroIdHeader() {
                   setLookupFeedback(null);
                 }}
               >
-                Disconnect Preview
+                Clear Preview
               </button>
             )}
           </div>

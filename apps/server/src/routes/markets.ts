@@ -22,6 +22,7 @@ import {
   buildUnifiedCatalog,
   loadLiveAmmOrderbookAndSpot,
   resolveAssetTarget,
+  resolveReadFeedConfig,
   searchCatalogAndNetworkAssets,
 } from "../services/catalog.js";
 import { adaptFetch, type FetchLike } from "../stellar-verifier.js";
@@ -139,9 +140,11 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   const fetchFn = adaptFetch(rawFetchFn);
 
   router.get("/markets/overview", async (c) => {
-    const config = c.get("config");
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
     const usdcIssuer = snapshot.sep42Assets.find(
       (a) => a.code.toUpperCase() === "USDC" && a.issuer,
     )?.issuer;
@@ -198,7 +201,9 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   });
 
   router.get("/markets/search", async (c) => {
-    const config = c.get("config");
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
     const q = (c.req.query("q") ?? "").trim();
     const limitParam = Number(c.req.query("limit") ?? "15");
@@ -209,8 +214,9 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       fetchFn,
       query: q,
       limit,
+      includeRepoTokens,
     });
-    return c.json({ ok: true, query: q, results });
+    return c.json({ ok: true, network: config.network, query: q, results });
   });
 
   router.post("/markets/listings", async (c) => {
@@ -342,7 +348,9 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   });
 
   router.get("/scanner/:assetId", async (c) => {
-    const config = c.get("config");
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
     const rawAssetId = decodeURIComponent(c.req.param("assetId"));
     const { target } = await resolveAssetTarget({
@@ -350,12 +358,13 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       repo,
       fetchFn,
       rawAsset: rawAssetId,
+      includeRepoTokens,
     });
     const scanner = createConfiguredScanner(config, c.env.CACHE, rawFetchFn, fetchFn);
 
     try {
       const audit = await scanner.auditToken(target.resolvedKey);
-      return c.json({ ok: true, audit, resolvedFrom: rawAssetId });
+      return c.json({ ok: true, network: config.network, audit, resolvedFrom: rawAssetId });
     } catch (err) {
       return c.json(
         { ok: false, error: err instanceof Error ? err.message : "Failed to scan asset" },
@@ -365,11 +374,13 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   });
 
   router.get("/orderbook/:pair", async (c) => {
-    const config = c.get("config");
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
     const rawPair = decodeURIComponent(c.req.param("pair"));
     const [rawBase = "XLM", rawQuote = "XLM"] = rawPair.split("-");
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
     const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawBase, snapshot }),
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawQuote, snapshot }),
@@ -398,6 +409,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const depth = computeDepthChart(effectiveSnapshot);
     return c.json({
       ok: true,
+      network: config.network,
       snapshot: effectiveSnapshot,
       depth,
       ammPair: ammResult.ammPairInfo,
@@ -405,14 +417,16 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   });
 
   router.get("/candles/:pair", async (c) => {
-    const config = c.get("config");
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
     const rawPair = decodeURIComponent(c.req.param("pair"));
     const tfParam = (c.req.query("tf") ?? "1h") as OhlcvTimeframe;
     const timeframe: OhlcvTimeframe = TIMEFRAMES.has(tfParam) ? tfParam : "1h";
     const [rawBase = "XLM", rawQuote = "XLM"] = rawPair.split("-");
 
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
     const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawBase, snapshot }),
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawQuote, snapshot }),
@@ -422,9 +436,9 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       networkPassphrase: config.networkPassphrase,
       rpcUrls: config.rpcUrls,
       horizonUrls: config.horizonUrls,
-      sorobanCandlesLoader: async (pairId, tf, limit) => [
-        ...(await repo.listCandles(pairId, tf, limit)),
-      ],
+      sorobanCandlesLoader: includeRepoTokens
+        ? async (pairId, tf, limit) => [...(await repo.listCandles(pairId, tf, limit))]
+        : undefined,
       spotMidPriceLoader: async () => {
         const amm = await loadLiveAmmOrderbookAndSpot({
           config,
@@ -444,7 +458,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       timeframe,
       limit: 120,
     });
-    return c.json({ ok: true, pair: rawPair, timeframe, candles });
+    return c.json({ ok: true, network: config.network, pair: rawPair, timeframe, candles });
   });
 
   router.get("/watchlists", async (c) => {
@@ -513,14 +527,15 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   });
 
   router.get("/orders/:address", async (c) => {
-    const config = c.get("config");
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
     const rawAddress = decodeURIComponent(c.req.param("address")).trim();
     const parsed = StellarAddressSchema.safeParse(rawAddress);
     if (!parsed.success || !parsed.data.startsWith("G")) {
       return c.json({ ok: true, offers: [] });
     }
     const offers = await listClassicOpenOffers(config.horizonUrls, parsed.data, fetchFn);
-    return c.json({ ok: true, offers });
+    return c.json({ ok: true, network: config.network, offers });
   });
 
   return router;

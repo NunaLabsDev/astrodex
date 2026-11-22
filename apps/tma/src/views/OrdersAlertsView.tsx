@@ -35,6 +35,8 @@ function writeLocalJson<T>(key: string, value: T): void {
 export function OrdersAlertsView() {
   const {
     config,
+    feedNetwork,
+    executionDisabled,
     sessionToken,
     activeAccount,
     catalog,
@@ -89,7 +91,9 @@ export function OrdersAlertsView() {
 
     if (activeAccount?.kind === "classic") {
       tasks.push(
-        fetch(`${base}/v1/orders/${encodeURIComponent(activeAccount.address)}`)
+        fetch(
+          `${base}/v1/orders/${encodeURIComponent(activeAccount.address)}?net=${encodeURIComponent(feedNetwork)}`,
+        )
           .then(async (r) => {
             if (!r.ok) return;
             const json = (await r.json()) as { offers?: OpenLimitOffer[] };
@@ -102,7 +106,7 @@ export function OrdersAlertsView() {
     }
 
     await Promise.all(tasks);
-  }, [activeAccount, base, sessionToken]);
+  }, [activeAccount, base, feedNetwork, sessionToken]);
 
   useEffect(() => {
     void loadData();
@@ -321,10 +325,10 @@ export function OrdersAlertsView() {
                 <button
                   type="button"
                   className="ad-btn-secondary ad-btn-sm"
-                  disabled={busyId === offer.offerId}
+                  disabled={executionDisabled || busyId === offer.offerId}
                   onClick={() => void handleCancelOffer(offer)}
                 >
-                  Cancel
+                  {executionDisabled ? "Read-Only" : "Cancel"}
                 </button>
               </div>
             ))}

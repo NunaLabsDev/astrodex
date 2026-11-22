@@ -37,6 +37,7 @@ import {
   createConfiguredCurveStateLoader,
   createConfiguredPairReservesLoader,
   resolveAssetTarget,
+  resolveReadFeedConfig,
 } from "../services/catalog.js";
 import {
   adaptFetch,
@@ -53,6 +54,7 @@ const QuoteBodySchema = z.object({
   slippageBps: z.number().int().min(1).max(5000).default(50),
   sourceAddress: StellarAddressSchema.optional(),
   accountKind: z.enum(["classic", "smart"]).default("classic"),
+  network: z.enum(["testnet", "mainnet"]).optional(),
 });
 
 const CreateIntentBodySchema = z.object({
@@ -182,13 +184,13 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
   const fetchFn = adaptFetch(rawFetchFn);
 
   router.post("/quote", async (c) => {
-    const config = c.get("config");
+    const baseConfig = c.get("config");
     const repo = c.get("repo");
     const rl = await checkRateLimit({
       repository: repo,
       scope: "quote",
       clientKey: clientKeyFromHeaders(c.req.raw.headers),
-      limitPerMin: config.quoteRateLimitPerMin,
+      limitPerMin: baseConfig.quoteRateLimitPerMin,
     });
     if (!rl.allowed) {
       c.header("Retry-After", String(rl.retryAfterSeconds));
@@ -205,7 +207,9 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       );
     }
 
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const config = resolveReadFeedConfig(baseConfig, body.network ?? c.req.query("net"));
+    const includeRepoTokens = config.network === baseConfig.network;
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
     const [{ target: fromTarget }, { target: toTarget }] = await Promise.all([
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.fromAsset, snapshot }),
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.toAsset, snapshot }),
@@ -223,7 +227,10 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
 
     const routerEngine = createSmartLiquidityRouter({
       horizonUrls: config.horizonUrls,
-      soroswapProxyQuoteUrl: config.soroswapApiBase ? `${config.tmaOrigin.replace(/\/+$/, "")}/v1/proxy/soroswap/quote` : undefined,
+      soroswapProxyQuoteUrl:
+        includeRepoTokens && config.soroswapApiBase
+          ? `${config.tmaOrigin.replace(/\/+$/, "")}/v1/proxy/soroswap/quote`
+          : undefined,
       xoxnoApiBase: config.xoxnoSwapApiBase,
       verifiedAssets: snapshot.sep42Assets,
       curveStateLoader: createConfiguredCurveStateLoader(config, fetchFn),
@@ -240,7 +247,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       accountKind: body.accountKind,
     });
 
-    return c.json({ ok: true, quote });
+    return c.json({ ok: true, network: config.network, quote });
   });
 
   router.post("/intents", async (c) => {

@@ -379,6 +379,13 @@ const RawServerEnvSchema = z
     STELLAR_REGISTRY_API_BASE: OptionalUrlSchema("STELLAR_REGISTRY_API_BASE"),
     SEP42_ASSET_LIST_URLS: parseUrlCsv("SEP42_ASSET_LIST_URLS", false),
     FRIENDBOT_URL: OptionalUrlSchema("FRIENDBOT_URL"),
+    MAINNET_NETWORK_PASSPHRASE: OptionalNonEmptyStringSchema,
+    MAINNET_RPC_URLS: parseUrlCsv("MAINNET_RPC_URLS", false),
+    MAINNET_HORIZON_URLS: parseUrlCsv("MAINNET_HORIZON_URLS", false),
+    MAINNET_SEP42_ASSET_LIST_URLS: parseUrlCsv("MAINNET_SEP42_ASSET_LIST_URLS", false),
+    MAINNET_SOROSWAP_FACTORY_CONTRACT_ID: OptionalContractAddressSchema,
+    MAINNET_XLM_SAC_CONTRACT_ID: OptionalContractAddressSchema,
+    MAINNET_CHAINLINK_PRICE_PROXY_CONTRACT_ID: OptionalContractAddressSchema,
     PROXY_RATE_LIMIT_PER_MIN: parsePositiveIntWithDefault(60, 5000),
     QUOTE_RATE_LIMIT_PER_MIN: parsePositiveIntWithDefault(40, 2000),
     TG_BOT_TOKEN: z
@@ -467,6 +474,13 @@ export interface ServerConfig {
   stellarRegistryApiBase?: string | undefined;
   sep42AssetListUrls: string[];
   friendbotUrl?: string | undefined;
+  mainnetNetworkPassphrase?: string | undefined;
+  mainnetRpcUrls: string[];
+  mainnetHorizonUrls: string[];
+  mainnetSep42AssetListUrls: string[];
+  mainnetSoroswapFactoryContractId?: ContractAddress | undefined;
+  mainnetXlmSacContractId?: ContractAddress | undefined;
+  mainnetChainlinkPriceProxyContractId?: ContractAddress | undefined;
   proxyRateLimitPerMin: number;
   quoteRateLimitPerMin: number;
   tgBotToken: string;
@@ -510,6 +524,13 @@ export function parseServerConfig(rawEnv: Record<string, unknown>): ServerConfig
     stellarRegistryApiBase: parsed.STELLAR_REGISTRY_API_BASE,
     sep42AssetListUrls: parsed.SEP42_ASSET_LIST_URLS,
     friendbotUrl: parsed.FRIENDBOT_URL,
+    mainnetNetworkPassphrase: parsed.MAINNET_NETWORK_PASSPHRASE,
+    mainnetRpcUrls: parsed.MAINNET_RPC_URLS,
+    mainnetHorizonUrls: parsed.MAINNET_HORIZON_URLS,
+    mainnetSep42AssetListUrls: parsed.MAINNET_SEP42_ASSET_LIST_URLS,
+    mainnetSoroswapFactoryContractId: parsed.MAINNET_SOROSWAP_FACTORY_CONTRACT_ID,
+    mainnetXlmSacContractId: parsed.MAINNET_XLM_SAC_CONTRACT_ID,
+    mainnetChainlinkPriceProxyContractId: parsed.MAINNET_CHAINLINK_PRICE_PROXY_CONTRACT_ID,
     proxyRateLimitPerMin: parsed.PROXY_RATE_LIMIT_PER_MIN,
     quoteRateLimitPerMin: parsed.QUOTE_RATE_LIMIT_PER_MIN,
     tgBotToken: parsed.TG_BOT_TOKEN,

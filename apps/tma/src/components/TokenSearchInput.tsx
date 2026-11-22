@@ -23,7 +23,7 @@ export interface TokenSearchInputProps {
 export function TokenSearchInput({
   query,
   onQueryChange,
-  placeholder = "Search by name/ticker (ASTRO, USDC, STELA) or paste CODE:G... / C...",
+  placeholder = "Search by name/ticker (USDC, AQUA, yXLM, XLM) or paste CODE:G... / C...",
   submitLabel,
   onSubmitRaw,
   onSelectToken,
@@ -32,7 +32,7 @@ export function TokenSearchInput({
   showResultsWhenEmpty = false,
   maxResults = 6,
 }: TokenSearchInputProps) {
-  const { config, catalog } = useAppState();
+  const { config, feedNetwork, catalog } = useAppState();
   const [remoteResults, setRemoteResults] = useState<CatalogTokenItem[]>([]);
   const [searchingRemote, setSearchingRemote] = useState(false);
 
@@ -72,7 +72,7 @@ export function TokenSearchInput({
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
         const res = await fetch(
-          `${base}/v1/markets/search?q=${encodeURIComponent(q)}&limit=${maxResults}`,
+          `${base}/v1/markets/search?q=${encodeURIComponent(q)}&limit=${maxResults}&net=${encodeURIComponent(feedNetwork)}`,
         );
         if (!res.ok) return;
         const json = (await res.json()) as { results?: CatalogTokenItem[] };
@@ -89,7 +89,7 @@ export function TokenSearchInput({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [config.apiBaseUrl, maxResults, query]);
+  }, [config.apiBaseUrl, feedNetwork, maxResults, query]);
 
   const combinedResults = useMemo(() => {
     const seen = new Set<string>();

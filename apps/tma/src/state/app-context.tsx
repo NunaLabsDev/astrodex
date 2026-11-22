@@ -4,6 +4,7 @@ import {
   type AstroIdProfile,
   type CatalogTokenItem,
   type ResolvedAccount,
+  type StellarNetwork,
   type TmaConfig,
 } from "@astrodex/domain";
 import { parseAstroDexStartAppParam } from "@astrodex/tg-protocol";
@@ -29,6 +30,9 @@ export type DockTab = "radar" | "trade" | "scanner" | "book" | "orders";
 
 interface AppContextValue {
   config: TmaConfig;
+  feedNetwork: StellarNetwork;
+  setFeedNetwork: (net: StellarNetwork) => void;
+  executionDisabled: boolean;
   authStatus: TelegramAuthStatus;
   authError: string | null;
   sessionToken: string | null;
@@ -55,7 +59,7 @@ interface AppContextValue {
     reserveXlm?: string;
   }>;
   catalogLoading: boolean;
-  refreshCatalog: () => Promise<void>;
+  refreshCatalog: (overrideNet?: StellarNetwork) => Promise<void>;
   retryAuth: () => void;
 }
 
@@ -66,6 +70,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => parseTmaConfig(import.meta.env as Record<string, unknown>),
     [],
   );
+
+  // Default to Mainnet Live Visualizer (read-only market data, execution disabled)
+  const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>("mainnet");
+  const executionDisabled = true;
 
   const [authStatus, setAuthStatus] = useState<TelegramAuthStatus>("checking");
   const [authError, setAuthError] = useState<string | null>(null);
@@ -85,32 +93,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [launchpadTokens, setLaunchpadTokens] = useState<AppContextValue["launchpadTokens"]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
 
-  const refreshCatalog = useCallback(async () => {
-    setCatalogLoading(true);
-    try {
-      const base = config.apiBaseUrl.replace(/\/+$/, "");
-      const res = await fetch(`${base}/v1/markets/overview`);
-      if (!res.ok) return;
-      const json = (await res.json()) as {
-        xlmUsd?: { priceUsd?: number } | null;
-        launchpadTokens?: AppContextValue["launchpadTokens"];
-        catalog?: CatalogTokenItem[];
-      };
-      setXlmUsd(json.xlmUsd?.priceUsd ?? null);
-      setLaunchpadTokens(json.launchpadTokens ?? []);
-      if (Array.isArray(json.catalog) && json.catalog.length > 0) {
-        setCatalog(json.catalog);
+  const refreshCatalog = useCallback(
+    async (overrideNet?: StellarNetwork) => {
+      const targetNet = overrideNet ?? feedNetwork;
+      setCatalogLoading(true);
+      try {
+        const base = config.apiBaseUrl.replace(/\/+$/, "");
+        const res = await fetch(
+          `${base}/v1/markets/overview?net=${encodeURIComponent(targetNet)}`,
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          xlmUsd?: { priceUsd?: number } | null;
+          launchpadTokens?: AppContextValue["launchpadTokens"];
+          catalog?: CatalogTokenItem[];
+        };
+        setXlmUsd(json.xlmUsd?.priceUsd ?? null);
+        setLaunchpadTokens(json.launchpadTokens ?? []);
+        if (Array.isArray(json.catalog)) {
+          setCatalog(json.catalog);
+        }
+      } catch {
+        // Keep graceful offline fallback
+      } finally {
+        setCatalogLoading(false);
       }
-    } catch {
-      // Keep graceful offline fallback
-    } finally {
-      setCatalogLoading(false);
-    }
-  }, [config.apiBaseUrl]);
+    },
+    [config.apiBaseUrl, feedNetwork],
+  );
 
   useEffect(() => {
-    void refreshCatalog();
-  }, [refreshCatalog]);
+    void refreshCatalog(feedNetwork);
+  }, [feedNetwork, refreshCatalog]);
+
+  const setFeedNetwork = useCallback((net: StellarNetwork) => {
+    triggerTelegramHaptic("selection");
+    setSelectedAsset("XLM");
+    setFeedNetworkState(net);
+  }, []);
 
   const applyStartParam = useCallback((rawParam: string) => {
     const parsed = parseAstroDexStartAppParam(rawParam);
@@ -270,10 +290,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const defaultPairAsset = useMemo(() => {
-    const astro = catalog.find((t) => t.code.toUpperCase() === "ASTRO");
-    if (astro) return astro.assetKey;
     const usdc = catalog.find((t) => t.code.toUpperCase() === "USDC");
     if (usdc) return usdc.assetKey;
+    const astro = catalog.find((t) => t.code.toUpperCase() === "ASTRO");
+    if (astro) return astro.assetKey;
     return catalog.find((t) => t.assetKey !== "XLM")?.assetKey ?? "XLM";
   }, [catalog]);
 
@@ -281,6 +301,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider
       value={{
         config,
+        feedNetwork,
+        setFeedNetwork,
+        executionDisabled,
         authStatus,
         authError,
         sessionToken,
