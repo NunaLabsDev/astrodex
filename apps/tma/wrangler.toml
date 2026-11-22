@@ -1,0 +1,7 @@
+name = "astrodex-testnet"
+compatibility_date = "2026-04-01"
+pages_build_output_dir = "dist"
+
+[[services]]
+binding = "ASTRODEX_SERVER"
+service = "astrodex-server"

@@ -1,0 +1,8 @@
+# Local development Worker secrets (never commit real .dev.vars)
+TG_BOT_TOKEN=123456789:REPLACE_WITH_TESTNET_BOT_TOKEN
+TG_WEBHOOK_SECRET=replace-with-random-webhook-secret-min-16
+INTENT_HMAC_SECRET=replace-with-shared-intent-hmac-secret-min-32-chars
+ECOSYSTEM_SHARED_INTENT_SECRET=replace-with-shared-ecosystem-secret-min-32-chars
+SOROSWAP_API_KEY=
+STELLAR_PRICES_API_KEY=
+INDEXER_WEBHOOK_SECRET=

@@ -1,6 +1,6 @@
 # CLAUDE.md — AstroDex
 
-Follow [AGENTS.md](./AGENTS.md) as the canonical repository contract for architecture, hexagonal DAG boundaries, zero-hardcoding rules, AstroWallet exclusive signing delegation, AstroGate v4.4 integration, and Definition of Done.
+Follow [AGENTS.md](./AGENTS.md) as the canonical repository contract for architecture, hexagonal DAG boundaries, zero-hardcoding rules, AstroWallet exclusive `AstroID` SSO & signing delegation, AstroGate v4.5 integration, and Definition of Done.
 
 Quick references:
 - **Doc Index (read only what you need)**: [`docs/INDEX.md`](./docs/INDEX.md)

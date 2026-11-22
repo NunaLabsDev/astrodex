@@ -6,7 +6,7 @@
 
 ## 1. Visual Philosophy & Ergonomic Pillars
 
-1. **Unified Astro Ecosystem Identity:** Shares the **Apple Liquid Glass** visual language and 5-color cosmic banking palette of **AstroWallet** (`#F15A24`, `#F5C928`, `#8050C8`, `#A58BE0`, `#172C69`) so switching between **AstroWallet**, **AstroGate**, and **AstroDex** inside Telegram feels like one cohesive super-app.
+1. **Unified Astro Ecosystem Identity (`AstroID` + Sorobits):** Shares the **Apple Liquid Glass** visual language and 5-color cosmic banking palette of **AstroWallet** (`#F15A24`, `#F5C928`, `#8050C8`, `#A58BE0`, `#172C69`) plus a unified Global Header (**Sorobit SEP-50 `32×32` on-chain SVG avatar** + `@username` + `G...`/`C...` pill + quick switcher **`Wallet ↔ Launchpad ↔ DEX`**) so moving across **AstroWallet**, **AstroGate v4.5**, and **AstroDex** inside Telegram feels like one cohesive super-app.
 2. **Progressive Disclosure Without Clutter (`375pt` Mobile First):**
    - A single persistent header pill toggles between **`⚡ Basic`** (intuitive swap, plain-English safety shield, line/area price chart, AstroGate curve progress) and **`🔬 Pro Scanner`** (TradingView Lightweight OHLCV candlesticks, Combined Depth Chart, live SDEX Orderbook + Limit Orders, Issuer Lock proof, Top-10 Holders, Protocol 23 TTL gauge, Raw XDR inspector).
 3. **Zero Layout Jitter & Financial Legibility:**
@@ -85,4 +85,4 @@
 | **Trade Panel** | 1-Tap Swap (`25% / 50% / MAX`), best route auto-selected, clear auto-trustline notice | Tabs: **Smart Swap** (5-way route comparison table, custom slippage) + **SDEX Limit Order** (`Buy` / `Sell` price & amount) |
 | **Security Scanner** | **Astro Shield Score (0–100)** + 3 plain-English checks (Freeze?, Mint?, Official?) | Full Classic flags + Issuer Lock math (`master_weight` + signer sum), SEP-1/42/55, Protocol 23 TTL bar + 1-Tap Extend, Top-10 Holders |
 | **Liquidity & Tape** | Single summary pill (`Total Liquidity` + `LP Locked 7Y / Burned`) | Live **SDEX Orderbook** + Multi-Venue Pool Reserves + Live **Whale & Trade Tape** |
-| **AstroGate Section** | Simple Graduation Progress Bar (`%` to `1,000 XLM`) | Full Jackpot Ladder (`250 / 500 / 1,000 XLM`), Buyback Reserve + Cooldown Timer + `Trigger Buyback` CTA, Burn-to-Chat Feed |
+| **AstroGate Section** | Simple Graduation Progress Bar (`%` to `1,000 XLM`) + SHA-256 Logo | Full Jackpot Ladder (`250 / 500 / 1,000 XLM` + `claim_jackpot`), 30d `CurveClosed` refund, Buyback Reserve + Cooldown Timer + `Trigger Buyback (2% Bounty)` CTA, Burn-to-Chat Feed, Sorobits XP |

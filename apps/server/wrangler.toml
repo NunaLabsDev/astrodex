@@ -1,0 +1,91 @@
+name = "astrodex-server"
+main = "src/index.ts"
+workers_dev = false
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "astrodex"
+database_id = "4f7684e0-86dd-4696-b725-d7b109f4dd67"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "d086ce01143b472d920ec36ccc906668"
+
+[[durable_objects.bindings]]
+name = "DEX_INDEXER"
+class_name = "DexIndexerDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DexIndexerDO"]
+
+[triggers]
+crons = ["0 */6 * * *"]
+
+[vars]
+STELLAR_NETWORK = "testnet"
+STELLAR_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
+STELLAR_RPC_URLS = "https://soroban-testnet.stellar.org,https://rpc-testnet.stellar.org"
+HORIZON_URLS = "https://horizon-testnet.stellar.org"
+TMA_ORIGIN = "https://astrodex-testnet.pages.dev"
+ALLOWED_ORIGINS = "https://astrodex-testnet.pages.dev"
+TELEGRAM_API_ORIGIN = "https://api.telegram.org"
+TG_BOT_USERNAME = "AstroDexBot"
+TG_MINI_APP_SHORT_NAME = "dex"
+ASTROWALLET_BOT_USERNAME = "AstroWalletAppBot"
+ASTROWALLET_MINI_APP_SHORT_NAME = "wallet"
+ASTROWALLET_API_BASE_URL = "https://astrowallet-soroban.pages.dev"
+ASTROGATE_BOT_USERNAME = "AstroGateSorobanBot"
+ASTROGATE_API_BASE_URL = "https://astrogate.pages.dev"
+ASTROGATE_LAUNCHPAD_CONTRACT_ID = "CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK"
+SOROBITS_CONTRACT_ID = "CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3"
+SOROSWAP_FACTORY_CONTRACT_ID = "CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY"
+SOROSWAP_ROUTER_CONTRACT_ID = "CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD"
+XLM_SAC_CONTRACT_ID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+CHAINLINK_PRICE_PROXY_CONTRACT_ID = "CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4"
+STELLAR_EXPERT_API_BASE = "https://api.stellar.expert"
+SEP42_ASSET_LIST_URLS = "https://api.stellar.expert/explorer/testnet/asset-list/top50"
+FRIENDBOT_URL = "https://friendbot.stellar.org"
+PROXY_RATE_LIMIT_PER_MIN = "60"
+QUOTE_RATE_LIMIT_PER_MIN = "40"
+
+[env.mainnet]
+name = "astrodex-server-mainnet"
+workers_dev = false
+
+[[env.mainnet.d1_databases]]
+binding = "DB"
+database_name = "astrodex-mainnet"
+database_id = "REPLACE_WITH_MAINNET_D1_ID"
+migrations_dir = "migrations"
+
+[[env.mainnet.kv_namespaces]]
+binding = "CACHE"
+id = "REPLACE_WITH_MAINNET_KV_ID"
+
+[[env.mainnet.durable_objects.bindings]]
+name = "DEX_INDEXER"
+class_name = "DexIndexerDO"
+
+[env.mainnet.vars]
+STELLAR_NETWORK = "mainnet"
+STELLAR_NETWORK_PASSPHRASE = "Public Global Stellar Network ; September 2015"
+STELLAR_RPC_URLS = "https://soroban-rpc.mainnet.stellar.org,https://mainnet.sorobanrpc.com"
+HORIZON_URLS = "https://horizon.stellar.org"
+TMA_ORIGIN = "https://astrodex.pages.dev"
+ALLOWED_ORIGINS = "https://astrodex.pages.dev"
+TELEGRAM_API_ORIGIN = "https://api.telegram.org"
+TG_BOT_USERNAME = "AstroDexBot"
+TG_MINI_APP_SHORT_NAME = "dex"
+ASTROWALLET_BOT_USERNAME = "AstroWalletAppBot"
+ASTROWALLET_MINI_APP_SHORT_NAME = "wallet"
+XLM_SAC_CONTRACT_ID = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+REFLECTOR_DEX_ORACLE_CONTRACT_ID = "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M"
+CHAINLINK_PRICE_PROXY_CONTRACT_ID = "CDQBHEUGLDHMSUHG4IH33RJBUTMNCZOT4JIAQR4WZFRDZW6DR6S32ZLZ"
+STELLAR_EXPERT_API_BASE = "https://api.stellar.expert"
+SEP42_ASSET_LIST_URLS = "https://api.stellar.expert/explorer/public/asset-list/top50"
+PROXY_RATE_LIMIT_PER_MIN = "60"
+QUOTE_RATE_LIMIT_PER_MIN = "40"

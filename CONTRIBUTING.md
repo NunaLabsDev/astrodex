@@ -8,13 +8,15 @@ Thank you for contributing to **AstroDex**! Before writing code or opening a pul
 5. [`docs/ECOSYSTEM_INTEGRATION.md`](docs/ECOSYSTEM_INTEGRATION.md)
 
 ## Required Local Verification Suite
-Every PR must pass all checks after the final edit:
+Every PR must pass all checks after the final edit (`pnpm check` runs the full suite below):
 
 ```bash
 pnpm install
+pnpm check
+# Or individually:
 pnpm --filter "./packages/*" build
-pnpm typecheck
-pnpm lint
+pnpm -r typecheck
+pnpm -r lint
 pnpm test
 pnpm secret-scan
 pnpm --filter @astrodex/tma build

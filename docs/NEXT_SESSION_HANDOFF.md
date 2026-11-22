@@ -1,8 +1,8 @@
-# AstroDex — Next Session Handoff & Milestone 1 Bootstrap
+# AstroDex — Deployment & Operations Handoff (Milestones 1–6 Complete)
 
-> **Current Phase:** **Planning & Architecture Complete** (`PLAN MODE` documentation suite finalized). Ready to execute **Milestone 1** immediately in the next session.
+> **Current Phase:** **Milestones 1–6 Complete & Verified (Testnet-Ready)** (`AstroWallet` = Exclusive `AstroID` SSO Login & Signing Hub; `AstroGate v4.5` = Launchpad, Sorobits SEP-50 & SHA-256 Logo CDN; `AstroDex` = 5-Way DEX, Orderbooks & Forensic Scanner).
 > **Language Policy:** 100% English across all code, docs, UI, and `@AstroDexBot`.
-> **Ecosystem Rule:** Integrate strictly with **AstroWallet** (`/home/dev/projects/astrowallet`) and **AstroGate v4.4** (`/home/dev/projects/astrogate`).
+> **Ecosystem Rule:** Integrated across **AstroWallet** (`/Users/munay/dev/ASTRO/astrowallet`) and **AstroGate v4.5** (`/Users/munay/dev/ASTRO/AstroGate`).
 
 ---
 
@@ -10,51 +10,45 @@
 
 | Component | Verified Stellar Testnet Identifier (`Test SDF Network ; September 2015`) |
 | :--- | :--- |
-| **Stellar RPC** | `https://soroban-testnet.stellar.org` |
+| **Stellar RPC** | `https://soroban-testnet.stellar.org` (fallback `https://rpc-testnet.stellar.org`) |
 | **Horizon API** | `https://horizon-testnet.stellar.org` |
-| **Native XLM SAC** | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
+| **Native XLM SAC** | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` (Mainnet: `CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA`) |
 | **Circle Testnet USDC Issuer & SAC** | Issuer `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5` / SAC `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA` |
 | **SEP-42 Testnet Asset List** | `https://api.stellar.expert/explorer/testnet/asset-list/top50` |
-| **AstroWallet Bot & Mini App** | `@AstroWalletAppBot` (`t.me/AstroWalletAppBot/wallet`, `https://astrowallet-b1o.pages.dev`) |
-| **AstroGate Bot & Launchpad v4.4** | `@AstroGateSorobanBot` (`https://astrogate.pages.dev`), Launchpad `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK` |
+| **AstroWallet (`AstroID` SSO & Signer)** | `@AstroWalletAppBot` (`t.me/AstroWalletAppBot/wallet`, `https://astrowallet-soroban.pages.dev`) |
+| **AstroWallet Claim Escrow V2.2** | `CDEOJ4KCHMCSJY2N6VCHD3UYVFIIJ3ZVG7DRZ6XMLSTTU4US6ITH36BQ` (`VITE_SMART_ACCOUNT_WASM_HASH` intentionally unset until audited OZ WASM) |
+| **AstroGate Bot & Launchpad v4.5** | `@AstroGateSorobanBot` (`https://astrogate.pages.dev`), Launchpad `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK` (WASM `9db8d446725715069d85c51c4fb1b897bb93d036507a6b95fe085c64f4aaa4e9`) |
 | **AstroGate Flagship Token (`$ASTRO`) & Pair** | Token `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE` / Pair `CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP` |
-| **Sorobits SEP-50 Contract** | `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3` |
+| **Sorobits SEP-50 Contract (v4.5)** | `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3` (WASM `bc5c0d36b9add840685f734709a32945a88e0353d49b57b938d54ae68a7d5adf`) |
 | **Soroswap Factory & Router (Testnet)** | Factory `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY` / Router `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD` |
 | **Chainlink Price Proxy (Testnet / Mainnet)** | Testnet `CBUF6IADAWPWIDWRTHJNINKXHG2UTIQ6TU2F2HRAXWAI7OT3KJPKK6O4` / Mainnet `CDQBHEUGLDHMSUHG4IH33RJBUTMNCZOT4JIAQR4WZFRDZW6DR6S32ZLZ` |
-| **Reflector Network DEX Oracle (Mainnet)** | `CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M` |
+| **Reflector Network DEX Oracle (Mainnet)** | `CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M` *(optional / graceful fallback on Testnet)* |
 
 ---
 
-## 2. Reference Modules to Port / Align From Sibling Repos
+## 2. Completed Architecture & Verified Gates
 
-Before writing each Milestone package, inspect these proven implementations in the workspace:
-- **From `astrowallet` (`3f958f3`):**
-  - `packages/domain/src/config.ts` — Zod env parser pattern & Mainnet Friendbot hard-block.
-  - `packages/tg-protocol/src/mini-app.ts` & `intent-token.ts` — Telegram `initData` HMAC & Signed Intent cryptography.
-  - `packages/stellar-core/src/ledger/token-explorer.ts` — `parseStellarTomlForAsset`, `discoverLiquidHorizonAssets`, `fetchTokenPriceHistoryAgainstXlm`, `fetchTokenOrderbookAgainstXlm`.
-  - `packages/security-shield/src/` — Zero-WASM decoder, `simulateTransaction` wrapper, `sep42.ts`, `rules.ts`, `raw-xdr.worker.ts`.
-  - `packages/defi/src/index.ts` — `createHorizonPathSwapAdapter`, `createSoroswapProxyAdapter`, stroops `bigint` helpers.
-  - `apps/server/src/routes/proxy.ts` — SSRF-hardened manual-redirect `stellar.toml` proxy.
-  - `apps/pwa/src/styles/glass.css` & `components/token-catalog.ts` — Apple Liquid Glass anti-jitter styles & `classifyTokenTrust`.
-- **From `astrogate` (`6cbef2c`):**
-  - `frontend/src/lib/curve-math.ts` — Pure integer `bigint` bonding curve quote & fee parity with `contracts/launchpad/src/contract.rs`.
-  - `frontend/src/lib/holders.ts` — `analyzeTokenHolders` SEP-41 event + pool concentration reconstruction.
-  - `frontend/src/lib/soroswap.ts` — `Pair.token_0()`, `Pair.token_1()`, `Pair.get_reserves()`, `router_get_amount_out` (never `router_get_amounts_out`).
-  - `frontend/worker/protocol.ts` & `mcp.ts` — `auditTokenApi` and `/mcp` JSON-RPC endpoint patterns.
+- **Monorepo & Packages:** `@astrodex/domain`, `@astrodex/tg-protocol`, `@astrodex/stellar-scanner`, `@astrodex/dex-aggregator`, `@astrodex/oracles-and-charts`, `@astrodex/security-shield` enforcing strict hexagonal DAG boundaries (`eslint.config.mjs`).
+- **Edge Server (`apps/server`):** Cloudflare Worker (Hono + `grammY` + D1 `0001_init.sql` + KV + `DEX_INDEXER` Durable Object), `AstroID` SSO federation (`AstroWallet` primary + `AstroGate` fallback), SSRF-hardened proxies, `/mcp`, `/openapi.json`, `/llms.txt`, and 100% English `@AstroDexBot`.
+- **Telegram Mini App (`apps/tma`):** Apple Liquid Glass UI (`Basic` $\leftrightarrow$ `Pro Scanner`), `AstroID` header + ecosystem switcher, 5-tab dock, lazy Web Worker XDR inspector (`@stellar/stellar-xdr-json` excluded from initial chunks), and strict CSP (`frame-ancestors https://web.telegram.org https://*.telegram.org`).
+- **Cross-Ecosystem Harmony (`astrowallet` & `AstroGate`):** Synchronized `GET /v1/identity/resolve`, `POST /v1/intents/external` (`X-Ecosystem-Secret`), `IntentSheet` `sign_xdr` Clear-Sign + Boomerang return, and `AstroGate` `AstroWallet SSO` / `"Pro Terminal on AstroDex"` links.
+- **Verification Results:**
+  - `pnpm check` passes (`10` test files / `27` Vitest tests, `58` source files clean on `secret-scan`, `@astrodex/tma` build clean).
+  - `node scripts/verify-testnet.mjs` verified live Testnet Soroban contracts (`$ASTRO`, `ASTRO/XLM` pair, `AstroGate Launchpad v4.5`, `Testnet USDC SAC`, `Sorobits SEP-50`) and Horizon `/order_book` + `/liquidity_pools`.
 
 ---
 
-## 3. Exact First Commands for Next Session (Start Milestone 1)
+## 3. Cloudflare Deployment & Mainnet Pre-Flight Checklist
 
-1. Read [`AGENTS.md`](../AGENTS.md), [`docs/ENV_MATRIX.md`](ENV_MATRIX.md), and [`PLAN.md`](../PLAN.md) Milestone 1.
-2. Scaffold root workspace files (`package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `eslint.config.mjs`, `scripts/secret-scan.mjs`).
-3. Implement and test **`packages/domain`** and **`packages/tg-protocol`** first, ensuring:
+1. **Verify Locally & Against Live Testnet:**
    ```bash
-   pnpm install
-   pnpm --filter "./packages/*" build
-   pnpm typecheck
-   pnpm lint
-   pnpm test
-   pnpm secret-scan
+   pnpm check
+   node scripts/verify-testnet.mjs
    ```
-   pass cleanly before starting Milestone 2 (`@astrodex/stellar-scanner`).
+2. **Provision Cloudflare Testnet Resources (`apps/server/wrangler.toml`):**
+   - Create D1 database (`astrodex`) and KV namespace (`CACHE`), replace `REPLACE_WITH_TESTNET_D1_ID` / `REPLACE_WITH_TESTNET_KV_ID`, and apply `apps/server/migrations/0001_init.sql`.
+   - Set secrets via `wrangler secret put`: `TG_BOT_TOKEN`, `TG_WEBHOOK_SECRET`, `INTENT_HMAC_SECRET`, `ECOSYSTEM_SHARED_INTENT_SECRET` (matching `astrowallet`), and optional `SOROSWAP_API_KEY` / `STELLAR_PRICES_API_KEY` / `INDEXER_WEBHOOK_SECRET`.
+3. **Deploy Server & Mini App (`apps/server` + `apps/tma`):**
+   - Deploy `apps/server` Worker (`workers_dev = false`), build `apps/tma` with production `VITE_*` vars, and deploy `apps/tma/dist` to Cloudflare Pages so `apps/tma/functions/[[path]].ts` binds `/v1/*`, `/tg/*`, `/mcp` via Service Binding.
+4. **Mainnet Cutover Gate:**
+   - Provision `[env.mainnet]` D1/KV IDs and secrets, keep `FRIENDBOT_URL` / `VITE_FRIENDBOT_URL` unset and `VITE_ALLOW_DEV_OUTSIDE_TELEGRAM=false`, and re-run `pnpm check` + external security audit before onboarding Mainnet users.
