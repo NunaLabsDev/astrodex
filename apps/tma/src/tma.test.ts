@@ -26,4 +26,16 @@ describe("@astrodex/tma Telegram gate and routing", () => {
     expect(parseAstroDexStartAppParam("scan_XLM")?.kind).toBe("scan");
     expect(parseAstroDexStartAppParam("pair_CA32")?.kind).toBe("pair");
   });
+
+  it("disables execution whenever feedNetwork disagrees with config.network", () => {
+    const computeExecutionDisabled = (
+      executionEnabled: boolean,
+      configNetwork: "testnet" | "mainnet",
+      feedNetwork: "testnet" | "mainnet",
+    ) => !executionEnabled || feedNetwork !== configNetwork;
+
+    expect(computeExecutionDisabled(true, "testnet", "mainnet")).toBe(true);
+    expect(computeExecutionDisabled(true, "testnet", "testnet")).toBe(false);
+    expect(computeExecutionDisabled(false, "mainnet", "mainnet")).toBe(true);
+  });
 });

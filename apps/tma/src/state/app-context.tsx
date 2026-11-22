@@ -72,7 +72,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>(config.defaultFeedNetwork);
-  const executionDisabled = !config.executionEnabled;
+  const executionDisabled = !config.executionEnabled || feedNetwork !== config.network;
 
   const [authStatus, setAuthStatus] = useState<TelegramAuthStatus>("checking");
   const [authError, setAuthError] = useState<string | null>(null);
@@ -134,6 +134,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const applyStartParam = useCallback((rawParam: string) => {
     const parsed = parseAstroDexStartAppParam(rawParam);
     if (!parsed) return;
+    if (
+      (parsed.kind === "token" || parsed.kind === "scan" || parsed.kind === "pair") &&
+      (config.network === "testnet" || rawParam.startsWith("testnet_"))
+    ) {
+      setFeedNetworkState(config.network);
+    }
     if (parsed.kind === "token") {
       setSelectedAsset(parsed.assetId);
       setActiveTabState("trade");
@@ -149,7 +155,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActiveTabState(parsed.tab as DockTab);
       }
     }
-  }, []);
+  }, [config.network]);
 
   const authenticate = useCallback(async () => {
     initTelegramMiniApp();

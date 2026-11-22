@@ -96,9 +96,19 @@ const CreateIntentBodySchema = z.object({
 });
 
 const ConfirmIntentBodySchema = z.object({
-  sig: z.string().regex(/^[a-f0-9]{64}$/i),
+  sig: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
   txHash: z.string().regex(/^[a-fA-F0-9]{64}$/),
+  payerAddress: StellarAddressSchema.optional(),
 });
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
 
 export type TradingRouteEnv = {
   Variables: {
@@ -472,7 +482,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     const expiresAt = now + 300;
     const intentId = `ad_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     const actionType = mapSubActionToWalletActionType(body.subAction);
-    const envelope = await buildCrossAppIntentEnvelope({
+    const baseEnvelope = await buildCrossAppIntentEnvelope({
       subAction: body.subAction,
       humanSummary: body.humanSummary,
       unsignedXdr,
@@ -494,6 +504,12 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       },
       config.intentHmacSecret,
     );
+
+    const envelope = {
+      ...baseEnvelope,
+      sourceAddress: body.sourceAddress,
+      originConfirmSig: sig,
+    };
 
     const xdrSha256 = await sha256Hex(unsignedXdr);
     const intent = await repo.createSignedIntent({
@@ -584,21 +600,50 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       return c.json({ error: "Intent not found" }, 404);
     }
 
-    const check = await verifyIntentToken(
-      {
-        intentId: intent.intentId,
-        network: intent.network,
-        telegramUserId: intent.creatorTelegramUserId,
-        expiresAt: intent.expiresAt,
-      },
-      body.sig,
-      config.intentHmacSecret,
+    const incomingSecret = c.req.header("X-Ecosystem-Secret")?.trim();
+    const secretAuthorized = Boolean(
+      incomingSecret &&
+        config.ecosystemSharedIntentSecret &&
+        constantTimeEqual(incomingSecret, config.ecosystemSharedIntentSecret),
     );
-    if (!check.valid) {
-      return c.json(
-        { error: `Intent token ${check.reason}` },
-        check.reason === "expired" ? 410 : 401,
+
+    if (!secretAuthorized) {
+      if (!body.sig) {
+        return c.json({ error: "Intent token missing" }, 401);
+      }
+      const check = await verifyIntentToken(
+        {
+          intentId: intent.intentId,
+          network: intent.network,
+          telegramUserId: intent.creatorTelegramUserId,
+          expiresAt: intent.expiresAt,
+        },
+        body.sig,
+        config.intentHmacSecret,
       );
+      if (!check.valid) {
+        return c.json(
+          { error: `Intent token ${check.reason}` },
+          check.reason === "expired" ? 410 : 401,
+        );
+      }
+    } else if (body.sig) {
+      const check = await verifyIntentToken(
+        {
+          intentId: intent.intentId,
+          network: intent.network,
+          telegramUserId: intent.creatorTelegramUserId,
+          expiresAt: intent.expiresAt,
+        },
+        body.sig,
+        config.intentHmacSecret,
+      );
+      if (!check.valid) {
+        return c.json(
+          { error: `Intent token ${check.reason}` },
+          check.reason === "expired" ? 410 : 401,
+        );
+      }
     }
 
     if (intent.status === "confirmed" && intent.txHash?.toLowerCase() === body.txHash.toLowerCase()) {

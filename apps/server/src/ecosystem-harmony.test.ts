@@ -424,5 +424,42 @@ describe("3-Pillar Ecosystem Harmony E2E (AstroWallet SSO <-> AstroGate v4.5 <->
       makeHarmonyEnv(),
     );
     expect(replayRes.status).toBe(409);
+
+    // Step 7: Accept server-to-server Boomerang confirm authenticated by X-Ecosystem-Secret
+    const intentRes3 = await app.request(
+      "/v1/intents",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authJson.sessionToken}`,
+        },
+        body: JSON.stringify({
+          subAction: "dex_swap",
+          sourceAddress: CLASSIC_G,
+          unsignedXdr: benignSwapTx.toXDR(),
+          humanSummary: "Boomerang swap intent",
+        }),
+      },
+      makeHarmonyEnv(),
+    );
+    const createdIntent3 = (await intentRes3.json()) as { intentId: string };
+    const boomerangRes = await app.request(
+      `/v1/intents/${createdIntent3.intentId}/confirm`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Ecosystem-Secret": ECO_SECRET,
+        },
+        body: JSON.stringify({
+          txHash: "8".repeat(64),
+          payerAddress: CLASSIC_G,
+        }),
+      },
+      makeHarmonyEnv(),
+    );
+    expect(boomerangRes.status).toBe(200);
+    expect(((await boomerangRes.json()) as { status: string }).status).toBe("confirmed");
   });
 });
