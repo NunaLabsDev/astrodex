@@ -465,7 +465,7 @@ export function TradeChartView() {
         </section>
       )}
 
-      <ChartCanvas mode={mode} candles={candles} depth={depth} quoteLabel="XLM" />
+      <ChartCanvas mode={mode} candles={candles} depth={depth} quoteLabel="XLM" timeframe={timeframe} />
 
       <section className="glass-card ad-stack-10">
         <div className="ad-row">

@@ -75,4 +75,74 @@ describe("@astrodex/oracles-and-charts", () => {
     expect(candles).toHaveLength(1);
     expect(candles[0]?.close).toBe(0.21);
   });
+
+  it("queries Horizon 1h for 4h timeframe rollup and clamps dust outlier wicks", async () => {
+    const requestedUrls: string[] = [];
+    const engine = createOraclesAndChartsEngine({
+      networkPassphrase: "Test SDF Network ; September 2015",
+      rpcUrls: ["https://rpc.example.com"],
+      horizonUrls: ["https://horizon-testnet.stellar.org"],
+      fetchFn: async (url) => {
+        requestedUrls.push(url);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            _embedded: {
+              records: [
+                {
+                  timestamp: "1700006400000",
+                  open: "0.150",
+                  high: "1.000",
+                  low: "0.148",
+                  close: "0.152",
+                  avg: "0.151",
+                  base_volume: "5000",
+                },
+                {
+                  timestamp: "1700010000000",
+                  open: "0.152",
+                  high: "0.155",
+                  low: "0.149",
+                  close: "0.154",
+                  avg: "0.153",
+                  base_volume: "6000",
+                },
+                {
+                  timestamp: "1700013600000",
+                  open: "0.154",
+                  high: "0.156",
+                  low: "0.150",
+                  close: "0.153",
+                  avg: "0.153",
+                  base_volume: "4500",
+                },
+                {
+                  timestamp: "1700017200000",
+                  open: "0.153",
+                  high: "0.157",
+                  low: "0.151",
+                  close: "0.155",
+                  avg: "0.154",
+                  base_volume: "5500",
+                },
+              ],
+            },
+          }),
+        };
+      },
+    });
+
+    const candles = await engine.getOhlcvCandles({
+      pairId: `USDC:${USDC_ISSUER}`,
+      baseAsset: `USDC:${USDC_ISSUER}`,
+      quoteAsset: "XLM",
+      timeframe: "4h",
+      limit: 20,
+    });
+    expect(requestedUrls[0]).toContain("resolution=3600000");
+    expect(requestedUrls[0]).not.toContain("resolution=14400000");
+    expect(candles).toHaveLength(1);
+    expect(candles[0]?.high).toBeLessThan(0.25);
+  });
 });

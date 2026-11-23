@@ -4,7 +4,11 @@ import type {
   OraclePort,
   OraclePriceQuote,
 } from "@astrodex/domain";
-import { fetchHorizonOhlcvCandles, mergeOhlcvCandles } from "./charts/index.js";
+import {
+  fetchGeckoTerminalStellarOhlcv,
+  fetchHorizonOhlcvCandles,
+  mergeOhlcvCandles,
+} from "./charts/index.js";
 import {
   fetchChainlinkXlmUsd,
   fetchHorizonUsdcSpotXlmUsd,
@@ -142,6 +146,16 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
       ]);
       const merged = mergeOhlcvCandles(d1Candles, horizonCandles, limit);
       if (merged.length > 0) return merged;
+      const isMainnet = !config.horizonUrls.some((u) => u.includes("testnet"));
+      if (isMainnet) {
+        const gtCandles = await fetchGeckoTerminalStellarOhlcv({
+          baseAsset: input.baseAsset,
+          timeframe: input.timeframe,
+          limit,
+          fetchFn,
+        });
+        if (gtCandles.length > 0) return gtCandles;
+      }
       if (spotPrice !== null && Number.isFinite(spotPrice) && spotPrice > 0) {
         const stepSeconds: Record<OhlcvTimeframe, number> = {
           "1m": 60,
