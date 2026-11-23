@@ -50,11 +50,11 @@
 
 ## 3. Live Testnet Deployment & Next-Session Roadmap
 
-1. **Live Testnet Resources Deployed (`58f369a`):**
+1. **Live Testnet Resources Deployed (`0c4db01`):**
    - **D1 (`astrodex`, `4f7684e0-86dd-4696-b725-d7b109f4dd67`):** `0001_init.sql` & `0002_community_listings.sql` applied remotely (`$ASTRO`, `DOGEE`, `HEY` seeded).
-   - **Worker (`astrodex-server`):** Deployed (`Version ID: 013fc7eb-fa02-4677-b83d-87d2108a4d48`) with `ASTROWALLET`, `ASTROGATE`, `DB`, `CACHE`, and `DEX_INDEXER` bindings.
-   - **Pages + Functions (`astrodex-testnet`):** Live at `https://astrodex-testnet.pages.dev` (latest deploy `https://40f08e9a.astrodex-testnet.pages.dev`; `GET /health` -> `200 ok`, `GET /v1/markets/overview` -> `49` hydrated catalog items + live `xlmUsd`).
-2. **Next Session — Shared `@astrowallet/connect-sdk` & Gate 2 Mainnet Shadow Mode:**
-   - Migrate `@astrodex/tg-protocol` / Clear-Sign glue to the universal `@astrowallet/connect-sdk` (keeping wallet primitives protocol-agnostic), test live Telegram Boomerang signing round-trips, and prepare Gate 2 Mainnet 48h read-only shadow deployment (`EXECUTION_ENABLED=false` $\rightarrow$ `true`).
-3. **Mainnet Cutover Gate (When Ready):**
-   - Provision `[env.mainnet]` D1/KV IDs and secrets, keep `FRIENDBOT_URL` / `VITE_FRIENDBOT_URL` unset and `VITE_ALLOW_DEV_OUTSIDE_TELEGRAM=false`, and re-run `pnpm check` + external security audit before onboarding Mainnet users.
+   - **Worker (`astrodex-server`):** Deployed (`Version ID: 514c8c12-7d56-44a5-9abd-38966b0ec371`) with `ASTROWALLET`, `ASTROGATE`, `DB`, `CACHE`, and `DEX_INDEXER` bindings.
+   - **Pages + Functions (`astrodex-testnet`):** Live at `https://astrodex-testnet.pages.dev` (latest deploy `https://3eb32fc0.astrodex-testnet.pages.dev`; `GET /health` -> `200 ok`).
+2. **Universal `@astrowallet/connect` v0.2.0 & Gate 2 Shadow Default (`0c4db01`):**
+   - Migrated `@astrodex/tg-protocol` (`intent-token.ts`, `ecosystem.ts`) to consume `@astrowallet/connect` v0.2.0 (`vendor/astrowallet-connect-0.2.0.tgz`) and set `EXECUTION_ENABLED = "false"` by default under `[env.mainnet.vars]` in `apps/server/wrangler.toml`.
+3. **Mainnet Cutover Gate (When Approved):**
+   - Provision `[env.mainnet]` D1/KV IDs and secrets, deploy in 48h Read-Only Shadow Mode (`EXECUTION_ENABLED=false`) before flipping `EXECUTION_ENABLED=true`, keep `FRIENDBOT_URL` / `VITE_FRIENDBOT_URL` unset and `VITE_ALLOW_DEV_OUTSIDE_TELEGRAM=false`, and re-run `pnpm check`.
