@@ -143,6 +143,6 @@ describe("@astrodex/oracles-and-charts", () => {
     expect(requestedUrls[0]).toContain("resolution=3600000");
     expect(requestedUrls[0]).not.toContain("resolution=14400000");
     expect(candles).toHaveLength(1);
-    expect(candles[0]?.high).toBeLessThan(0.25);
+    expect(candles[0]?.high).toBeLessThan(0.17);
   });
 });

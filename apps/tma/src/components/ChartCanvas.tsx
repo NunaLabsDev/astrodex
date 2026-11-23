@@ -5,6 +5,7 @@ import {
   ColorType,
   CrosshairMode,
   HistogramSeries,
+  PriceScaleMode,
   createChart,
   type IChartApi,
   type ISeriesApi,
@@ -52,6 +53,7 @@ function ChartSurface({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const [hovered, setHovered] = useState<OhlcvCandle | null>(null);
+  const [logScale, setLogScale] = useState(false);
 
   const normalized = useMemo(() => {
     const bySec = new Map<number, OhlcvCandle>();
@@ -110,9 +112,11 @@ function ChartSurface({
         borderColor: "rgba(165, 139, 224, 0.18)",
         timeVisible: showTime,
         secondsVisible: false,
+        minBarSpacing: 0.2,
       },
       rightPriceScale: {
         borderColor: "rgba(165, 139, 224, 0.18)",
+        mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
         scaleMargins: { top: 0.1, bottom: 0.22 },
       },
       handleScroll: {
@@ -210,10 +214,15 @@ function ChartSurface({
       }
     });
 
+    let hasSized = false;
     const ro = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width;
       if (width && width > 0) {
         chart.applyOptions({ width: Math.floor(width) });
+        if (!hasSized) {
+          chart.timeScale().fitContent();
+          hasSized = true;
+        }
       }
     });
     ro.observe(el);
@@ -223,7 +232,7 @@ function ChartSurface({
       chart.remove();
       chartRef.current = null;
     };
-  }, [normalized, candles, mode, timeframe, expanded]);
+  }, [normalized, candles, mode, timeframe, expanded, logScale]);
 
   if (normalized.length === 0) return null;
 
@@ -257,6 +266,15 @@ function ChartSurface({
               ? `O:${formatPrice(active.open)} H:${formatPrice(active.high)} L:${formatPrice(active.low)}`
               : `H ${formatPrice(active.high)} / L ${formatPrice(active.low)}`}
           </span>
+          <button
+            type="button"
+            className="glass-pill ad-clickable"
+            style={{ padding: "2px 8px", fontSize: 11 }}
+            aria-pressed={logScale}
+            onClick={() => setLogScale((v) => !v)}
+          >
+            Log
+          </button>
           <button
             type="button"
             className="glass-pill ad-clickable"
