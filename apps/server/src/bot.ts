@@ -9,6 +9,7 @@ import {
   formatWhaleAlertCard,
 } from "@astrodex/tg-protocol";
 import { Bot } from "grammy";
+import type { InlineKeyboardButton } from "grammy/types";
 import type { DexServerRepository } from "./db/repository.js";
 import {
   buildUnifiedCatalog,
@@ -63,7 +64,6 @@ export function createAstroDexBot(
       astroGateApiBaseUrl: cfg.astroGateApiBaseUrl,
       fetchFn,
     });
-  const scanner = createScannerFor(config);
 
   const openAppUrl = buildAstroDexDeepLink({
     tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
@@ -71,6 +71,30 @@ export function createAstroDexBot(
   });
   const astroWalletUrl = `https://t.me/${config.astroWalletBotUsername ?? "AstroWalletAppBot"}/${config.astroWalletMiniAppShortName ?? "wallet"}`;
   const botHandle = config.tgBotUsername ?? "AstroDexBot";
+
+  function miniAppBtn(
+    isPrivate: boolean,
+    text: string,
+    startParam?: string,
+  ): InlineKeyboardButton {
+    if (isPrivate) {
+      const base = config.tmaOrigin.replace(/\/+$/, "");
+      return {
+        text,
+        web_app: {
+          url: startParam ? `${base}?startapp=${encodeURIComponent(startParam)}` : base,
+        },
+      };
+    }
+    return {
+      text,
+      url: buildAstroDexDeepLink({
+        tgBotUsername: botHandle,
+        tgMiniAppShortName: config.tgMiniAppShortName,
+        ...(startParam ? { startParam } : {}),
+      }),
+    };
+  }
 
   function isExplicitMentionInGroup(ctx: {
     chat?: { type?: string } | undefined;
@@ -96,9 +120,10 @@ export function createAstroDexBot(
       "",
       "Tap below to trade, or run /usde or /help for chat commands.",
     ].join("\n");
+    const isPrivate = ctx.chat?.type === "private";
     const replyMarkup = {
       inline_keyboard: [
-        [{ text: "⚡ Open AstroDex", url: openAppUrl }],
+        [miniAppBtn(isPrivate, "⚡ Open AstroDex")],
         [{ text: "🛡️ Open AstroWallet", url: astroWalletUrl }],
       ],
     };
@@ -118,6 +143,7 @@ export function createAstroDexBot(
   });
 
   bot.command("stats", async (ctx) => {
+    if (!isExplicitMentionInGroup(ctx)) return;
     const snap = await repo.getPublicMetricsSnapshot(config.network);
     const walletBase = (config.astroWalletApiBaseUrl ?? "https://astrowallet-soroban.pages.dev").replace(/\/+$/, "");
     await ctx.reply(
@@ -154,6 +180,7 @@ export function createAstroDexBot(
   });
 
   bot.command("scan", async (ctx) => {
+    if (!isExplicitMentionInGroup(ctx)) return;
     const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
     const arg = tokens.join(" ");
     if (!arg) {
@@ -166,17 +193,13 @@ export function createAstroDexBot(
       const botScanner = createScannerFor(botCfg);
       const { target } = await resolveAssetTarget({ config: botCfg, repo, fetchFn, rawAsset: arg });
       const audit = await botScanner.auditToken(target.resolvedKey);
-      const deepLink = buildAstroDexDeepLink({
-        tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
-        tgMiniAppShortName: config.tgMiniAppShortName,
-        startParam: `${botCfg.network}_scan_${audit.assetKey}`,
-      });
+      const isPrivate = ctx.chat?.type === "private";
       await ctx.reply(`<code>[${botCfg.network.toUpperCase()}]</code>\n${formatScanCard(audit)}`, {
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "📊 Open in AstroDex", url: deepLink },
+              miniAppBtn(isPrivate, "📊 Open in AstroDex", `${botCfg.network}_scan_${audit.assetKey}`),
               { text: "🛡️ AstroWallet", url: astroWalletUrl },
             ],
           ],
@@ -190,8 +213,8 @@ export function createAstroDexBot(
   });
 
   bot.command("list", async (ctx) => {
-    const parts = ctx.match.trim().split(/\s+/).filter(Boolean);
-    const assetId = parts[0];
+    const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
+    const assetId = tokens[0];
     if (!assetId) {
       await ctx.reply(
         "Usage: <code>/list CODE:G... [soroswap|aquarius|phoenix|sdex_pool]</code> or <code>/list C...</code>",
@@ -199,13 +222,14 @@ export function createAstroDexBot(
       );
       return;
     }
-    const rawVenue = parts[1]?.toLowerCase() ?? "soroswap";
+    const rawVenue = tokens[1]?.toLowerCase() ?? "soroswap";
     const allowedVenues = new Set(["soroswap", "aquarius", "phoenix", "sdex_pool"]);
     const ammVenue = allowedVenues.has(rawVenue) ? rawVenue : "soroswap";
 
     try {
-      const { target } = await resolveAssetTarget({ config, repo, fetchFn, rawAsset: assetId });
-      const audit = await scanner.auditToken(target.resolvedKey);
+      const botScanner = createScannerFor(botCfg);
+      const { target } = await resolveAssetTarget({ config: botCfg, repo, fetchFn, rawAsset: assetId });
+      const audit = await botScanner.auditToken(target.resolvedKey);
       if (audit.verdict === "malicious" || audit.trustTier === "spoof_blocked") {
         await ctx.reply(
           `<b>Listing Blocked by Astro Shield</b>\n<code>${audit.code}</code> was flagged as spoofed or malicious and cannot be listed.`,
@@ -269,17 +293,13 @@ export function createAstroDexBot(
   bot.command("chart", async (ctx) => {
     const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
     const arg = tokens[0] ?? "XLM";
-    const deepLink = buildAstroDexDeepLink({
-      tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
-      tgMiniAppShortName: config.tgMiniAppShortName,
-      startParam: `${botCfg.network}_token_${arg}`,
-    });
+    const isPrivate = ctx.chat?.type === "private";
     await ctx.reply(`Open live <code>${botCfg.network.toUpperCase()}</code> chart for <code>${arg}</code>:`, {
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "📊 Open Pro Chart", url: deepLink },
+            miniAppBtn(isPrivate, "📊 Open Pro Chart", `${botCfg.network}_token_${arg}`),
             { text: "🛡️ AstroWallet", url: astroWalletUrl },
           ],
         ],
@@ -329,8 +349,17 @@ export function createAstroDexBot(
           )
           .join("\n")
       : "";
+    const isPrivate = ctx.chat?.type === "private";
     await ctx.reply(`<code>[${botCfg.network.toUpperCase()}]</code>\n${formatOrderbookCard(book)}${poolLines}`, {
       parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            miniAppBtn(isPrivate, "📖 Open Orderbook", `${botCfg.network}_book_${baseTarget.resolvedKey}`),
+            { text: "🛡️ AstroWallet", url: astroWalletUrl },
+          ],
+        ],
+      },
     });
   });
 
@@ -350,6 +379,7 @@ export function createAstroDexBot(
     ]);
     const routerEngine = createSmartLiquidityRouter({
       horizonUrls: botCfg.horizonUrls,
+      networkPassphrase: botCfg.networkPassphrase,
       xoxnoApiBase: botCfg.xoxnoSwapApiBase,
       verifiedAssets: snapshot.sep42Assets,
       curveStateLoader: createConfiguredCurveStateLoader(botCfg, fetchFn),
@@ -363,17 +393,29 @@ export function createAstroDexBot(
       slippageBps: 50,
       accountKind: "classic",
     });
-    const tradeDeepLink = buildAstroDexDeepLink({
-      tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
-      tgMiniAppShortName: config.tgMiniAppShortName,
-      startParam: `${botCfg.network}_token_${toTarget.resolvedKey}`,
-    });
-    await ctx.reply(formatQuoteCard(quote), {
+    const displayFrom = fromTarget.catalogItem?.code ?? rawFrom.split(":")[0]?.toUpperCase() ?? quote.fromAsset;
+    const displayTo = toTarget.catalogItem?.code ?? rawTo.split(":")[0]?.toUpperCase() ?? quote.toAsset;
+    const displayQuote = {
+      ...quote,
+      fromAsset: displayFrom,
+      toAsset: displayTo,
+      ...(quote.bestRoute
+        ? {
+            bestRoute: {
+              ...quote.bestRoute,
+              fromAsset: displayFrom,
+              toAsset: displayTo,
+            },
+          }
+        : {}),
+    };
+    const isPrivate = ctx.chat?.type === "private";
+    await ctx.reply(formatQuoteCard(displayQuote), {
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "⚡ Trade in AstroDex", url: tradeDeepLink },
+            miniAppBtn(isPrivate, "⚡ Trade in AstroDex", `${botCfg.network}_token_${toTarget.resolvedKey}`),
             { text: "🛡️ Sign in AstroWallet", url: astroWalletUrl },
           ],
         ],
@@ -453,6 +495,7 @@ export function createAstroDexBot(
       });
       const routerEngine = createSmartLiquidityRouter({
         horizonUrls: mainnetCfg.horizonUrls,
+        networkPassphrase: mainnetCfg.networkPassphrase,
         xoxnoApiBase: mainnetCfg.xoxnoSwapApiBase,
         verifiedAssets: snapshot.sep42Assets,
         curveStateLoader: createConfiguredCurveStateLoader(mainnetCfg, fetchFn),
@@ -510,18 +553,13 @@ export function createAstroDexBot(
         "<i>Buy directly in chat with /buy 10 USDE in @AstroWalletAppBot</i>",
       ];
 
-      const usdeDeepLink = buildAstroDexDeepLink({
-        tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
-        tgMiniAppShortName: config.tgMiniAppShortName,
-        startParam: `mainnet_token_${USDE_KEY}`,
-      });
-
+      const isPrivate = ctx.chat?.type === "private";
       await ctx.reply(lines.join("\n"), {
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "⚡ Trade USDe in AstroDex", url: usdeDeepLink },
+              miniAppBtn(isPrivate, "⚡ Trade USDe in AstroDex", `mainnet_token_${USDE_KEY}`),
               { text: "🛡️ Buy in AstroWallet", url: astroWalletUrl },
             ],
           ],
@@ -543,12 +581,13 @@ export function createAstroDexBot(
     }
     const tgId = ctx.from?.id ? String(ctx.from.id) : "";
     const alerts = tgId ? await repo.listPriceAlerts(tgId) : [];
+    const isPrivate = ctx.chat?.type === "private";
     await ctx.reply(
       alerts.length === 0
         ? "You have no active price alerts. Configure alerts inside the AstroDex Mini App."
         : `You have ${alerts.length} active price alert(s).`,
       {
-        reply_markup: { inline_keyboard: [[{ text: "Manage Alerts", url: openAppUrl }]] },
+        reply_markup: { inline_keyboard: [[miniAppBtn(isPrivate, "🔔 Manage Alerts", "orders")]] },
       },
     );
   });

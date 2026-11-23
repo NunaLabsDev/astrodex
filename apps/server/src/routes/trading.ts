@@ -6,6 +6,7 @@ import {
   buildSoroswapRouterSwapXdr,
   createSmartLiquidityRouter,
   deriveContractIdForAsset,
+  quoteViaXoxno,
 } from "@astrodex/dex-aggregator";
 import {
   AstroDexSubActionSchema,
@@ -392,6 +393,26 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
               networkPassphrase: config.networkPassphrase,
               sequence: accountState.sequence,
             });
+          }
+        }
+
+        if (
+          !unsignedXdr &&
+          body.swapSpec.venue === "xoxno_aggregator" &&
+          config.xoxnoSwapApiBase
+        ) {
+          const xoxnoBuilt = await quoteViaXoxno({
+            xoxnoApiBase: config.xoxnoSwapApiBase,
+            networkPassphrase: config.networkPassphrase,
+            fromAsset: fromTarget.resolvedKey,
+            toAsset: toTarget.resolvedKey,
+            amount: body.swapSpec.amount,
+            slippageBps: 100,
+            sourceAddress: body.sourceAddress,
+            fetchFn,
+          });
+          if (xoxnoBuilt?.unsignedXdr) {
+            unsignedXdr = xoxnoBuilt.unsignedXdr;
           }
         }
 

@@ -98,3 +98,30 @@
 4. `/v1/scanner` response shape is `{audit:{…}}` — scanner UI/docs should reflect it.
 5. Update `docs/INDEX.md`/README with new commands; run `astro-docs lint`.
 6. Cleanup later: `ASTROGATE_*` vars and `astrogate-stellar` service binding in `wrangler.toml` are still deployed.
+
+
+---
+
+## Session checkpoint — 2026-11-24: XOXNO XDR Fix, Orders & Alerts Tab Un-Hidden, Telegram Audit
+
+**State: deployed & live-verified** (`astrodex-server`, Pages `astrodex-testnet`).
+
+### Done
+- **XOXNO Aggregator XDR Extraction & Simulation Fallback:**
+  - Updated `packages/dex-aggregator/src/xoxno/index.ts` to extract `transaction.envelopeXdr` (object form) and fall back from `simulate=true` → `simulate=false` → no-sender quote (+ 2 new unit tests in `aggregator.test.ts`).
+  - Wired `quoteViaXoxno` into `POST /v1/intents` in `apps/server/src/routes/trading.ts` for `venue === "xoxno_aggregator"`.
+- **Un-Hidden `OrdersAlertsView` + Telegram Best Practices (`apps/tma`):**
+  - Added 3rd `🔔 Orders` tab to `BottomDock.tsx`, wired `OrdersAlertsView` in `App.tsx`, fixed `setActiveTab("orders")` and `startParam` `"orders"`/`"alerts"` routing in `app-context.tsx`, and wired `useTelegramBackButton`.
+  - Added `disableVerticalSwipes()`, `setBottomBarColor("#0B1433")`, and `viewportChanged` / `safeAreaChanged` / `contentSafeAreaChanged` listeners in `apps/tma/src/telegram/webapp.ts`.
+  - Removed remaining `astrogate_curve` label in `RadarView.tsx` and `"& AstroGate"` text in `TokenSearchInput.tsx`.
+- **Bot & Config Cleanup (`apps/server`):**
+  - Passed missing `networkPassphrase` to `createSmartLiquidityRouter` in `/route` and `/usde` (`bot.ts`).
+  - Added `isExplicitMentionInGroup` to `/stats` and `/scan`, native `web_app` buttons in private chats (`miniAppBtn`), clean token tickers in `/route`, `[📖 Open Orderbook]` button on `/book`, `orders` deep link on `/alerts`, and `resolveBotFeedConfig` on `/list`.
+  - Removed `ASTROGATE` service binding and `ASTROGATE_*` / `SOROBITS_CONTRACT_ID` vars from `apps/server/wrangler.toml`.
+  - Updated `README.md` & `docs/ENV_MATRIX.md`; `astro-docs lint` passes 0 errors / 0 warnings.
+  - Regenerated AstroDex 640×360 banner and synced `@BotFather` + Bot API (`11` commands).
+
+### Verified live (Telethon MTProto + Mainnet RPC)
+- `@AstroDexBot` **11/11 commands** (`/start`, `/help`, `/stats`, `/usde`, `/route 10 XLM USDE`, `/scan USDE`, `/chart USDE`, `/book XLM USDC`, `/whales AQUA`, `/list`, `/alerts`) + inline `USDE` verified live in Telegram.
+- `POST /v1/quote?net=mainnet` (10 XLM→USDC & 10 XLM→USDE) returns `xoxno_aggregator` with `unsignedXdr`; `simulateTransaction` on `mainnet.sorobanrpc.com` succeeded (`SUCCESS`).
+- Full test suite: **41/41** Vitest tests, typecheck, lint, `secret-scan`, and TMA build passed.

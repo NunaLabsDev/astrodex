@@ -26,32 +26,45 @@ export async function quoteViaXoxno(input: {
 
   const base = input.xoxnoApiBase.replace(/\/+$/, "");
   const clampedSlippage = Math.max(1, Math.min(5000, input.slippageBps)) / 10_000;
-  const queryParts = [
+  const baseQueryParts = [
     `from=${encodeURIComponent(fromContract)}`,
     `to=${encodeURIComponent(toContract)}`,
     `amount_in=${encodeURIComponent(amountInStroops.toString())}`,
     `slippage=${encodeURIComponent(clampedSlippage.toString())}`,
     "include_paths=true",
   ];
-  if (input.sourceAddress && /^[GC][A-Z2-7]{55}$/.test(input.sourceAddress)) {
-    queryParts.push(`sender=${encodeURIComponent(input.sourceAddress)}`);
-    queryParts.push("simulate=true");
-  }
+  const hasValidSender =
+    Boolean(input.sourceAddress) && /^[GC][A-Z2-7]{55}$/.test(input.sourceAddress!);
+
+  const candidateQueries: string[] = hasValidSender
+    ? [
+        [...baseQueryParts, `sender=${encodeURIComponent(input.sourceAddress!)}`, "simulate=true"].join("&"),
+        [...baseQueryParts, `sender=${encodeURIComponent(input.sourceAddress!)}`, "simulate=false"].join("&"),
+        baseQueryParts.join("&"),
+      ]
+    : [baseQueryParts.join("&")];
 
   try {
-    const res = await input.fetchFn(`${base}/api/v1/quote?${queryParts.join("&")}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
+    type XoxnoQuoteJson = {
       amountOut?: string;
       amountOutMin?: string;
       priceImpact?: number;
       hops?: Array<{ dex?: string; feeBps?: number }>;
-      transaction?: string;
+      transaction?: string | { envelopeXdr?: string };
     };
-    if (!json.amountOut || !/^\d+$/.test(json.amountOut)) return null;
+    let json: XoxnoQuoteJson | null = null;
+
+    for (const query of candidateQueries) {
+      const res = await input.fetchFn(`${base}/api/v1/quote?${query}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) continue;
+      json = (await res.json()) as XoxnoQuoteJson;
+      if (json?.amountOut && /^\d+$/.test(json.amountOut)) break;
+    }
+
+    if (!json || !json.amountOut || !/^\d+$/.test(json.amountOut)) return null;
     const outStroops = BigInt(json.amountOut);
     if (outStroops <= 0n) return null;
 
@@ -66,6 +79,12 @@ export async function quoteViaXoxno(input: {
       typeof json.priceImpact === "number" && Number.isFinite(json.priceImpact)
         ? (Math.abs(json.priceImpact) * 100).toFixed(2)
         : "0.00";
+    const extractedXdr =
+      typeof json.transaction === "string"
+        ? json.transaction
+        : typeof json.transaction?.envelopeXdr === "string"
+          ? json.transaction.envelopeXdr
+          : undefined;
 
     return {
       venue: "xoxno_aggregator",
@@ -79,9 +98,7 @@ export async function quoteViaXoxno(input: {
       requiresTrustline: false,
       requiresSacBridgeForSmartAccount: false,
       pathAssets: [input.fromAsset, input.toAsset],
-      ...(typeof json.transaction === "string" && json.transaction.length > 20
-        ? { unsignedXdr: json.transaction }
-        : {}),
+      ...(extractedXdr && extractedXdr.length > 20 ? { unsignedXdr: extractedXdr } : {}),
     };
   } catch {
     return null;

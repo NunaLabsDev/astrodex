@@ -13,9 +13,12 @@ export interface TelegramWebAppInstance {
   expand(): void;
   setHeaderColor?(color: string): void;
   setBackgroundColor?(color: string): void;
+  setBottomBarColor?(color: string): void;
   enableClosingConfirmation?(): void;
   disableClosingConfirmation?(): void;
+  disableVerticalSwipes?(): void;
   openTelegramLink?(url: string): void;
+  onEvent?(eventType: string, cb: () => void): void;
   BackButton?: {
     show(): void;
     hide(): void;
@@ -61,8 +64,11 @@ export function initTelegramMiniApp(): TelegramWebAppInstance | null {
     wa.expand();
     wa.setHeaderColor?.("#0B1433");
     wa.setBackgroundColor?.("#0B1433");
+    wa.setBottomBarColor?.("#0B1433");
+    wa.disableVerticalSwipes?.();
 
-    if (typeof document !== "undefined") {
+    const syncInsets = () => {
+      if (typeof document === "undefined") return;
       const top = (wa.safeAreaInset?.top ?? 0) + (wa.contentSafeAreaInset?.top ?? 0);
       const bottom = (wa.safeAreaInset?.bottom ?? 0) + (wa.contentSafeAreaInset?.bottom ?? 0);
       const left = (wa.safeAreaInset?.left ?? 0) + (wa.contentSafeAreaInset?.left ?? 0);
@@ -77,7 +83,11 @@ export function initTelegramMiniApp(): TelegramWebAppInstance | null {
           `${Math.round(wa.viewportStableHeight)}px`,
         );
       }
-    }
+    };
+    syncInsets();
+    wa.onEvent?.("viewportChanged", syncInsets);
+    wa.onEvent?.("safeAreaChanged", syncInsets);
+    wa.onEvent?.("contentSafeAreaChanged", syncInsets);
   } catch {
     // Non-fatal in partially mocked WebViews
   }

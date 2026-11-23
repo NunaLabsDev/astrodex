@@ -194,4 +194,45 @@ describe("@astrodex/dex-aggregator", () => {
     expect(route?.expectedOutputAmount).toBe("1.3142870");
     expect(route?.unsignedXdr).toBeTruthy();
   });
+
+  it("extracts XOXNO transaction.envelopeXdr and falls back from simulate=true to simulate=false", async () => {
+    const { quoteViaXoxno } = await import("./xoxno/index.js");
+    const seenUrls: string[] = [];
+    const route = await quoteViaXoxno({
+      xoxnoApiBase: "https://stellar-swap.xoxno.com",
+      networkPassphrase: "Public Global Stellar Network ; September 2015",
+      fromAsset: "XLM",
+      toAsset: "USDE:GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47",
+      amount: "10",
+      slippageBps: 100,
+      sourceAddress: "GCOKDLYTDOFSLBXOA4PGNSEG6RAYZN2THJJHZ5PFB2RT4GIZWR2N4RGD",
+      fetchFn: async (url) => {
+        seenUrls.push(url);
+        if (url.includes("simulate=true")) {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({ code: "simulation_failed", error: "HostError: #10" }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            amountOut: "13142870",
+            amountOutMin: "13011441",
+            priceImpact: 0.001,
+            hops: [{ dex: "Aquarius", feeBps: 30 }],
+            transaction: {
+              envelopeXdr: "AAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            },
+          }),
+        };
+      },
+    });
+    expect(seenUrls).toHaveLength(2);
+    expect(seenUrls[0]).toContain("simulate=true");
+    expect(seenUrls[1]).toContain("simulate=false");
+    expect(route?.unsignedXdr).toBe("AAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==");
+  });
 });

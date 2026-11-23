@@ -46,10 +46,10 @@
 | `TMA_ORIGIN` / `ALLOWED_ORIGINS` | Env Var | Strict CORS allowlist + Telegram Mini App origin |
 | `TELEGRAM_API_ORIGIN` / `TG_BOT_USERNAME` / `TG_MINI_APP_SHORT_NAME` | Env Var | Telegram Bot API origin + `t.me/<bot>/<short_name>?startapp=...` link builder |
 | `ASTROWALLET_BOT_USERNAME` / `ASTROWALLET_MINI_APP_SHORT_NAME` | Env Var | Deep-link builder for `https://t.me/<walletBot>/<shortName>?startapp=i-...` |
-| `ASTROWALLET_API_BASE_URL` / `ASTROGATE_API_BASE_URL` | Env Var | Ecosystem API endpoints for `AstroID` SSO resolution, external intent federation, launchpad metadata & SHA-256 Logo CDN |
-| `ASTROGATE_LAUNCHPAD_CONTRACT_ID` / `SOROSWAP_FACTORY_CONTRACT_ID` / `SOROSWAP_ROUTER_CONTRACT_ID` / `XLM_SAC_CONTRACT_ID` | Env Var | Contract IDs monitored by `DEX_INDEXER` and used by `SmartRouter` |
-| `REFLECTOR_DEX_ORACLE_CONTRACT_ID` / `REFLECTOR_CEX_ORACLE_CONTRACT_ID` / `CHAINLINK_PRICE_PROXY_CONTRACT_ID` | Env Var | On-chain oracle contracts (`REFLECTOR_*` optional with graceful fallback on Testnet) |
-| `SOROSWAP_API_BASE` / `XOXNO_SWAP_API_BASE` | Env Var | Soroswap Aggregator & optional XOXNO Swap Aggregator REST bases (`XOXNO` gracefully skipped if unset) |
+| `ASTROWALLET_API_BASE_URL` | Env Var | Primary endpoint for `AstroID` SSO resolution & external intent federation (note: `ASTROGATE_*` and `SOROBITS_CONTRACT_ID` removed from active `wrangler.toml`, kept optional for dormant curve code) |
+| `SOROSWAP_FACTORY_CONTRACT_ID` / `SOROSWAP_ROUTER_CONTRACT_ID` / `XLM_SAC_CONTRACT_ID` | Env Var | Contract IDs monitored by `DEX_INDEXER` and used by `SmartRouter` (`MAINNET_*` variants also supported) |
+| `REFLECTOR_DEX_ORACLE_CONTRACT_ID` / `REDSTONE_SEP40_ORACLE_CONTRACT_ID` / `CHAINLINK_PRICE_PROXY_CONTRACT_ID` | Env Var | On-chain oracle contracts (`MAINNET_REDSTONE_SEP40_ORACLE_CONTRACT_ID` & `REFLECTOR_*` optional with graceful fallback) |
+| `SOROSWAP_API_BASE` / `XOXNO_SWAP_API_BASE` | Env Var | Soroswap Aggregator & XOXNO Swap Aggregator REST bases (`MAINNET_XOXNO_SWAP_API_BASE` = `https://stellar-swap.xoxno.com`) |
 | `STELLAR_EXPERT_API_BASE` / `STELLAR_PRICES_API_BASE` / `STELLAR_REGISTRY_API_BASE` | Env Var | Open Directory tags, optional Rumble Fish 24h VWAP API, and SEP-55/Registry lookups |
 | `SEP42_ASSET_LIST_URLS` | Env Var | Authoritative SEP-42 asset registries cached in KV |
 | `FRIENDBOT_URL` | Env Var | Optional on `testnet`; **Zod rejects if set when `STELLAR_NETWORK=mainnet`** |

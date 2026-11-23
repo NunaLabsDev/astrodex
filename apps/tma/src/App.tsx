@@ -8,7 +8,9 @@ import {
   isInsideTelegramMiniApp,
   openTelegramDeepLink,
   shouldAllowMiniAppAccess,
+  useTelegramBackButton,
 } from "./telegram/webapp.js";
+import { OrdersAlertsView } from "./views/OrdersAlertsView.js";
 import { RadarView } from "./views/RadarView.js";
 import { TradeChartView } from "./views/TradeChartView.js";
 
@@ -84,13 +86,15 @@ function AstroWalletLoginGate() {
 }
 
 function AstroDexShell() {
-  const { config, authStatus, authError, activeTab, astroId, retryAuth } = useAppState();
+  const { config, authStatus, authError, activeTab, setActiveTab, astroId, retryAuth } = useAppState();
   const inTelegram = isInsideTelegramMiniApp();
   const allowed = shouldAllowMiniAppAccess({
     inTelegram,
     allowDevOutsideTelegram: config.allowDevOutsideTelegram,
     authStatus,
   });
+
+  useTelegramBackButton(astroId.found && activeTab !== "radar", () => setActiveTab("radar"));
 
   if (!allowed) {
     return (
@@ -111,7 +115,13 @@ function AstroDexShell() {
           <AstroWalletLoginGate />
         ) : (
           <>
-            {activeTab === "radar" ? <RadarView /> : <TradeChartView />}
+            {activeTab === "radar" ? (
+              <RadarView />
+            ) : activeTab === "orders" ? (
+              <OrdersAlertsView />
+            ) : (
+              <TradeChartView />
+            )}
           </>
         )}
       </div>

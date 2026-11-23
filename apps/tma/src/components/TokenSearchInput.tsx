@@ -136,7 +136,7 @@ export function TokenSearchInput({
         <div className="ad-dropdown-list">
           {searchingRemote && combinedResults.length === 0 && (
             <div className="ad-text-xs ad-text-muted">
-              Searching Stellar network &amp; AstroGate...
+              Searching Stellar network...
             </div>
           )}
           {combinedResults.map((item) => (

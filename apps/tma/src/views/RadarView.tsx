@@ -112,7 +112,7 @@ function Sparkline({ points, positive }: { points?: number[] | undefined; positi
   );
 }
 
-type AmmVenueChoice = "soroswap" | "aquarius" | "phoenix" | "sdex_pool" | "astrogate_curve";
+type AmmVenueChoice = "soroswap" | "aquarius" | "phoenix" | "sdex_pool";
 
 function reviewBadge(token: CatalogTokenItem) {
   const isEthena = token.category === "ethena_yield" || ETHENA_CODES.has(token.code.toUpperCase());
@@ -146,8 +146,6 @@ function venueLabel(venue?: string): string {
   switch (venue) {
     case "soroswap":
       return "Soroswap AMM";
-    case "astrogate_curve":
-      return "AstroGate Curve";
     case "sdex_pool":
       return "Classic SDEX";
     case "aquarius":

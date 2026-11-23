@@ -195,14 +195,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setTradeScrollTarget("pools");
         setActiveTabState("trade");
       } else if (parsed.tab === "orders") {
-        setTradeScrollTarget("limit");
-        setActiveTabState("trade");
+        setActiveTabState("orders");
       } else {
         const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
         if (tabSet.has(parsed.tab as DockTab)) {
           setActiveTabState(parsed.tab as DockTab);
         }
       }
+    } else if (strippedParam === "orders" || strippedParam === "alerts") {
+      setActiveTabState("orders");
     }
   }, []);
 
@@ -296,8 +297,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (next === "orders") {
-      setTradeScrollTarget("limit");
-      setActiveTabState("trade");
+      setActiveTabState("orders");
       return;
     }
     setActiveTabState(next);
