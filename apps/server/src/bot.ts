@@ -88,8 +88,8 @@ export function createAstroDexBot(
   bot.command("start", async (ctx) => {
     if (!isExplicitMentionInGroup(ctx)) return;
     const caption = [
-      `<b>AstroDex</b> · <code>${config.network.toUpperCase()}</code>`,
-      "5-way routing, SDEX orderbooks &amp; Astro Shield X-Ray inside Telegram.",
+      `<b>AstroDex</b> · <code>MAINNET &amp; TESTNET</code>`,
+      "CoinGecko-style Stellar markets, 5-way routing, AMMs, top holders &amp; Astro Shield X-Ray.",
       "Tap below to trade, or run /help for chat commands.",
     ].join("\n");
     const replyMarkup = {
@@ -140,11 +140,11 @@ export function createAstroDexBot(
     if (!isExplicitMentionInGroup(ctx)) return;
     await ctx.reply(
       [
-        `<b>AstroDex</b> · <code>${config.network.toUpperCase()}</code>`,
+        `<b>AstroDex</b> · <code>MAINNET &amp; TESTNET</code>`,
         "Non-custodial trading terminal powered by AstroWallet (AstroID).",
         "",
-        "<b>Commands:</b> /scan · /route · /book · /chart · /list · /whales · /jackpot · /alerts · /stats",
-        `<i>Inline:</i> <code>@${botHandle} XLM</code>`,
+        "<b>Commands:</b> /scan · /route · /book · /chart · /whales · /list · /jackpot · /alerts · /stats",
+        `<i>Inline:</i> <code>@${botHandle} AQUA</code>`,
       ].join("\n"),
       { parse_mode: "HTML" },
     );
@@ -466,13 +466,15 @@ export function createAstroDexBot(
   });
 
   bot.on("inline_query", async (ctx) => {
-    const query = ctx.inlineQuery.query.trim() || "XLM";
-    let cardText = `<b>AstroDex Market Card — ${query}</b>\nTap below to open Pro Chart & Forensic X-Ray.`;
+    const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.inlineQuery.query.trim() || "XLM");
+    const query = tokens[0] ?? "XLM";
+    let cardText = `<b>AstroDex Market Card — ${query}</b>\nTap below to open Pro Chart &amp; Forensic X-Ray.`;
     let assetKey = query;
     try {
-      const { target } = await resolveAssetTarget({ config, repo, fetchFn, rawAsset: query });
-      const audit = await scanner.auditToken(target.resolvedKey);
-      cardText = formatScanCard(audit);
+      const botScanner = createScannerFor(botCfg);
+      const { target } = await resolveAssetTarget({ config: botCfg, repo, fetchFn, rawAsset: query });
+      const audit = await botScanner.auditToken(target.resolvedKey);
+      cardText = `<code>[${botCfg.network.toUpperCase()}]</code>\n${formatScanCard(audit)}`;
       assetKey = audit.assetKey;
     } catch {
       // Fallback safely when free-text ticker is searched inline
@@ -480,7 +482,7 @@ export function createAstroDexBot(
     const dexDeepLink = buildAstroDexDeepLink({
       tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
       tgMiniAppShortName: config.tgMiniAppShortName,
-      startParam: `scan_${assetKey}`,
+      startParam: `${botCfg.network}_scan_${assetKey}`,
     });
     await ctx.answerInlineQuery(
       [

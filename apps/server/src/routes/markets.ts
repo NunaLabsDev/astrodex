@@ -21,6 +21,7 @@ import type { DexServerRepository, DexTokenRecord } from "../db/repository.js";
 import { checkRateLimit, clientKeyFromHeaders } from "../rate-limit.js";
 import {
   buildUnifiedCatalog,
+  fetchSingleTokenStellarExpertMetric,
   fetchTokenAmmPools,
   fetchTokenRecentTrades,
   fetchTokenTopHolders,
@@ -579,7 +580,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     });
 
     const scanner = createConfiguredScanner(config, c.env.CACHE, rawFetchFn, fetchFn);
-    const targetNorm = normalizeAssetIdentifier(target.resolvedKey);
+    const targetNorm = normalizeAssetIdentifier(target.classicAsset ?? target.resolvedKey);
     const catalogItem =
       snapshot.catalog.find(
         (item) =>
@@ -589,34 +590,43 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
           item.code.toUpperCase() === targetNorm.code.toUpperCase(),
       ) ?? null;
 
-    const [ammPools, recentTrades, orderbookRes, ammInfo, audit, topHolders] = await Promise.all([
-      fetchTokenAmmPools({ config, target, snapshot, fetchFn, limit: 20 }),
-      fetchTokenRecentTrades({
-        config,
-        baseTarget: target,
-        quoteTarget,
-        fetchFn,
-        limit: 15,
-      }),
-      fetchHorizonOrderbook(
-        config.horizonUrls,
-        target.classicAsset ?? target.resolvedKey,
-        quoteTarget.classicAsset ?? quoteTarget.resolvedKey,
-        20,
-        fetchFn,
-      ).catch(() => null),
-      loadLiveAmmOrderbookAndSpot({
-        config,
-        snapshot,
-        baseTarget: target,
-        quoteTarget,
-        fetchFn,
-      }).catch(() => ({ ammPairInfo: null, syntheticSnapshot: null })),
-      scanner
-        .auditToken(target.classicAsset ?? target.sorobanContractId ?? target.resolvedKey)
-        .catch(() => null),
-      fetchTokenTopHolders({ config, target, fetchFn, limit: 15 }).catch(() => []),
-    ]);
+    const [ammPools, recentTrades, orderbookRes, ammInfo, audit, topHolders, seFallback] =
+      await Promise.all([
+        fetchTokenAmmPools({ config, target, snapshot, fetchFn, limit: 20 }),
+        fetchTokenRecentTrades({
+          config,
+          baseTarget: target,
+          quoteTarget,
+          fetchFn,
+          limit: 15,
+        }),
+        fetchHorizonOrderbook(
+          config.horizonUrls,
+          target.classicAsset ?? target.resolvedKey,
+          quoteTarget.classicAsset ?? quoteTarget.resolvedKey,
+          20,
+          fetchFn,
+        ).catch(() => null),
+        loadLiveAmmOrderbookAndSpot({
+          config,
+          snapshot,
+          baseTarget: target,
+          quoteTarget,
+          fetchFn,
+        }).catch(() => ({ ammPairInfo: null, syntheticSnapshot: null })),
+        scanner
+          .auditToken(target.classicAsset ?? target.sorobanContractId ?? target.resolvedKey)
+          .catch(() => null),
+        fetchTokenTopHolders({ config, target, fetchFn, limit: 15 }).catch(() => []),
+        catalogItem?.priceUsd == null && config.network === "mainnet"
+          ? fetchSingleTokenStellarExpertMetric(
+              config,
+              targetNorm.code,
+              targetNorm.issuer,
+              fetchFn,
+            ).catch(() => null)
+          : Promise.resolve(null),
+      ]);
 
     const orderbook =
       orderbookRes && (orderbookRes.bids.length > 0 || orderbookRes.asks.length > 0)
@@ -625,16 +635,16 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const depth = orderbook ? computeDepthChart(orderbook) : null;
 
     const marketStats = {
-      priceUsd: catalogItem?.priceUsd ?? null,
-      change24hPct: catalogItem?.change24hPct ?? null,
-      change7dPct: catalogItem?.change7dPct ?? null,
-      volume7dUsd: catalogItem?.volume7dUsd ?? null,
-      marketCapUsd: catalogItem?.marketCapUsd ?? null,
-      holdersCount: catalogItem?.holdersCount ?? null,
-      tradesCount: catalogItem?.tradesCount ?? null,
-      rating: catalogItem?.rating ?? null,
-      domain: catalogItem?.domain ?? null,
-      sparkline7d: catalogItem?.sparkline7d ?? null,
+      priceUsd: catalogItem?.priceUsd ?? seFallback?.priceUsd ?? null,
+      change24hPct: catalogItem?.change24hPct ?? seFallback?.change24hPct ?? null,
+      change7dPct: catalogItem?.change7dPct ?? seFallback?.change7dPct ?? null,
+      volume7dUsd: catalogItem?.volume7dUsd ?? seFallback?.volume7dUsd ?? null,
+      marketCapUsd: catalogItem?.marketCapUsd ?? seFallback?.marketCapUsd ?? null,
+      holdersCount: catalogItem?.holdersCount ?? seFallback?.holdersCount ?? null,
+      tradesCount: catalogItem?.tradesCount ?? seFallback?.tradesCount ?? null,
+      rating: catalogItem?.rating ?? seFallback?.rating ?? null,
+      domain: catalogItem?.domain ?? seFallback?.domain ?? null,
+      sparkline7d: catalogItem?.sparkline7d ?? seFallback?.sparkline7d ?? null,
     };
 
     return c.json({

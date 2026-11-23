@@ -311,7 +311,7 @@ export async function fetchStellarExpertMarketMap(
     (c) => !map.has(`${c.code}:${c.issuer}`.toUpperCase()),
   );
   await Promise.all(
-    missing.slice(0, 6).map(async (c) => {
+    missing.slice(0, 12).map(async (c) => {
       try {
         const r = await fetchFn(
           `${seBase}/explorer/public/asset?search=${encodeURIComponent(c.code)}&sort=rating&order=desc&limit=3`,
@@ -335,6 +335,32 @@ export async function fetchStellarExpertMarketMap(
   );
 
   return map;
+}
+
+export async function fetchSingleTokenStellarExpertMetric(
+  config: ServerConfig,
+  code: string,
+  issuer: string | undefined,
+  fetchFn: AdaptedFetch,
+): Promise<StellarExpertMarketMetric | null> {
+  if (config.network !== "mainnet" || !config.stellarExpertApiBase) return null;
+  const seBase = config.stellarExpertApiBase.replace(/\/+$/, "");
+  try {
+    const r = await fetchFn(
+      `${seBase}/explorer/public/asset?search=${encodeURIComponent(code)}&sort=rating&order=desc&limit=5`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!r.ok) return null;
+    const j = (await r.json()) as { _embedded?: { records?: StellarExpertAssetRecord[] } };
+    const records = j._embedded?.records ?? [];
+    const match = issuer
+      ? records.find((rec) => rec.asset?.toUpperCase().includes(issuer.toUpperCase()))
+      : records.find((rec) => rec.code?.toUpperCase() === code.toUpperCase());
+    if (!match) return null;
+    return parseStellarExpertMetric(match)?.metric ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function buildUnifiedCatalog(
@@ -1280,8 +1306,12 @@ export async function fetchTokenRecentTrades(input: {
     order: "desc",
   });
 
-  const baseNorm = normalizeAssetIdentifier(input.baseTarget.resolvedKey);
-  const quoteNorm = normalizeAssetIdentifier(input.quoteTarget.resolvedKey);
+  const baseNorm = normalizeAssetIdentifier(
+    input.baseTarget.classicAsset ?? input.baseTarget.resolvedKey,
+  );
+  const quoteNorm = normalizeAssetIdentifier(
+    input.quoteTarget.classicAsset ?? input.quoteTarget.resolvedKey,
+  );
 
   if (input.baseTarget.resolvedKey === "XLM") {
     params.set("base_asset_type", "native");

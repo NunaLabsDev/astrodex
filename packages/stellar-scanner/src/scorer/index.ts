@@ -116,7 +116,7 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
   if (input.classicAudit) {
     const ca = input.classicAudit;
     if (ca.flags.authClawbackEnabled) {
-      score -= 35;
+      score -= input.isSep42Verified ? 10 : 35;
       findings.push({
         code: "CLASSIC_CLAWBACK_ENABLED",
         severity: "warning",
@@ -126,7 +126,7 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
       });
     }
     if (ca.flags.authRevocable) {
-      score -= 20;
+      score -= input.isSep42Verified ? 8 : 20;
       findings.push({
         code: "CLASSIC_FREEZE_ENABLED",
         severity: "warning",
@@ -136,7 +136,7 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
       });
     }
     if (!ca.locked) {
-      score -= 20;
+      score -= input.isSep42Verified ? 7 : 20;
       findings.push({
         code: "CLASSIC_ISSUER_UNLOCKED",
         severity: "warning",
@@ -250,7 +250,7 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
     ? "malicious"
     : clampedScore >= 75 && !findings.some((f) => f.severity === "warning")
       ? "safe"
-      : clampedScore >= 45
+      : clampedScore >= 45 || input.isSep42Verified
         ? "warning"
         : "malicious";
 
