@@ -687,4 +687,38 @@ describe("@astrodex/server", () => {
     expect(mainnetJson.catalog.some((t) => t.assetKey === MAINNET_USDC_CONTRACT)).toBe(true);
     expect(mainnetJson.catalog.some((t) => t.assetKey === ASTRO_CONTRACT)).toBe(false);
   });
+
+  it("caches /v1/markets/overview in KV for fast repeat reads", async () => {
+    const kvStore = new Map<string, string>();
+    let fetchCalls = 0;
+    const app = createApp({
+      createRepo: () => createInMemoryRepository(),
+      fetchFn: (async () => {
+        fetchCalls += 1;
+        return new Response("{}", { status: 404 });
+      }) as typeof fetch,
+    });
+    const envWithKv = {
+      ...makeBaseEnv(),
+      CACHE: {
+        get: async (k: string) => kvStore.get(k) ?? null,
+        put: async (k: string, v: string) => {
+          kvStore.set(k, v);
+        },
+        delete: async (k: string) => {
+          kvStore.delete(k);
+        },
+      },
+    };
+
+    const res1 = await app.request("/v1/markets/overview", {}, envWithKv as never);
+    expect(res1.status).toBe(200);
+    expect(res1.headers.get("X-AstroDex-Cache")).toBe("MISS");
+    const callsAfterFirst = fetchCalls;
+
+    const res2 = await app.request("/v1/markets/overview", {}, envWithKv as never);
+    expect(res2.status).toBe(200);
+    expect(res2.headers.get("X-AstroDex-Cache")).toBe("HIT");
+    expect(fetchCalls).toBe(callsAfterFirst);
+  });
 });

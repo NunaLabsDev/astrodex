@@ -24,7 +24,7 @@ export function formatScanCard(audit: TokenForensicAudit): string {
         ? "🟡 CAUTION"
         : "🔴 BLOCKED / HIGH RISK";
   const topFindings = audit.findings
-    .slice(0, 4)
+    .slice(0, 3)
     .map((f) => `• <b>${escapeHtml(f.title)}:</b> ${escapeHtml(f.description)}`)
     .join("\n");
 

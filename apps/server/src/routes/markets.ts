@@ -142,6 +142,31 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   router.get("/markets/overview", async (c) => {
     const baseConfig = c.get("config");
     const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const cacheKey = `markets:overview:${config.network}`;
+    const nowMs = Date.now();
+    if (c.env.CACHE) {
+      const cachedRaw = await c.env.CACHE.get(cacheKey);
+      if (cachedRaw) {
+        try {
+          const cached = JSON.parse(cachedRaw) as {
+            cachedAt?: number;
+            payload?: Record<string, unknown>;
+          };
+          if (
+            cached.payload &&
+            typeof cached.cachedAt === "number" &&
+            nowMs - cached.cachedAt < 25_000
+          ) {
+            c.header("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
+            c.header("X-AstroDex-Cache", "HIT");
+            return c.json(cached.payload);
+          }
+        } catch {
+          // Ignore corrupt cache entry
+        }
+      }
+    }
+
     const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
     const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
@@ -191,7 +216,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       }
     }
 
-    return c.json({
+    const payload = {
       ok: true,
       network: config.network,
       xlmUsd: oracle,
@@ -199,7 +224,17 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       pairs: snapshot.pairs,
       launchpadTokens: snapshot.launchpadTokens,
       catalog: snapshot.catalog,
-    });
+    };
+    if (c.env.CACHE) {
+      await c.env.CACHE.put(
+        cacheKey,
+        JSON.stringify({ cachedAt: Date.now(), payload }),
+        { expirationTtl: 60 },
+      );
+    }
+    c.header("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
+    c.header("X-AstroDex-Cache", "MISS");
+    return c.json(payload);
   });
 
   router.get("/markets/search", async (c) => {
@@ -210,6 +245,29 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const q = (c.req.query("q") ?? "").trim();
     const limitParam = Number(c.req.query("limit") ?? "15");
     const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(30, Math.trunc(limitParam))) : 15;
+    const cacheKey =
+      q.length <= 24 ? `markets:search:${config.network}:${q.toLowerCase()}:${limit}` : null;
+    if (cacheKey && c.env.CACHE) {
+      const cachedRaw = await c.env.CACHE.get(cacheKey);
+      if (cachedRaw) {
+        try {
+          const cached = JSON.parse(cachedRaw) as {
+            cachedAt?: number;
+            payload?: Record<string, unknown>;
+          };
+          if (
+            cached.payload &&
+            typeof cached.cachedAt === "number" &&
+            Date.now() - cached.cachedAt < 20_000
+          ) {
+            c.header("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
+            return c.json(cached.payload);
+          }
+        } catch {
+          // Ignore corrupt cache entry
+        }
+      }
+    }
     const { results } = await searchCatalogAndNetworkAssets({
       config,
       repo,
@@ -218,7 +276,16 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       limit,
       includeRepoTokens,
     });
-    return c.json({ ok: true, network: config.network, query: q, results });
+    const payload = { ok: true, network: config.network, query: q, results };
+    if (cacheKey && c.env.CACHE) {
+      await c.env.CACHE.put(
+        cacheKey,
+        JSON.stringify({ cachedAt: Date.now(), payload }),
+        { expirationTtl: 60 },
+      );
+    }
+    c.header("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
+    return c.json(payload);
   });
 
   router.post("/markets/listings", async (c) => {
@@ -331,6 +398,9 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
         lastLedger: 0,
         updatedAt: now,
       });
+    }
+    if (c.env.CACHE) {
+      await c.env.CACHE.delete(`markets:overview:${config.network}`).catch(() => undefined);
     }
 
     return c.json({
