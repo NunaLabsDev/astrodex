@@ -27,7 +27,7 @@ import {
 
 export type AppMode = "basic" | "pro";
 export type DockTab = "radar" | "trade" | "scanner" | "book" | "orders";
-export type TradeSubTab = "swap" | "pools" | "safety";
+export type TradeSubTab = "swap" | "pools" | "holders" | "safety";
 
 interface AppContextValue {
   config: TmaConfig;

@@ -24,6 +24,22 @@ const SLIPPAGE_PRESETS = [
 ] as const;
 
 interface TokenHubData {
+  marketStats?: {
+    priceUsd: number | null;
+    change24hPct: number | null;
+    change7dPct: number | null;
+    volume7dUsd: number | null;
+    marketCapUsd: number | null;
+    holdersCount: number | null;
+    tradesCount: number | null;
+    rating: number | null;
+    domain: string | null;
+  };
+  topHolders?: Array<{
+    address: string;
+    balance: string;
+    sharePct: number | null;
+  }>;
   ammPools: Array<{
     poolId: string;
     venue: string;
@@ -491,7 +507,14 @@ export function TradeChartView() {
                 className={`glass-pill ad-clickable ${tradeSubTab === "pools" ? "glass-pill--gold" : ""}`}
                 onClick={() => setTradeSubTab("pools")}
               >
-                Pools ({tokenHub?.ammPools.length ?? 0})
+                AMMs ({tokenHub?.ammPools.length ?? 0})
+              </button>
+              <button
+                type="button"
+                className={`glass-pill ad-clickable ${tradeSubTab === "holders" ? "glass-pill--gold" : ""}`}
+                onClick={() => setTradeSubTab("holders")}
+              >
+                Holders ({tokenHub?.topHolders?.length ?? 0})
               </button>
               <button
                 type="button"
@@ -502,6 +525,41 @@ export function TradeChartView() {
               </button>
             </div>
           </div>
+
+          {tokenHub?.marketStats && (
+            <div className="ad-grid-2 ad-text-xs tabular-nums">
+              <div className="ad-subcard">
+                <div className="ad-text-muted">USD Price / 24h</div>
+                <div className="ad-font-bold">
+                  {tokenHub.marketStats.priceUsd
+                    ? `$${tokenHub.marketStats.priceUsd < 0.01 ? tokenHub.marketStats.priceUsd.toFixed(6) : tokenHub.marketStats.priceUsd.toFixed(4)}`
+                    : "--"}
+                  {tokenHub.marketStats.change24hPct !== null && (
+                    <span
+                      className={
+                        tokenHub.marketStats.change24hPct >= 0 ? "ad-text-safe" : "ad-text-danger"
+                      }
+                      style={{ marginLeft: 6 }}
+                    >
+                      {tokenHub.marketStats.change24hPct >= 0 ? "+" : ""}
+                      {tokenHub.marketStats.change24hPct.toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="ad-subcard">
+                <div className="ad-text-muted">Holders / 7d Vol</div>
+                <div className="ad-font-bold">
+                  {tokenHub.marketStats.holdersCount
+                    ? tokenHub.marketStats.holdersCount.toLocaleString("en-US")
+                    : "--"}
+                  {tokenHub.marketStats.volume7dUsd
+                    ? ` · $${Math.round(tokenHub.marketStats.volume7dUsd).toLocaleString("en-US")}`
+                    : ""}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="ad-chip-row" aria-label="Chart Timeframe">
             {TIMEFRAMES.map((tf) => (
@@ -597,6 +655,54 @@ export function TradeChartView() {
                   <span className="ad-text-muted">@ {t.price} {t.counterCode}</span>
                 </div>
               ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {tradeSubTab === "holders" && (
+        <section className="glass-card ad-stack-10">
+          <div className="ad-row">
+            <strong className="ad-text-base">
+              Top On-Chain Holders · {focusToken?.code ?? focusAsset}
+            </strong>
+            <span className="glass-pill">
+              {tokenHub?.marketStats?.holdersCount
+                ? `${tokenHub.marketStats.holdersCount.toLocaleString("en-US")} total`
+                : `${tokenHub?.topHolders?.length ?? 0} shown`}
+            </span>
+          </div>
+          {tokenHub?.topHolders && tokenHub.topHolders.length > 0 ? (
+            <div className="ad-stack-6">
+              {tokenHub.topHolders.map((h, idx) => (
+                <div key={h.address} className="ad-row ad-item-card">
+                  <div className="ad-min-w-0">
+                    <div className="ad-font-bold ad-text-sm tabular-nums">
+                      #{idx + 1} ·{" "}
+                      <a
+                        href={`https://stellar.expert/explorer/${feedNetwork === "mainnet" ? "public" : "testnet"}/account/${h.address}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ad-link-inline"
+                      >
+                        {h.address.slice(0, 6)}…{h.address.slice(-4)}
+                      </a>
+                    </div>
+                  </div>
+                  <div className="ad-text-right ad-text-xs tabular-nums">
+                    <strong>{Number(h.balance).toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong>
+                    {h.sharePct !== null && (
+                      <div className="ad-text-muted">{h.sharePct.toFixed(2)}%</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="ad-banner">
+              {hubLoading
+                ? "Loading live holders from Stellar Horizon..."
+                : "No public holder snapshot returned for this asset on Horizon."}
             </div>
           )}
         </section>

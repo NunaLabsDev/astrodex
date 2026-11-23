@@ -30,6 +30,7 @@ export interface OraclesAndChartsConfig {
   stellarPricesApiBase?: string | undefined;
   stellarPricesApiKey?: string | undefined;
   usdcIssuer?: string | undefined;
+  fallbackContractId?: string | undefined;
   sorobanCandlesLoader?:
     | ((pairId: string, timeframe: OhlcvTimeframe, limit: number) => Promise<OhlcvCandle[]>)
     | undefined;
@@ -145,17 +146,21 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
           : Promise.resolve(null),
       ]);
       const merged = mergeOhlcvCandles(d1Candles, horizonCandles, limit);
-      if (merged.length > 0) return merged;
       const isMainnet = !config.horizonUrls.some((u) => u.includes("testnet"));
+      if (merged.length >= 6 && !/^C[A-Z2-7]{55}$/.test(input.baseAsset)) {
+        return merged;
+      }
       if (isMainnet) {
+        const gtTokenId = config.fallbackContractId ?? input.baseAsset;
         const gtCandles = await fetchGeckoTerminalStellarOhlcv({
-          baseAsset: input.baseAsset,
+          baseAsset: gtTokenId,
           timeframe: input.timeframe,
           limit,
           fetchFn,
         });
         if (gtCandles.length > 0) return gtCandles;
       }
+      if (merged.length > 0) return merged;
       if (spotPrice !== null && Number.isFinite(spotPrice) && spotPrice > 0) {
         const stepSeconds: Record<OhlcvTimeframe, number> = {
           "1m": 60,

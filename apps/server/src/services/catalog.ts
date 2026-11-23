@@ -99,6 +99,244 @@ export function resolveReadFeedConfig(
   return baseConfig;
 }
 
+export interface StellarExpertMarketMetric {
+  code: string;
+  issuer?: string;
+  contract?: string;
+  priceUsd?: number;
+  change24hPct?: number;
+  change7dPct?: number;
+  volume7dUsd?: number;
+  marketCapUsd?: number;
+  holdersCount?: number;
+  tradesCount?: number;
+  rating?: number;
+  domain?: string;
+  logoUrl?: string;
+  sparkline7d?: number[];
+}
+
+const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
+  code: string;
+  issuer: string;
+  name: string;
+  domain: string;
+  sacId?: string;
+  ammVenue: string;
+}> = [
+  {
+    code: "ACT",
+    issuer: "GAHHULDPDVGB5WS5PH7BCGLJ7ZHECDBIIMKB62UPVDUOCHNFL7HX3FS7",
+    name: "Authentic Payment",
+    domain: "authentic-payment.com",
+    sacId: "CAU7TR4L52CSCYOLOPXPJJ7T6EMEXTEE4XKRH2ASY23EFYEMU5WUFYP2",
+    ammVenue: "sdex_pool",
+  },
+  {
+    code: "SSLX",
+    issuer: "GBHFGY3ZNEJWLNO4LBUKLYOCEK4V7ENEBJGPRHHX7JU47GWHBREH37UR",
+    name: "Sl8",
+    domain: "sslx.sl8.online",
+    sacId: "CBHBD77PWZ3AXPQVYVDBHDKEMVNOR26UZUZHWCB6QC7J5SETQPRUQAS4",
+    ammVenue: "soroswap",
+  },
+  {
+    code: "XTAR",
+    issuer: "GAORYJ3KBDGIM7FFSKVUJHJ5NEFWIRDIAGGBJBJS7TY6ECZS53257IG4",
+    name: "Dogstar",
+    domain: "dogstarcoin.com",
+    sacId: "CDCKFBZYF2AQCSM3JOF2ZM27O3Y6AJAI4OTCQKAFNZ3FHBYUTFOKICIY",
+    ammVenue: "sdex_pool",
+  },
+  {
+    code: "MIXT",
+    issuer: "GAW3RURUECGLNMBVWJZTNPL3I27EWQ47Y4XGV3N4A3DQS5F742CAKXGZ",
+    name: "MIXT",
+    domain: "mixt.ing",
+    ammVenue: "sdex_pool",
+  },
+  {
+    code: "BLND",
+    issuer: "GDJEHTBE6ZHUXSWFI642DCGLUOECLHPF3KSXHPXTSTJ7E3JF6MQ5EZYY",
+    name: "Blend",
+    domain: "blend.capital",
+    sacId: "CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY",
+    ammVenue: "soroswap",
+  },
+  {
+    code: "PHO",
+    issuer: "GAX5TXB5RYJNLBUR477PEXM4X75APK2PGMTN6KEFQSESGWFXEAKFSXJO",
+    name: "Phoenix",
+    domain: "app.phoenix-hub.io",
+    sacId: "CBZ7M5B3Y4WWBZ5XK5UZCAFOEZ23KSSZXYECYX3IXM6E2JOLQC52DK32",
+    ammVenue: "phoenix",
+  },
+  {
+    code: "SCOP",
+    issuer: "GC6OYQJIZF3HFXCYPFCBXYXNGIBQ4TNSFUBUXQJOZWIP6F3YZK4QH3VQ",
+    name: "Scopuly",
+    domain: "scopuly.com",
+    sacId: "CCJVS6IVXAAXWCMFVK6QLWHZHR4RTVRSEZRQ53GOAEDN3VY2BLPVY72J",
+    ammVenue: "sdex_pool",
+  },
+  {
+    code: "SHX",
+    issuer: "GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH",
+    name: "Stronghold",
+    domain: "stronghold.co",
+    sacId: "CCKCKCPHYVXQD4NECBFJTFSCU2AMSJGCNG4O6K4JVRE2BLPR7WNDBQIQ",
+    ammVenue: "sdex_pool",
+  },
+  {
+    code: "LMT",
+    issuer: "GBCDFFU2MBT25YX2TBFS4V2XHIJVTGHGK3H6KGA2NIK7X5NK3UFRC6BQ",
+    name: "Liquid Monetary",
+    domain: "liquidmonetary.xmint.io",
+    ammVenue: "sdex_pool",
+  },
+];
+
+interface StellarExpertAssetRecord {
+  asset?: string;
+  price?: number;
+  code?: string;
+  contract?: string;
+  supply?: string;
+  trades?: number;
+  price7d?: Array<[number, number]>;
+  volume7d?: number;
+  trustlines?: { total?: number; funded?: number };
+  rating?: { average?: number };
+  domain?: string;
+  tomlInfo?: { issuer?: string; image?: string };
+}
+
+function parseStellarExpertMetric(rec: StellarExpertAssetRecord): {
+  keys: string[];
+  metric: StellarExpertMarketMetric;
+} | null {
+  const code = rec.code?.trim();
+  if (!code) return null;
+  const parts = rec.asset?.split("-") ?? [];
+  const issuer =
+    rec.tomlInfo?.issuer ??
+    (parts[1] && /^G[A-Z2-7]{55}$/.test(parts[1]) ? parts[1] : undefined);
+  const contract = rec.contract && /^C[A-Z2-7]{55}$/.test(rec.contract) ? rec.contract : undefined;
+  const priceUsd = typeof rec.price === "number" && Number.isFinite(rec.price) && rec.price > 0
+    ? rec.price
+    : undefined;
+
+  const sparkline = (rec.price7d ?? [])
+    .map((pt) => Number(pt[1]))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  let change24hPct: number | undefined;
+  let change7dPct: number | undefined;
+  if (sparkline.length >= 2) {
+    const first = sparkline[0]!;
+    const prevDay = sparkline[sparkline.length - 2]!;
+    const latest = priceUsd ?? sparkline[sparkline.length - 1]!;
+    if (first > 0) change7dPct = Number((((latest - first) / first) * 100).toFixed(2));
+    if (prevDay > 0) change24hPct = Number((((latest - prevDay) / prevDay) * 100).toFixed(2));
+  }
+
+  const volume7dUsd =
+    typeof rec.volume7d === "number" && Number.isFinite(rec.volume7d) && priceUsd
+      ? Number(((rec.volume7d / 1e7) * priceUsd).toFixed(2))
+      : undefined;
+  const supplyNum = rec.supply ? Number(rec.supply) / 1e7 : 0;
+  const marketCapUsd =
+    supplyNum > 0 && priceUsd ? Number((supplyNum * priceUsd).toFixed(2)) : undefined;
+
+  const metric: StellarExpertMarketMetric = {
+    code,
+    ...(issuer ? { issuer } : {}),
+    ...(contract ? { contract } : {}),
+    ...(priceUsd !== undefined ? { priceUsd } : {}),
+    ...(change24hPct !== undefined ? { change24hPct } : {}),
+    ...(change7dPct !== undefined ? { change7dPct } : {}),
+    ...(volume7dUsd !== undefined ? { volume7dUsd } : {}),
+    ...(marketCapUsd !== undefined ? { marketCapUsd } : {}),
+    ...(rec.trustlines?.funded !== undefined
+      ? { holdersCount: rec.trustlines.funded }
+      : rec.trustlines?.total !== undefined
+        ? { holdersCount: rec.trustlines.total }
+        : {}),
+    ...(typeof rec.trades === "number" ? { tradesCount: rec.trades } : {}),
+    ...(typeof rec.rating?.average === "number" ? { rating: rec.rating.average } : {}),
+    ...(rec.domain ? { domain: rec.domain } : {}),
+    ...(rec.tomlInfo?.image ? { logoUrl: rec.tomlInfo.image } : {}),
+    ...(sparkline.length >= 2 ? { sparkline7d: sparkline } : {}),
+  };
+
+  const keys: string[] = [];
+  if (code.toUpperCase() === "XLM" && !issuer) keys.push("XLM");
+  if (issuer) keys.push(`${code}:${issuer}`.toUpperCase());
+  if (contract) keys.push(contract.toUpperCase());
+  keys.push(`CODE:${code.toUpperCase()}`);
+  return { keys, metric };
+}
+
+export async function fetchStellarExpertMarketMap(
+  config: ServerConfig,
+  fetchFn: AdaptedFetch,
+): Promise<Map<string, StellarExpertMarketMetric>> {
+  const map = new Map<string, StellarExpertMarketMetric>();
+  if (config.network !== "mainnet" || !config.stellarExpertApiBase) return map;
+
+  const seBase = config.stellarExpertApiBase.replace(/\/+$/, "");
+  try {
+    const res = await fetchFn(
+      `${seBase}/explorer/public/asset?sort=rating&order=desc&limit=80`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (res.ok) {
+      const json = (await res.json()) as {
+        _embedded?: { records?: StellarExpertAssetRecord[] };
+      };
+      for (const rec of json._embedded?.records ?? []) {
+        const parsed = parseStellarExpertMetric(rec);
+        if (!parsed) continue;
+        for (const k of parsed.keys) {
+          if (!map.has(k)) map.set(k, parsed.metric);
+        }
+      }
+    }
+  } catch {
+    // Non-fatal fallback
+  }
+
+  // Ensure curated community assets not in top-80 rating also get live metrics
+  const missing = CURATED_MAINNET_COMMUNITY_ASSETS.filter(
+    (c) => !map.has(`${c.code}:${c.issuer}`.toUpperCase()),
+  );
+  await Promise.all(
+    missing.slice(0, 6).map(async (c) => {
+      try {
+        const r = await fetchFn(
+          `${seBase}/explorer/public/asset?search=${encodeURIComponent(c.code)}&sort=rating&order=desc&limit=3`,
+          { headers: { Accept: "application/json" } },
+        );
+        if (!r.ok) return;
+        const j = (await r.json()) as { _embedded?: { records?: StellarExpertAssetRecord[] } };
+        const match = (j._embedded?.records ?? []).find((rec) =>
+          rec.asset?.toUpperCase().includes(c.issuer.toUpperCase()),
+        );
+        if (!match) return;
+        const parsed = parseStellarExpertMetric(match);
+        if (!parsed) return;
+        for (const k of parsed.keys) {
+          if (!map.has(k)) map.set(k, parsed.metric);
+        }
+      } catch {
+        // ignore individual search errors
+      }
+    }),
+  );
+
+  return map;
+}
+
 export async function buildUnifiedCatalog(
   config: ServerConfig,
   repo: DexServerRepository,
@@ -106,7 +344,7 @@ export async function buildUnifiedCatalog(
   options: { includeRepoTokens?: boolean } = {},
 ): Promise<UnifiedCatalogSnapshot> {
   const includeRepo = options.includeRepoTokens ?? true;
-  const [tokens, pairs, sep42Assets, launchpadTokens] = await Promise.all([
+  const [tokens, pairs, sep42Assets, launchpadTokens, marketMap] = await Promise.all([
     includeRepo ? repo.listTokens(100) : Promise.resolve([]),
     includeRepo ? repo.listPairs(60) : Promise.resolve([]),
     fetchSep42VerifiedAssets(config.sep42AssetListUrls, fetchFn).catch(() => []),
@@ -120,6 +358,7 @@ export async function buildUnifiedCatalog(
       const json = (await res.json().catch(() => null)) as { tokens?: unknown[] } | null;
       return Array.isArray(json?.tokens) ? (json.tokens as LaunchpadTokenSummary[]) : [];
     })(),
+    fetchStellarExpertMarketMap(config, fetchFn),
   ]);
 
   const catalogMap = new Map<string, CatalogTokenItem>();
@@ -197,6 +436,54 @@ export async function buildUnifiedCatalog(
       ammVenue: t.ammVenue ?? existing?.ammVenue,
       pairId: t.pairId ?? existing?.pairId,
       communityUrl: t.communityUrl ?? existing?.communityUrl,
+    });
+  }
+
+  if (config.network === "mainnet") {
+    for (const c of CURATED_MAINNET_COMMUNITY_ASSETS) {
+      const assetKey = `${c.code}:${c.issuer}`;
+      const existingByKey = catalogMap.get(assetKey);
+      const existingBySac = c.sacId ? catalogMap.get(c.sacId) : undefined;
+      if (!existingByKey && !existingBySac) {
+        catalogMap.set(assetKey, {
+          assetKey,
+          kind: "classic",
+          code: c.code,
+          name: c.name,
+          issuer: c.issuer,
+          sacId: c.sacId,
+          decimals: 7,
+          shieldScore: 90,
+          reviewStatus: "verified",
+          ammVenue: c.ammVenue,
+          domain: c.domain,
+        });
+      }
+    }
+  }
+
+  for (const [key, item] of catalogMap.entries()) {
+    const metric =
+      marketMap.get(key.toUpperCase()) ??
+      (item.sacId ? marketMap.get(item.sacId.toUpperCase()) : undefined) ??
+      (item.issuer ? marketMap.get(`${item.code}:${item.issuer}`.toUpperCase()) : undefined) ??
+      (item.reviewStatus === "official" || item.code === "XLM"
+        ? marketMap.get(`CODE:${item.code.toUpperCase()}`)
+        : undefined);
+    if (!metric) continue;
+    catalogMap.set(key, {
+      ...item,
+      logoUrl: item.logoUrl ?? metric.logoUrl,
+      domain: item.domain ?? metric.domain,
+      priceUsd: metric.priceUsd,
+      change24hPct: metric.change24hPct,
+      change7dPct: metric.change7dPct,
+      volume7dUsd: metric.volume7dUsd,
+      marketCapUsd: metric.marketCapUsd,
+      holdersCount: metric.holdersCount,
+      tradesCount: metric.tradesCount,
+      rating: metric.rating,
+      sparkline7d: metric.sparkline7d,
     });
   }
 
@@ -1145,4 +1432,112 @@ export async function fetchWalletPortfolio(input: {
     balances,
     lpPositions,
   };
+}
+
+export interface TokenTopHolderSummary {
+  address: string;
+  balance: string;
+  sharePct: number | null;
+}
+
+export async function fetchTokenTopHolders(input: {
+  config: ServerConfig;
+  target: ResolvedAssetTarget;
+  supplyAmount?: string | number | undefined;
+  fetchFn: AdaptedFetch;
+  limit?: number;
+}): Promise<TokenTopHolderSummary[]> {
+  const horizonBase = input.config.horizonUrls[0]?.replace(/\/+$/, "");
+  if (!horizonBase) return [];
+
+  const limit = Math.min(Math.max(input.limit ?? 15, 1), 30);
+  const supplyNum =
+    typeof input.supplyAmount === "number"
+      ? input.supplyAmount
+      : input.supplyAmount
+        ? Number(input.supplyAmount)
+        : 0;
+
+  if (input.target.resolvedKey === "XLM") {
+    try {
+      const txRes = await input.fetchFn(`${horizonBase}/transactions?limit=25&order=desc`);
+      if (!txRes.ok) return [];
+      const txJson = (await txRes.json()) as {
+        _embedded?: { records?: Array<{ source_account?: string }> };
+      };
+      const uniq = new Set<string>();
+      for (const rec of txJson._embedded?.records ?? []) {
+        if (rec.source_account && /^G[A-Z2-7]{55}$/.test(rec.source_account)) {
+          uniq.add(rec.source_account);
+        }
+        if (uniq.size >= 12) break;
+      }
+      const list: TokenTopHolderSummary[] = [];
+      await Promise.all(
+        Array.from(uniq).map(async (addr) => {
+          try {
+            const accRes = await input.fetchFn(`${horizonBase}/accounts/${encodeURIComponent(addr)}`);
+            if (!accRes.ok) return;
+            const acc = (await accRes.json()) as {
+              balances?: Array<{ asset_type?: string; balance?: string }>;
+            };
+            const xlm = acc.balances?.find((b) => b.asset_type === "native");
+            const val = Number(xlm?.balance ?? 0);
+            if (!xlm?.balance || !Number.isFinite(val) || val <= 0) return;
+            list.push({
+              address: addr,
+              balance: xlm.balance,
+              sharePct: supplyNum > 0 ? Math.min(100, (val / supplyNum) * 100) : null,
+            });
+          } catch {
+            // ignore account lookup failure
+          }
+        }),
+      );
+      list.sort((a, b) => Number(b.balance) - Number(a.balance));
+      return list.slice(0, limit);
+    } catch {
+      return [];
+    }
+  }
+
+  const norm = normalizeAssetIdentifier(input.target.classicAsset ?? input.target.resolvedKey);
+  if (!norm.issuer) return [];
+  const assetParam = `${norm.code}:${norm.issuer}`;
+  try {
+    const res = await input.fetchFn(
+      `${horizonBase}/accounts?asset=${encodeURIComponent(assetParam)}&limit=50&order=desc`,
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      _embedded?: {
+        records?: Array<{
+          id?: string;
+          balances?: Array<{
+            asset_code?: string;
+            asset_issuer?: string;
+            balance?: string;
+          }>;
+        }>;
+      };
+    };
+    const list: TokenTopHolderSummary[] = [];
+    for (const rec of json._embedded?.records ?? []) {
+      if (!rec.id) continue;
+      const bal = rec.balances?.find(
+        (b) => b.asset_code?.toUpperCase() === norm.code.toUpperCase() && b.asset_issuer === norm.issuer,
+      );
+      const val = Number(bal?.balance ?? 0);
+      if (!bal?.balance || !Number.isFinite(val) || val <= 0) continue;
+      list.push({
+        address: rec.id,
+        balance: bal.balance,
+        sharePct: supplyNum > 0 ? Math.min(100, (val / supplyNum) * 100) : null,
+      });
+    }
+    list.sort((a, b) => Number(b.balance) - Number(a.balance));
+    return list.slice(0, limit);
+  } catch {
+    return [];
+  }
 }

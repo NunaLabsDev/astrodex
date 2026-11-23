@@ -119,6 +119,16 @@ export interface CatalogTokenItem {
   ammVenue?: string | undefined;
   pairId?: string | undefined;
   communityUrl?: string | undefined;
+  priceUsd?: number | undefined;
+  change24hPct?: number | undefined;
+  change7dPct?: number | undefined;
+  volume7dUsd?: number | undefined;
+  marketCapUsd?: number | undefined;
+  holdersCount?: number | undefined;
+  tradesCount?: number | undefined;
+  rating?: number | undefined;
+  domain?: string | undefined;
+  sparkline7d?: number[] | undefined;
 }
 
 export interface OraclePriceQuote {

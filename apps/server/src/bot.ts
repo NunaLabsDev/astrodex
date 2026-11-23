@@ -15,6 +15,7 @@ import {
   createConfiguredCurveStateLoader,
   createConfiguredPairReservesLoader,
   fetchTokenAmmPools,
+  fetchTokenTopHolders,
   loadLiveAmmOrderbookAndSpot,
   resolveAssetTarget,
   resolveReadFeedConfig,
@@ -363,9 +364,62 @@ export function createAstroDexBot(
   });
 
   bot.command("whales", async (ctx) => {
+    const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
+    const assetArg = tokens[0];
+    if (assetArg) {
+      try {
+        const snapshot = await buildUnifiedCatalog(botCfg, repo, fetchFn, {
+          includeRepoTokens: botCfg.network === config.network,
+        });
+        const { target } = await resolveAssetTarget({
+          config: botCfg,
+          repo,
+          fetchFn,
+          rawAsset: assetArg,
+          snapshot,
+        });
+        const holders = await fetchTokenTopHolders({
+          config: botCfg,
+          target,
+          fetchFn,
+          limit: 10,
+        });
+        const deepLink = buildAstroDexDeepLink({
+          tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
+          tgMiniAppShortName: config.tgMiniAppShortName,
+          startParam: `${botCfg.network}_token_${target.resolvedKey}`,
+        });
+        if (holders.length === 0) {
+          await ctx.reply(`No on-chain holders returned for <code>${assetArg}</code> on ${botCfg.network.toUpperCase()}.`, {
+            parse_mode: "HTML",
+            reply_markup: { inline_keyboard: [[{ text: "📊 Open Token Hub", url: deepLink }]] },
+          });
+          return;
+        }
+        const lines = holders.map(
+          (h, idx) =>
+            `${idx + 1}. <code>${h.address.slice(0, 6)}…${h.address.slice(-4)}</code> · <b>${Number(h.balance).toLocaleString("en-US", { maximumFractionDigits: 2 })}</b>`,
+        );
+        await ctx.reply(
+          `<code>[${botCfg.network.toUpperCase()}]</code> <b>Top ${holders.length} Holders — ${assetArg.toUpperCase()}</b>\n\n${lines.join("\n")}`,
+          {
+            parse_mode: "HTML",
+            reply_markup: { inline_keyboard: [[{ text: "📊 Open Token Hub", url: deepLink }]] },
+          },
+        );
+        return;
+      } catch (err) {
+        await ctx.reply(
+          `Could not fetch holders: ${err instanceof Error ? err.message : "Asset not found"}`,
+        );
+        return;
+      }
+    }
+
     const whales = await repo.listWhaleTrades(5);
     if (whales.length === 0) {
-      await ctx.reply("No recent whale trades indexed yet. Open AstroDex Radar for live pairs.", {
+      await ctx.reply("Usage: <code>/whales AQUA</code> or <code>/whales SSLX</code> — or open AstroDex Radar for live pairs.", {
+        parse_mode: "HTML",
         reply_markup: { inline_keyboard: [[{ text: "Open Whale Radar", url: openAppUrl }]] },
       });
       return;

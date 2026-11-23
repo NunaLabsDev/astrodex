@@ -54,6 +54,13 @@ function ChartSurface({
   const chartRef = useRef<IChartApi | null>(null);
   const [hovered, setHovered] = useState<OhlcvCandle | null>(null);
   const [logScale, setLogScale] = useState(false);
+  const [chartStyle, setChartStyle] = useState<"area" | "candles">(
+    mode === "pro" ? "candles" : "area",
+  );
+
+  useEffect(() => {
+    setChartStyle(mode === "pro" ? "candles" : "area");
+  }, [mode]);
 
   const normalized = useMemo(() => {
     const bySec = new Map<number, OhlcvCandle>();
@@ -140,7 +147,7 @@ function ChartSurface({
     const lineColor = positive ? "#10B981" : "#F15A24";
 
     let mainSeries: ISeriesApi<"Candlestick"> | ISeriesApi<"Area">;
-    if (mode === "pro") {
+    if (chartStyle === "candles") {
       const candleSeries = chart.addSeries(CandlestickSeries, {
         upColor: "#10B981",
         downColor: "#F15A24",
@@ -232,7 +239,7 @@ function ChartSurface({
       chart.remove();
       chartRef.current = null;
     };
-  }, [normalized, candles, mode, timeframe, expanded, logScale]);
+  }, [normalized, candles, mode, chartStyle, timeframe, expanded, logScale]);
 
   if (normalized.length === 0) return null;
 
@@ -266,6 +273,14 @@ function ChartSurface({
               ? `O:${formatPrice(active.open)} H:${formatPrice(active.high)} L:${formatPrice(active.low)}`
               : `H ${formatPrice(active.high)} / L ${formatPrice(active.low)}`}
           </span>
+          <button
+            type="button"
+            className="glass-pill ad-clickable"
+            style={{ padding: "2px 8px", fontSize: 11 }}
+            onClick={() => setChartStyle((s) => (s === "candles" ? "area" : "candles"))}
+          >
+            {chartStyle === "candles" ? "Line" : "Candles"}
+          </button>
           <button
             type="button"
             className="glass-pill ad-clickable"

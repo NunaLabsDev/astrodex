@@ -23,6 +23,7 @@ import {
   buildUnifiedCatalog,
   fetchTokenAmmPools,
   fetchTokenRecentTrades,
+  fetchTokenTopHolders,
   fetchWalletPortfolio,
   loadLiveAmmOrderbookAndSpot,
   resolveAssetTarget,
@@ -518,6 +519,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       networkPassphrase: config.networkPassphrase,
       rpcUrls: config.rpcUrls,
       horizonUrls: config.horizonUrls,
+      fallbackContractId: baseTarget.sorobanContractId ?? baseTarget.catalogItem?.sacId,
       sorobanCandlesLoader: includeRepoTokens
         ? async (pairId, tf, limit) => [...(await repo.listCandles(pairId, tf, limit))]
         : undefined,
@@ -578,8 +580,16 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
 
     const scanner = createConfiguredScanner(config, c.env.CACHE, rawFetchFn, fetchFn);
     const targetNorm = normalizeAssetIdentifier(target.resolvedKey);
+    const catalogItem =
+      snapshot.catalog.find(
+        (item) =>
+          item.assetKey.toUpperCase() === target.resolvedKey.toUpperCase() ||
+          item.sacId?.toUpperCase() === target.resolvedKey.toUpperCase() ||
+          (target.classicAsset && item.assetKey.toUpperCase() === target.classicAsset.toUpperCase()) ||
+          item.code.toUpperCase() === targetNorm.code.toUpperCase(),
+      ) ?? null;
 
-    const [ammPools, recentTrades, orderbookRes, ammInfo, audit] = await Promise.all([
+    const [ammPools, recentTrades, orderbookRes, ammInfo, audit, topHolders] = await Promise.all([
       fetchTokenAmmPools({ config, target, snapshot, fetchFn, limit: 20 }),
       fetchTokenRecentTrades({
         config,
@@ -605,6 +615,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       scanner
         .auditToken(target.classicAsset ?? target.sorobanContractId ?? target.resolvedKey)
         .catch(() => null),
+      fetchTokenTopHolders({ config, target, fetchFn, limit: 15 }).catch(() => []),
     ]);
 
     const orderbook =
@@ -613,12 +624,18 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
         : ammInfo.syntheticSnapshot;
     const depth = orderbook ? computeDepthChart(orderbook) : null;
 
-    const catalogItem =
-      snapshot.catalog.find(
-        (item) =>
-          item.assetKey.toUpperCase() === target.resolvedKey.toUpperCase() ||
-          item.code.toUpperCase() === targetNorm.code.toUpperCase(),
-      ) ?? null;
+    const marketStats = {
+      priceUsd: catalogItem?.priceUsd ?? null,
+      change24hPct: catalogItem?.change24hPct ?? null,
+      change7dPct: catalogItem?.change7dPct ?? null,
+      volume7dUsd: catalogItem?.volume7dUsd ?? null,
+      marketCapUsd: catalogItem?.marketCapUsd ?? null,
+      holdersCount: catalogItem?.holdersCount ?? null,
+      tradesCount: catalogItem?.tradesCount ?? null,
+      rating: catalogItem?.rating ?? null,
+      domain: catalogItem?.domain ?? null,
+      sparkline7d: catalogItem?.sparkline7d ?? null,
+    };
 
     return c.json({
       ok: true,
@@ -627,6 +644,8 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       quoteAssetId: quoteTarget.resolvedKey,
       catalogItem,
       target,
+      marketStats,
+      topHolders,
       ammPools,
       ammPairInfo: ammInfo.ammPairInfo,
       orderbook,

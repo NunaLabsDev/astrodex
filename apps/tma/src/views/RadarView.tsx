@@ -5,9 +5,25 @@ import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
-type CatalogFilter = "all" | "defi" | "rwa" | "community" | "launchpad";
+type CatalogFilter = "all" | "movers" | "defi" | "rwa" | "community" | "launchpad";
+type CatalogSort = "rank" | "change24h" | "volume7d" | "holders";
 
-const DEFI_CODES = new Set(["AQUA", "KALE", "SSLX", "VELO", "XRF", "ASTRO", "YBX", "LSP", "HITZ"]);
+const DEFI_CODES = new Set([
+  "AQUA",
+  "KALE",
+  "SSLX",
+  "VELO",
+  "XRF",
+  "ASTRO",
+  "YBX",
+  "LSP",
+  "HITZ",
+  "BLND",
+  "PHO",
+  "SCOP",
+  "SHX",
+]);
+const COMMUNITY_CODES = new Set(["ACT", "SSLX", "XTAR", "MIXT", "LMT", "KALE", "ASTRO"]);
 const RWA_CODES = new Set([
   "USDC",
   "EURC",
@@ -27,6 +43,58 @@ const RWA_CODES = new Set([
   "DEJTRSY",
   "HYB",
 ]);
+
+function formatUsdPrice(val?: number): string {
+  if (!val || !Number.isFinite(val) || val <= 0) return "--";
+  if (val < 0.0001) return `$${val.toFixed(6)}`;
+  if (val < 0.01) return `$${val.toFixed(5)}`;
+  if (val < 1) return `$${val.toFixed(4)}`;
+  if (val < 1000) return `$${val.toFixed(2)}`;
+  return `$${val.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function formatCompactUsd(val?: number): string {
+  if (!val || !Number.isFinite(val) || val <= 0) return "--";
+  if (val >= 1_000_000_000) return `$${(val / 1_000_000_000).toFixed(2)}B`;
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(2)}M`;
+  if (val >= 1_000) return `$${(val / 1_000).toFixed(1)}K`;
+  return `$${val.toFixed(0)}`;
+}
+
+function formatCompactCount(val?: number): string {
+  if (!val || !Number.isFinite(val) || val <= 0) return "--";
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}M`;
+  if (val >= 1_000) return `${(val / 1_000).toFixed(1)}K`;
+  return String(val);
+}
+
+function Sparkline({ points, positive }: { points?: number[] | undefined; positive: boolean }) {
+  if (!points || points.length < 2) return null;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const w = 62;
+  const h = 22;
+  const coords = points
+    .map((p, i) => {
+      const x = (i / (points.length - 1)) * w;
+      const y = h - 2 - ((p - min) / span) * (h - 4);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true" style={{ flexShrink: 0 }}>
+      <polyline
+        fill="none"
+        stroke={positive ? "#10B981" : "#F15A24"}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={coords}
+      />
+    </svg>
+  );
+}
 type AmmVenueChoice = "soroswap" | "aquarius" | "phoenix" | "sdex_pool" | "astrogate_curve";
 
 function reviewBadge(token: CatalogTokenItem) {
@@ -80,7 +148,6 @@ export function RadarView() {
     config,
     feedNetwork,
     executionDisabled,
-    mode,
     catalog,
     xlmUsd,
     launchpadTokens,
@@ -93,8 +160,8 @@ export function RadarView() {
   const [query, setQuery] = useState("");
   const [searchHint, setSearchHint] = useState<string | null>(null);
   const [filter, setFilter] = useState<CatalogFilter>("all");
+  const [sortBy, setSortBy] = useState<CatalogSort>("rank");
   const [showListForm, setShowListForm] = useState(false);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Instant self-serve listing state
   const [listAssetId, setListAssetId] = useState("");
@@ -114,17 +181,6 @@ export function RadarView() {
     setSearchHint(null);
     setSelectedAsset(assetId.trim());
     setActiveTab(tab);
-  };
-
-  const handleCopyId = async (value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedKey(value);
-      triggerTelegramHaptic("selection");
-      setTimeout(() => setCopiedKey((cur) => (cur === value ? null : cur)), 1500);
-    } catch {
-      // Clipboard unavailable in restricted WebView
-    }
   };
 
   useEffect(() => {
@@ -244,8 +300,23 @@ export function RadarView() {
     () => catalog.filter((item) => RWA_CODES.has(item.code.toUpperCase())).length,
     [catalog],
   );
+  const moversCount = useMemo(
+    () => catalog.filter((item) => typeof item.change24hPct === "number" && item.change24hPct !== 0).length,
+    [catalog],
+  );
+  const topMovers = useMemo(
+    () =>
+      [...catalog]
+        .filter((item) => typeof item.change24hPct === "number" && Number.isFinite(item.change24hPct))
+        .sort((a, b) => Math.abs(b.change24hPct ?? 0) - Math.abs(a.change24hPct ?? 0))
+        .slice(0, 6),
+    [catalog],
+  );
   const communityCount = useMemo(
-    () => catalog.filter((item) => item.reviewStatus !== "official").length,
+    () =>
+      catalog.filter(
+        (item) => COMMUNITY_CODES.has(item.code.toUpperCase()) || item.reviewStatus !== "official",
+      ).length,
     [catalog],
   );
 
@@ -255,6 +326,7 @@ export function RadarView() {
     return catalog
       .filter((item) => {
         const codeUp = item.code.toUpperCase();
+        if (filter === "movers" && typeof item.change24hPct !== "number") return false;
         if (
           filter === "defi" &&
           !DEFI_CODES.has(codeUp) &&
@@ -264,7 +336,9 @@ export function RadarView() {
           return false;
         }
         if (filter === "rwa" && !RWA_CODES.has(codeUp)) return false;
-        if (filter === "community" && item.reviewStatus === "official") return false;
+        if (filter === "community" && !COMMUNITY_CODES.has(codeUp) && item.reviewStatus === "official") {
+          return false;
+        }
         if (
           q &&
           !item.code.toLowerCase().includes(q) &&
@@ -277,11 +351,20 @@ export function RadarView() {
         return true;
       })
       .sort((a, b) => {
+        if (filter === "movers" || sortBy === "change24h") {
+          return (b.change24hPct ?? -9999) - (a.change24hPct ?? -9999);
+        }
+        if (sortBy === "volume7d") {
+          return (b.volume7dUsd ?? 0) - (a.volume7dUsd ?? 0);
+        }
+        if (sortBy === "holders") {
+          return (b.holdersCount ?? 0) - (a.holdersCount ?? 0);
+        }
         const diff = catalogRank(b) - catalogRank(a);
         if (diff !== 0) return diff;
-        return b.shieldScore - a.shieldScore;
+        return (b.holdersCount ?? b.shieldScore) - (a.holdersCount ?? a.shieldScore);
       });
-  }, [catalog, filter, query]);
+  }, [catalog, filter, query, sortBy]);
 
   return (
     <div className="ad-stack-12">
@@ -489,11 +572,37 @@ export function RadarView() {
           <span className="glass-pill">{catalogLoading ? "Syncing..." : `${catalog.length} listed`}</span>
         </div>
 
+        {topMovers.length > 0 && (
+          <div className="ad-stack-4">
+            <div className="ad-text-xs ad-text-muted">Top Movers (24h)</div>
+            <div className="ad-chip-row" aria-label="Top Movers 24h">
+              {topMovers.map((m) => {
+                const pct = m.change24hPct ?? 0;
+                return (
+                  <button
+                    key={`mover-${m.assetKey}`}
+                    type="button"
+                    className="glass-pill ad-clickable tabular-nums"
+                    onClick={() => handleOpenAsset(m.assetKey, "trade")}
+                  >
+                    <strong>{m.code}</strong>{" "}
+                    <span className={pct >= 0 ? "ad-text-safe" : "ad-text-danger"}>
+                      {pct >= 0 ? "+" : ""}
+                      {pct.toFixed(1)}%
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="ad-chip-row" role="tablist" aria-label="Token Category Filter">
           {(
             [
               { id: "all", label: `All (${catalog.length})` },
-              { id: "defi", label: `DeFi & AMMs (${defiCount})` },
+              { id: "movers", label: `Movers (${moversCount})` },
+              { id: "defi", label: `DeFi (${defiCount})` },
               { id: "rwa", label: `Stables & RWA (${rwaCount})` },
               { id: "community", label: `Community (${communityCount})` },
               { id: "launchpad", label: `Launchpad (${launchpadTokens.length})` },
@@ -506,6 +615,27 @@ export function RadarView() {
               onClick={() => setFilter(tab.id)}
             >
               {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="ad-chip-row" aria-label="Sort Tokens">
+          {(
+            [
+              { id: "rank", label: "Rank" },
+              { id: "change24h", label: "24h %" },
+              { id: "volume7d", label: "7d Vol" },
+              { id: "holders", label: "Holders" },
+            ] as const
+          ).map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`glass-pill ad-clickable ${sortBy === s.id ? "glass-pill--safe" : ""}`}
+              style={{ fontSize: 11, padding: "3px 9px" }}
+              onClick={() => setSortBy(s.id)}
+            >
+              Sort: {s.label}
             </button>
           ))}
         </div>
@@ -570,66 +700,72 @@ export function RadarView() {
           </div>
         ) : (
           <div className="ad-stack-8">
-            {filteredCatalog.slice(0, 25).map((item) => (
-              <div
-                key={item.assetKey}
-                className={`ad-item-card ${item.reviewStatus === "unreviewed_warning" ? "ad-item-card--warn" : ""}`}
-              >
-                <div className="ad-row ad-row-start">
-                  <div className="ad-min-w-0 ad-stack-3">
-                    <div className="ad-font-bold ad-text-base ad-flex-wrap">
-                      <span>${item.code}</span>
-                      {reviewBadge(item)}
-                      <span className="glass-pill tabular-nums">Shield {item.shieldScore}/100</span>
-                    </div>
-                    <div className="ad-text-xs ad-text-muted">
-                      {item.name ?? item.kind.toUpperCase()} · {venueLabel(item.ammVenue)} ·{" "}
-                      <button
-                        type="button"
-                        onClick={() => void handleCopyId(item.assetKey)}
-                        className="ad-link-inline"
-                        title="Copy Asset ID"
-                      >
-                        {copiedKey === item.assetKey ? "Copied!" : shortKey(item.assetKey)}
-                      </button>
-                    </div>
-                    {mode === "pro" && (item.issuer || item.pairId) && (
-                      <div className="ad-text-xxs ad-text-muted tabular-nums">
-                        {item.issuer ? `Issuer: ${shortKey(item.issuer)}` : ""}
-                        {item.issuer && item.pairId ? " · " : ""}
-                        {item.pairId ? `Pair: ${shortKey(item.pairId)}` : ""}
+            {filteredCatalog.slice(0, 35).map((item, idx) => {
+              const pct24 = item.change24hPct;
+              const positive7d = (item.change7dPct ?? pct24 ?? 0) >= 0;
+              return (
+                <div
+                  key={item.assetKey}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleOpenAsset(item.assetKey, "trade")}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleOpenAsset(item.assetKey, "trade");
+                    }
+                  }}
+                  className={`ad-item-card ad-clickable ${item.reviewStatus === "unreviewed_warning" ? "ad-item-card--warn" : ""}`}
+                >
+                  <div className="ad-row" style={{ gap: 8, alignItems: "center" }}>
+                    <div className="ad-min-w-0 ad-stack-3" style={{ flex: 1 }}>
+                      <div className="ad-font-bold ad-text-base ad-flex-wrap" style={{ alignItems: "center" }}>
+                        <span className="ad-text-xs ad-text-muted tabular-nums">#{idx + 1}</span>
+                        <span>{item.code}</span>
+                        {reviewBadge(item)}
                       </div>
-                    )}
+                      <div className="ad-text-xs ad-text-muted">
+                        {item.name ?? item.domain ?? venueLabel(item.ammVenue)}
+                      </div>
+                    </div>
+
+                    <Sparkline points={item.sparkline7d} positive={positive7d} />
+
+                    <div className="ad-text-right ad-no-shrink tabular-nums">
+                      <div className="ad-font-bold ad-text-sm">
+                        {formatUsdPrice(item.priceUsd)}
+                      </div>
+                      {typeof pct24 === "number" ? (
+                        <span
+                          className={`glass-pill ${pct24 >= 0 ? "glass-pill--safe" : "glass-pill--warn"}`}
+                          style={{ fontSize: 10, padding: "1px 6px" }}
+                        >
+                          {pct24 >= 0 ? "+" : ""}
+                          {pct24.toFixed(2)}%
+                        </span>
+                      ) : (
+                        <span className="ad-text-xxs ad-text-muted">Shield {item.shieldScore}</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="ad-flex-6 ad-no-shrink">
-                    <button
-                      type="button"
-                      className="ad-btn-secondary ad-btn-sm"
-                      onClick={() => handleOpenAsset(item.assetKey, "trade")}
-                    >
-                      Quote
-                    </button>
-                    <button
-                      type="button"
-                      className="glass-pill ad-clickable"
-                      onClick={() => handleOpenAsset(item.assetKey, "book")}
-                    >
-                      Book
-                    </button>
-                    <button
-                      type="button"
-                      className="glass-pill ad-clickable"
-                      onClick={() => handleOpenAsset(item.assetKey, "scanner")}
-                    >
-                      Scan
-                    </button>
+
+                  <div className="ad-row ad-text-xxs ad-text-muted tabular-nums" style={{ marginTop: 4 }}>
+                    <span>
+                      MCap {formatCompactUsd(item.marketCapUsd)} · 7d Vol {formatCompactUsd(item.volume7dUsd)}
+                    </span>
+                    <span>
+                      {item.holdersCount
+                        ? `${formatCompactCount(item.holdersCount)} holders`
+                        : shortKey(item.assetKey)}
+                    </span>
                   </div>
+
+                  {item.reviewStatus === "unreviewed_warning" && item.reviewNote && (
+                    <div className="ad-text-xs ad-text-warn">⚠️ {item.reviewNote}</div>
+                  )}
                 </div>
-                {item.reviewStatus === "unreviewed_warning" && item.reviewNote && (
-                  <div className="ad-text-xs ad-text-warn">⚠️ {item.reviewNote}</div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

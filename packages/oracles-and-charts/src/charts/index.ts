@@ -116,13 +116,33 @@ export function sanitizeOhlcvCandles(
     let low = c.low;
 
     const avgValid =
-      c.avg !== undefined && c.avg > 0 && localMed > 0 && c.avg >= 0.4 * localMed && c.avg <= 2.5 * localMed;
+      c.avg !== undefined && c.avg > 0 && localMed > 0 && c.avg >= 0.55 * localMed && c.avg <= 1.8 * localMed;
     if (avgValid && c.avg !== undefined) {
-      if (Math.abs(open - c.avg) / c.avg > 0.12) open = c.avg;
-      if (Math.abs(close - c.avg) / c.avg > 0.12) close = c.avg;
+      if (Math.abs(open - c.avg) / c.avg > 0.08) open = c.avg;
+      if (Math.abs(close - c.avg) / c.avg > 0.08) close = c.avg;
     }
 
+    // Isolated 1-2 bar spike guard (regardless of volume) using immediate neighbors
+    const neighborVals: number[] = [];
+    for (let nIdx = Math.max(0, idx - 2); nIdx <= Math.min(sorted.length - 1, idx + 2); nIdx++) {
+      if (nIdx !== idx) {
+        neighborVals.push(allAnchors[nIdx]!);
+      }
+    }
+    const neighborMed = neighborVals.length >= 2 ? medianOf(neighborVals) : localMed;
+
     if (
+      neighborMed > 0 &&
+      (close > 1.55 * neighborMed ||
+        close < neighborMed / 1.55 ||
+        open > 1.55 * neighborMed ||
+        open < neighborMed / 1.55)
+    ) {
+      open = neighborMed;
+      close = neighborMed;
+      high = neighborMed;
+      low = neighborMed;
+    } else if (
       localMed > 0 &&
       medianVol > 0 &&
       c.volume < 0.05 * medianVol &&
@@ -142,20 +162,20 @@ export function sanitizeOhlcvCandles(
       const bm = Math.max(c.open, c.close);
       return bm > 0 ? (c.high - bm) / bm : 0;
     })
-    .filter((w) => w >= 0 && w < 0.10);
+    .filter((w) => w >= 0 && w < 0.08);
   const cleanDnWicks = bodyCleaned
     .map((c) => {
       const bm = Math.min(c.open, c.close);
       return bm > 0 ? (bm - c.low) / bm : 0;
     })
-    .filter((w) => w >= 0 && w < 0.10);
+    .filter((w) => w >= 0 && w < 0.08);
 
-  const p75Up = Math.max(0.015, Math.min(0.045, percentile75(cleanUpWicks) || 0.025));
-  const p75Dn = Math.max(0.015, Math.min(0.045, percentile75(cleanDnWicks) || 0.025));
+  const p75Up = Math.max(0.012, Math.min(0.04, percentile75(cleanUpWicks) || 0.022));
+  const p75Dn = Math.max(0.012, Math.min(0.04, percentile75(cleanDnWicks) || 0.022));
 
-  const floorCap = opts?.maxWickFloorPct && opts.maxWickFloorPct > 0.2 ? 0.12 : 0.035;
-  const upThreshold = Math.min(0.11, Math.max(0.075, p75Up * 3.0));
-  const dnThreshold = Math.min(0.11, Math.max(0.075, p75Dn * 3.0));
+  const floorCap = opts?.maxWickFloorPct && opts.maxWickFloorPct > 0.12 ? 0.06 : 0.035;
+  const upThreshold = Math.min(0.08, Math.max(0.045, p75Up * 2.5));
+  const dnThreshold = Math.min(0.08, Math.max(0.045, p75Dn * 2.5));
   const upReconstruct = Math.min(floorCap, p75Up * 1.25);
   const dnReconstruct = Math.min(floorCap, p75Dn * 1.25);
 
