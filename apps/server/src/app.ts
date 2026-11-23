@@ -54,13 +54,19 @@ function createEcosystemFetch(
           : input.url;
 
     if (walletBase && env.ASTROWALLET && rawUrl.startsWith(walletBase)) {
-      const pathAndQuery = rawUrl.slice(walletBase.length) || "/";
-      const targetUrl = `https://astrowallet.internal${pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`}`;
-      const req =
-        input instanceof Request
-          ? new Request(targetUrl, input)
-          : new Request(targetUrl, init);
-      return env.ASTROWALLET.fetch(req);
+      const headers = new Headers(
+        init?.headers ?? (input instanceof Request ? input.headers : undefined),
+      );
+      const requestedNet = headers.get("X-Astro-Network")?.trim().toLowerCase();
+      if (requestedNet !== "testnet") {
+        const pathAndQuery = rawUrl.slice(walletBase.length) || "/";
+        const targetUrl = `https://astrowallet.internal${pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`}`;
+        const req =
+          input instanceof Request
+            ? new Request(targetUrl, input)
+            : new Request(targetUrl, init);
+        return env.ASTROWALLET.fetch(req);
+      }
     }
 
     if (gateBase && env.ASTROGATE && rawUrl.startsWith(gateBase)) {
