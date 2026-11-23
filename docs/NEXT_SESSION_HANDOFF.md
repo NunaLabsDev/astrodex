@@ -76,3 +76,25 @@
   - **Next Mainnet Tests:** Verify Test 2 confirmation on Horizon Mainnet, then run Test 3 (Classic SDEX Limit Order + Cancel Order) and Soroswap Smart Route swap.
 - **Community & SCF Roadmap Execution (Nov 2026 — See `ASTRO/docs/COMMUNITY_INTELLIGENCE_AND_SCF_PLAN.md`):**
   - Integrate **RedStone SEP-40** oracle (`CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF`), **LayerZero V2 OFT** scanner recognition (`USDE`, `SUSDE`, `USDT0`), `#ACTHUB` curated tokens (`LIBRE`, `xLMNR`, `SVR`), Liquid Glass category filters in `RadarView`, and live **`HTTP 402` (`x402`) Forensic Alpha API** (`GET /v1/agent/forensic-alpha/:assetId`).
+
+
+---
+
+## Session checkpoint — 2026-11-23 (late): AstroGate removed from UI, `/usde`, web Express Sign
+
+**State: committed `b9d44b4`, pushed to `main`, deployed** (`astrodex-server` `9aa8242a…`, Pages `astrodex-testnet`).
+
+### Done
+- Removed AstroGate/launchpad/Sorobit UI and bot references (Radar filter, venue option, Scanner banner, header button, `/jackpot`, inline buttons). Server-side curve code left in place (dormant) for the future NFT/launchpad phase.
+- New `/usde` bot command (live 10 XLM→USDe/sUSDe and 100 USDC→USDe quotes); `/route` now has Trade/Sign buttons; `/start` and `/help` rewritten in English.
+- `POST /v1/intents` returns `expressWebUrl`; TMA `openExpressSignFlow` opens the wallet in a 420×640 popup outside Telegram and listens (origin-checked) for `ASTRO_SIGN_COMPLETE`.
+- Live checks: `/v1/quote?net=mainnet` 10 XLM→USDE = 1.3095 (xoxno_aggregator); RedStone XLM/USD ≈ 0.1304; catalog 86 tokens; no "astrogate" in bundle.
+- Gates passed: build, typecheck, lint, 40/40 tests, secret-scan, TMA build.
+
+### Open / next
+1. Verify bot replies visually in Telegram (`/usde`, `/route`), not only webhook 200.
+2. Real Mainnet swap through Express Sign popup (small amount); `simulateTransaction` of an XOXNO swap XDR (XOXNO `/api/v1/swap` returned 405 — check the correct build endpoint/method).
+3. Quote API takes human units ("10"), not stroops; add to API docs.
+4. `/v1/scanner` response shape is `{audit:{…}}` — scanner UI/docs should reflect it.
+5. Update `docs/INDEX.md`/README with new commands; run `astro-docs lint`.
+6. Cleanup later: `ASTROGATE_*` vars and `astrogate-stellar` service binding in `wrangler.toml` are still deployed.
