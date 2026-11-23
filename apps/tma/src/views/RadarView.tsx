@@ -358,18 +358,20 @@ export function RadarView() {
             </div>
             <button
               type="button"
-              className="glass-pill ad-clickable"
+              className="glass-pill ad-clickable ad-no-shrink"
+              style={{ padding: "5px 10px" }}
               onClick={() => void refreshCatalog()}
               disabled={catalogLoading}
               aria-label="Refresh Markets"
               title="Refresh Markets"
             >
-              {catalogLoading ? "…" : "↻"}
+              {catalogLoading ? "Sync…" : "↻ Sync"}
             </button>
             {!executionDisabled && (
               <button
                 type="button"
-                className="glass-pill ad-clickable"
+                className="glass-pill ad-clickable ad-no-shrink"
+                style={{ padding: "5px 10px" }}
                 onClick={() => setShowListForm((prev) => !prev)}
               >
                 {showListForm ? "Close" : "+ List"}
@@ -419,6 +421,7 @@ export function RadarView() {
               role="tab"
               aria-selected={activeFilter === chip.id}
               className={`glass-pill ad-clickable ${activeFilter === chip.id ? "glass-pill--gold" : ""}`}
+              style={{ padding: "6px 12px", fontSize: 12 }}
               onClick={() => setActiveFilter(chip.id)}
             >
               {chip.label}

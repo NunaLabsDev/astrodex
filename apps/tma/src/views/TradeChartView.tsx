@@ -97,10 +97,10 @@ function formatSelectLabel(
   reviewStatus: string,
 ): string {
   const icon = reviewStatus === "official" ? "🛡️" : reviewStatus === "unreviewed_warning" ? "⚠️" : "✓";
-  if (assetKey === "XLM") return `XLM (Native) ${icon}`;
-  const short = assetKey.length > 14 ? `${assetKey.slice(0, 5)}…${assetKey.slice(-4)}` : assetKey;
-  const labelName = name && name.toUpperCase() !== code.toUpperCase() ? ` · ${name}` : "";
-  return `${code}${labelName} (${short}) ${icon}`;
+  if (assetKey === "XLM") return "✦ XLM (Native)";
+  const shortName =
+    name && name.toUpperCase() !== code.toUpperCase() ? ` · ${name.slice(0, 12)}` : "";
+  return `${icon} ${code}${shortName}`;
 }
 
 export function TradeChartView() {
@@ -516,14 +516,14 @@ export function TradeChartView() {
               <span>You Pay</span>
               <span>{activeAccount?.kind === "smart" ? "Smart C…" : "Classic G…"}</span>
             </div>
-            <div className="ad-grid-2">
+            <div className="ad-grid-swap-row">
               <select
                 className="ad-input"
                 value={fromAsset}
                 onChange={(e) => setFromAsset(e.target.value)}
                 aria-label="From Asset"
               >
-                {catalog.length === 0 && <option value="XLM">XLM (Native)</option>}
+                {catalog.length === 0 && <option value="XLM">✦ XLM (Native)</option>}
                 {catalog.map((t) => (
                   <option key={`from-${t.assetKey}`} value={t.assetKey}>
                     {formatSelectLabel(t.code, t.name, t.assetKey, t.reviewStatus)}
@@ -543,8 +543,9 @@ export function TradeChartView() {
                 aria-label="Swap Amount"
               />
             </div>
-            <div className="ad-row ad-row-wrap">
+            <div className="ad-stack-6">
               <div className="ad-chip-row">
+                <span className="ad-text-xs ad-text-muted">Quick:</span>
                 {QUICK_AMOUNTS.map((preset) => (
                   <button
                     key={preset}
@@ -552,6 +553,7 @@ export function TradeChartView() {
                     className={`glass-pill tabular-nums ad-clickable ${
                       amount === preset ? "glass-pill--gold" : ""
                     }`}
+                    style={{ minHeight: 32, padding: "5px 10px" }}
                     onClick={() => setAmount(preset)}
                   >
                     {preset}
@@ -559,6 +561,7 @@ export function TradeChartView() {
                 ))}
               </div>
               <div className="ad-chip-row" aria-label="Slippage Tolerance">
+                <span className="ad-text-xs ad-text-muted">Slip:</span>
                 {SLIPPAGE_PRESETS.map((s) => (
                   <button
                     key={s.bps}
@@ -566,6 +569,7 @@ export function TradeChartView() {
                     className={`glass-pill tabular-nums ad-clickable ${
                       slippageBps === s.bps ? "glass-pill--gold" : ""
                     }`}
+                    style={{ minHeight: 32, padding: "5px 10px" }}
                     onClick={() => setSlippageBps(s.bps)}
                   >
                     {s.label}
@@ -592,12 +596,12 @@ export function TradeChartView() {
             <div className="ad-row ad-text-xs ad-text-muted">
               <span>You Receive</span>
               {quote?.bestRoute && (
-                <span className="glass-pill glass-pill--safe" style={{ fontSize: 10, padding: "1px 6px" }}>
+                <span className="glass-pill glass-pill--safe" style={{ fontSize: 10, padding: "2px 8px" }}>
                   Best: {quote.bestRoute.venue}
                 </span>
               )}
             </div>
-            <div className="ad-grid-2" style={{ alignItems: "center" }}>
+            <div className="ad-grid-swap-row">
               <select
                 className="ad-input"
                 value={toAsset}
@@ -687,7 +691,7 @@ export function TradeChartView() {
 
         <button
           type="button"
-          className="ad-btn-primary"
+          className="ad-btn-primary ad-btn-block"
           disabled={
             executionDisabled || submitting || Boolean(quote?.blockedReason) || !quote?.bestRoute
           }
@@ -888,7 +892,7 @@ export function TradeChartView() {
               </div>
               <button
                 type="button"
-                className="ad-btn-gold"
+                className="ad-btn-gold ad-btn-block"
                 disabled={executionDisabled || submitting || !toAsset}
                 onClick={() => void handleHandoffLimitOrder()}
               >

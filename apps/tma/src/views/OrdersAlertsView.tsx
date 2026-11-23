@@ -141,6 +141,8 @@ export function OrdersAlertsView() {
   }, [loadData]);
 
   const activeToken = catalog.find((t) => t.assetKey === selectedAsset);
+  const shortSelectedCode =
+    activeToken?.code ?? selectedAsset.split(":")[0]?.slice(0, 8) ?? "Token";
 
   const handleToggleWatchlist = async () => {
     const exists = watchlist.includes(selectedAsset);
@@ -425,8 +427,8 @@ export function OrdersAlertsView() {
             onClick={() => void handleToggleWatchlist()}
           >
             {watchlist.includes(selectedAsset)
-              ? `Unwatch ${activeToken?.code ?? selectedAsset}`
-              : `+ Watch ${activeToken?.code ?? selectedAsset}`}
+              ? `Unwatch ${shortSelectedCode}`
+              : `+ Watch ${shortSelectedCode}`}
           </button>
         </div>
 
@@ -463,27 +465,33 @@ export function OrdersAlertsView() {
           }}
         />
 
-        <form onSubmit={(e) => void handleCreateAlert(e)} className="ad-grid-alert">
-          <select
-            className="ad-input"
-            value={alertCondition}
-            onChange={(e) => setAlertCondition(e.target.value as "above" | "below")}
-            aria-label="Alert Condition"
+        <form onSubmit={(e) => void handleCreateAlert(e)} className="ad-stack-8">
+          <div className="ad-grid-2">
+            <select
+              className="ad-input"
+              value={alertCondition}
+              onChange={(e) => setAlertCondition(e.target.value as "above" | "below")}
+              aria-label="Alert Condition"
+            >
+              <option value="above">Above</option>
+              <option value="below">Below</option>
+            </select>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="ad-input tabular-nums"
+              value={alertThreshold}
+              onChange={(e) => setAlertThreshold(e.target.value)}
+              placeholder="Price in XLM"
+              aria-label="Alert Threshold"
+            />
+          </div>
+          <button
+            type="submit"
+            className="ad-btn-primary ad-btn-block"
+            disabled={busyId === "create-alert"}
           >
-            <option value="above">Above</option>
-            <option value="below">Below</option>
-          </select>
-          <input
-            type="text"
-            inputMode="decimal"
-            className="ad-input tabular-nums"
-            value={alertThreshold}
-            onChange={(e) => setAlertThreshold(e.target.value)}
-            placeholder="Price in XLM"
-            aria-label="Alert Threshold"
-          />
-          <button type="submit" className="ad-btn-primary" disabled={busyId === "create-alert"}>
-            Set Alert
+            Set Price Alert ({shortSelectedCode})
           </button>
         </form>
 

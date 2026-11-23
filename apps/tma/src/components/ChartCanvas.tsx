@@ -250,21 +250,23 @@ function ChartSurface({
 
   return (
     <div className="ad-stack-8">
-      <div className="ad-row ad-row-wrap ad-text-sm">
-        <strong className="tabular-nums">
-          {formatPrice(active.close)} {quoteLabel}{" "}
-          <span className="ad-text-xs ad-text-muted" style={{ fontWeight: 500 }}>
-            · {dateLabel}
-          </span>
-        </strong>
-        <div className="ad-flex-6" style={{ alignItems: "center" }}>
+      <div className="ad-stack-6">
+        <div className="ad-row ad-row-wrap ad-text-sm">
+          <strong className="tabular-nums">
+            {formatPrice(active.close)} {quoteLabel}{" "}
+            <span className="ad-text-xs ad-text-muted" style={{ fontWeight: 500 }}>
+              · {dateLabel}
+            </span>
+          </strong>
           <span className="tabular-nums ad-text-xs ad-text-muted">
             H {formatPrice(active.high)} / L {formatPrice(active.low)}
           </span>
+        </div>
+        <div className="ad-flex-wrap">
           <button
             type="button"
             className="glass-pill ad-clickable"
-            style={{ padding: "2px 8px", fontSize: 11 }}
+            style={{ padding: "4px 10px", fontSize: 12 }}
             onClick={() => setChartStyle((s) => (s === "candles" ? "area" : "candles"))}
           >
             {chartStyle === "candles" ? "Line" : "Candles"}
@@ -272,7 +274,7 @@ function ChartSurface({
           <button
             type="button"
             className="glass-pill ad-clickable"
-            style={{ padding: "2px 8px", fontSize: 11 }}
+            style={{ padding: "4px 10px", fontSize: 12 }}
             aria-pressed={logScale}
             onClick={() => setLogScale((v) => !v)}
           >
@@ -281,7 +283,7 @@ function ChartSurface({
           <button
             type="button"
             className="glass-pill ad-clickable"
-            style={{ padding: "2px 8px", fontSize: 11 }}
+            style={{ padding: "4px 10px", fontSize: 12 }}
             onClick={() => chartRef.current?.timeScale().fitContent()}
           >
             Fit
@@ -289,7 +291,7 @@ function ChartSurface({
           <button
             type="button"
             className="glass-pill ad-clickable"
-            style={{ padding: "2px 8px", fontSize: 11 }}
+            style={{ padding: "4px 10px", fontSize: 12 }}
             onClick={onToggleExpand}
           >
             {expanded ? "Close ✕" : "⤢ Expand"}

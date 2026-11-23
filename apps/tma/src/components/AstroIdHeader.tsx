@@ -58,7 +58,7 @@ export function AstroIdHeader() {
     ? "Close ✕"
     : astroId.found && activeAccount
       ? astroId.usernameLower
-        ? `@${astroId.usernameLower} · ${shortAddr(activeAccount.address)} ▾`
+        ? `@${astroId.usernameLower} ▾`
         : `${shortAddr(activeAccount.address)} ▾`
       : "Account ▾";
 
@@ -92,7 +92,7 @@ export function AstroIdHeader() {
 
         <button
           type="button"
-          className="glass-pill ad-clickable ad-account-pill"
+          className="glass-pill glass-pill--truncate ad-clickable ad-account-pill"
           onClick={() => setShowConnectSheet((prev) => !prev)}
           aria-expanded={showConnectSheet}
         >

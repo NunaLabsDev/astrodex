@@ -92,10 +92,18 @@ body {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
+  line-height: 1.2;
+  flex-shrink: 0;
   background: rgba(128, 80, 200, 0.22);
   border: 1px solid rgba(165, 139, 224, 0.32);
   color: var(--ad-ink-primary);
   white-space: nowrap;
+}
+
+.glass-pill--truncate {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .glass-pill--gold {
@@ -124,10 +132,16 @@ body {
 
 .ad-chip-row {
   display: flex;
+  align-items: center;
   gap: 6px;
   overflow-x: auto;
   padding-bottom: 2px;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ad-chip-row > * {
+  flex-shrink: 0;
 }
 
 .ad-chip-row::-webkit-scrollbar {
@@ -202,6 +216,8 @@ body {
   justify-content: center;
   gap: 8px;
   text-decoration: none;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .ad-btn-primary:disabled {
@@ -224,6 +240,8 @@ body {
   justify-content: center;
   gap: 6px;
   text-decoration: none;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .ad-btn-gold {
@@ -236,6 +254,14 @@ body {
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ad-btn-block {
+  width: 100%;
+  white-space: normal;
+  text-align: center;
 }
 
 .ad-input {
@@ -699,9 +725,6 @@ body {
 
 .glass-pill {
   max-width: 100%;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -752,7 +775,16 @@ textarea.ad-input {
 .ad-account-pill {
   padding: 5px 10px;
   font-size: 11px;
-  max-width: 190px;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ad-grid-swap-row {
+  display: grid;
+  grid-template-columns: minmax(118px, 44%) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
 }
 
 .ad-btn-net-active-mainnet {
