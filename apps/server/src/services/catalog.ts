@@ -92,6 +92,7 @@ export function resolveReadFeedConfig(
       reflectorDexOracleContractId: baseConfig.mainnetReflectorDexOracleContractId,
       redstoneSep40OracleContractId: baseConfig.mainnetRedstoneSep40OracleContractId,
       chainlinkPriceProxyContractId: baseConfig.mainnetChainlinkPriceProxyContractId,
+      xoxnoSwapApiBase: baseConfig.mainnetXoxnoSwapApiBase ?? baseConfig.xoxnoSwapApiBase,
       astroGateApiBaseUrl: undefined,
       astroGateLaunchpadContractId: undefined,
       friendbotUrl: undefined,

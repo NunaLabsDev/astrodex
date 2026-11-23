@@ -161,4 +161,37 @@ describe("@astrodex/dex-aggregator", () => {
     expect(Number(smallTrade.bestRoute?.priceImpactPct)).toBeLessThan(1);
     expect(Number(largeTrade.bestRoute?.priceImpactPct)).toBeGreaterThan(25);
   });
+
+  it("queries XOXNO GET /api/v1/quote with canonical SAC IDs for Ethena USDe", async () => {
+    const { quoteViaXoxno } = await import("./xoxno/index.js");
+    let capturedUrl = "";
+    const route = await quoteViaXoxno({
+      xoxnoApiBase: "https://stellar-swap.xoxno.com",
+      networkPassphrase: "Public Global Stellar Network ; September 2015",
+      fromAsset: "XLM",
+      toAsset: "USDE:GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47",
+      amount: "10",
+      slippageBps: 100,
+      fetchFn: async (url) => {
+        capturedUrl = url;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            amountOut: "13142870",
+            amountOutMin: "13011441",
+            priceImpact: 0.001,
+            hops: [{ dex: "AquariusClmm", feeBps: 10 }],
+            transaction: "AAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+          }),
+        };
+      },
+    });
+    expect(capturedUrl).toContain("/api/v1/quote?");
+    expect(capturedUrl).toContain("from=CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA");
+    expect(capturedUrl).toContain("to=CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN");
+    expect(route?.venue).toBe("xoxno_aggregator");
+    expect(route?.expectedOutputAmount).toBe("1.3142870");
+    expect(route?.unsignedXdr).toBeTruthy();
+  });
 });

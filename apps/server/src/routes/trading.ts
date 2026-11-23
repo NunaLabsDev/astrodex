@@ -238,6 +238,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
 
     const routerEngine = createSmartLiquidityRouter({
       horizonUrls: config.horizonUrls,
+      networkPassphrase: config.networkPassphrase,
       soroswapProxyQuoteUrl:
         includeRepoTokens && config.soroswapApiBase
           ? `${config.tmaOrigin.replace(/\/+$/, "")}/v1/proxy/soroswap/quote`

@@ -31,6 +31,7 @@ export interface VerifiedTickerEntry {
 
 export interface SmartRouterConfig {
   horizonUrls: readonly string[];
+  networkPassphrase?: string | undefined;
   soroswapProxyQuoteUrl?: string | undefined;
   xoxnoApiBase?: string | undefined;
   verifiedAssets?: readonly VerifiedTickerEntry[] | undefined;
@@ -260,10 +261,12 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
         // 3. Optional XOXNO Swap Aggregator
         quoteViaXoxno({
           xoxnoApiBase: config.xoxnoApiBase,
+          networkPassphrase: config.networkPassphrase,
           fromAsset: input.fromAsset,
           toAsset: input.toAsset,
           amount: input.amount,
           slippageBps: input.slippageBps,
+          sourceAddress: input.sourceAddress,
           fetchFn,
         }),
 

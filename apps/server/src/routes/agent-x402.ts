@@ -84,6 +84,7 @@ type AdaptedFetch = ReturnType<typeof adaptFetch>;
 export function createX402PaymentVerifier(
   config: ServerConfig,
   fetchFn: AdaptedFetch,
+  requirements?: X402PaymentRequirements,
 ): AgenticPaymentPort {
   const usedNonces = new Set<string>();
 
@@ -106,10 +107,15 @@ export function createX402PaymentVerifier(
         if (config.x402FacilitatorApiKey) {
           headers.Authorization = `Bearer ${config.x402FacilitatorApiKey}`;
         }
+        const reqBody = {
+          x402Version: 2,
+          paymentPayload: parsed,
+          ...(requirements?.accepts[0] ? { paymentRequirements: requirements.accepts[0] } : {}),
+        };
         const verifyRes = await fetchFn(`${base}/verify`, {
           method: "POST",
           headers,
-          body: JSON.stringify({ paymentPayload: parsed }),
+          body: JSON.stringify(reqBody),
         });
         if (!verifyRes.ok) return { paid: false };
         const verifyJson = (await verifyRes.json()) as { isValid?: boolean; payer?: string };
@@ -118,7 +124,7 @@ export function createX402PaymentVerifier(
         const settleRes = await fetchFn(`${base}/settle`, {
           method: "POST",
           headers,
-          body: JSON.stringify({ paymentPayload: parsed }),
+          body: JSON.stringify(reqBody),
         });
         if (!settleRes.ok) return { paid: false };
         if (nonceKey) usedNonces.add(nonceKey);
@@ -169,7 +175,9 @@ export function createAgentX402Routes(deps: {
       );
     }
 
-    const verifier = deps.verifyPaymentFn ?? createX402PaymentVerifier(config, fetchFn).verifyPaymentProof!;
+    const verifier =
+      deps.verifyPaymentFn ??
+      createX402PaymentVerifier(config, fetchFn, requirements).verifyPaymentProof!;
     const verification: { paid: boolean; payer?: string | undefined } = await verifier(
       paymentHeader,
     ).catch(() => ({ paid: false }));
@@ -220,6 +228,7 @@ export function createAgentX402Routes(deps: {
     });
     const liquidityRouter = createSmartLiquidityRouter({
       horizonUrls: config.horizonUrls,
+      networkPassphrase: config.networkPassphrase,
       soroswapProxyQuoteUrl: config.soroswapApiBase
         ? `${config.tmaOrigin.replace(/\/+$/, "")}/v1/proxy/soroswap/quote`
         : undefined,

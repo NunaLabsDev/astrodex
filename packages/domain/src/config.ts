@@ -400,6 +400,7 @@ const RawServerEnvSchema = z
     MAINNET_REFLECTOR_DEX_ORACLE_CONTRACT_ID: OptionalContractAddressSchema,
     MAINNET_REDSTONE_SEP40_ORACLE_CONTRACT_ID: OptionalContractAddressSchema,
     MAINNET_CHAINLINK_PRICE_PROXY_CONTRACT_ID: OptionalContractAddressSchema,
+    MAINNET_XOXNO_SWAP_API_BASE: OptionalUrlSchema("MAINNET_XOXNO_SWAP_API_BASE"),
     EXECUTION_ENABLED: parseBooleanWithDefault(true),
     PROXY_RATE_LIMIT_PER_MIN: parsePositiveIntWithDefault(60, 5000),
     QUOTE_RATE_LIMIT_PER_MIN: parsePositiveIntWithDefault(40, 2000),
@@ -506,6 +507,7 @@ export interface ServerConfig {
   mainnetReflectorDexOracleContractId?: ContractAddress | undefined;
   mainnetRedstoneSep40OracleContractId?: ContractAddress | undefined;
   mainnetChainlinkPriceProxyContractId?: ContractAddress | undefined;
+  mainnetXoxnoSwapApiBase?: string | undefined;
   executionEnabled: boolean;
   proxyRateLimitPerMin: number;
   quoteRateLimitPerMin: number;
@@ -567,6 +569,7 @@ export function parseServerConfig(rawEnv: Record<string, unknown>): ServerConfig
     mainnetReflectorDexOracleContractId: parsed.MAINNET_REFLECTOR_DEX_ORACLE_CONTRACT_ID,
     mainnetRedstoneSep40OracleContractId: parsed.MAINNET_REDSTONE_SEP40_ORACLE_CONTRACT_ID,
     mainnetChainlinkPriceProxyContractId: parsed.MAINNET_CHAINLINK_PRICE_PROXY_CONTRACT_ID,
+    mainnetXoxnoSwapApiBase: parsed.MAINNET_XOXNO_SWAP_API_BASE,
     executionEnabled: parsed.EXECUTION_ENABLED,
     proxyRateLimitPerMin: parsed.PROXY_RATE_LIMIT_PER_MIN,
     quoteRateLimitPerMin: parsed.QUOTE_RATE_LIMIT_PER_MIN,
