@@ -76,7 +76,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>(config.defaultFeedNetwork);
+  const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>("mainnet");
   const executionDisabled = !config.executionEnabled;
 
   const [authStatus, setAuthStatus] = useState<TelegramAuthStatus>("checking");
@@ -155,13 +155,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const parsed = parseAstroDexStartAppParam(strippedParam);
     if (!parsed) return;
-    if (
-      !cleanNetPrefix &&
-      (parsed.kind === "token" || parsed.kind === "scan" || parsed.kind === "pair") &&
-      config.network === "testnet"
-    ) {
-      setFeedNetworkState(config.network);
-    }
     if (parsed.kind === "token") {
       setSelectedAsset(parsed.assetId);
       setTradeSubTab("swap");
@@ -178,6 +171,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (parsed.tab === "scanner") {
         setTradeSubTab("safety");
         setActiveTabState("trade");
+      } else if (parsed.tab === "book") {
+        setTradeSubTab("pools");
+        setActiveTabState("trade");
       } else {
         const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
         if (tabSet.has(parsed.tab as DockTab)) {
@@ -185,7 +181,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-  }, [config.network]);
+  }, []);
 
   const authenticate = useCallback(async () => {
     initTelegramMiniApp();
@@ -231,9 +227,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           Boolean(json.startParam?.startsWith("mainnet_") || json.startParam?.startsWith("testnet_"));
         if (
           !explicitNetInParam &&
-          (json.astroId.preferredNetwork === "mainnet" || json.astroId.preferredNetwork === "testnet")
+          json.astroId.preferredNetwork === "mainnet"
         ) {
-          setFeedNetworkState(json.astroId.preferredNetwork);
+          setFeedNetworkState("mainnet");
         }
         if (json.astroId.activeAddress) {
           setSelectedAddress(json.astroId.activeAddress);
@@ -273,6 +269,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     triggerTelegramHaptic("selection");
     if (next === "scanner") {
       setTradeSubTab("safety");
+      setActiveTabState("trade");
+      return;
+    }
+    if (next === "book") {
+      setTradeSubTab("pools");
       setActiveTabState("trade");
       return;
     }

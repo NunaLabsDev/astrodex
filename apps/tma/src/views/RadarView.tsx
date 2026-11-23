@@ -38,6 +38,22 @@ function formatUsdPrice(val?: number): string {
   return `$${val.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
+function formatXlmPrice(val?: number): string {
+  if (!val || !Number.isFinite(val) || val <= 0) return "--";
+  if (val < 0.0001) return `${val.toFixed(6)} XLM`;
+  if (val < 0.01) return `${val.toFixed(5)} XLM`;
+  if (val < 10) return `${val.toFixed(4)} XLM`;
+  return `${val.toLocaleString("en-US", { maximumFractionDigits: 2 })} XLM`;
+}
+
+function formatCompactXlm(val?: number): string {
+  if (!val || !Number.isFinite(val) || val <= 0) return "--";
+  if (val >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(2)}B XLM`;
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(2)}M XLM`;
+  if (val >= 1_000) return `${(val / 1_000).toFixed(1)}K XLM`;
+  return `${val.toFixed(0)} XLM`;
+}
+
 function formatCompactUsd(val?: number): string {
   if (!val || !Number.isFinite(val) || val <= 0) return "--";
   if (val >= 1_000_000_000) return `$${(val / 1_000_000_000).toFixed(2)}B`;
@@ -145,7 +161,13 @@ export function RadarView() {
   const [searchHint, setSearchHint] = useState<string | null>(null);
   const [viewTab, setViewTab] = useState<MarketViewTab>("all");
   const [trustFilter, setTrustFilter] = useState<TrustFilter>("all");
+  const [quoteUnit, setQuoteUnit] = useState<"usd" | "xlm">("usd");
   const [showListForm, setShowListForm] = useState(false);
+
+  const xlmItem = useMemo(() => catalog.find((c) => c.assetKey === "XLM"), [catalog]);
+  const liveXlmUsd = xlmUsd && xlmUsd > 0 ? xlmUsd : (xlmItem?.priceUsd ?? 0.135);
+  const xlmChange24h = xlmItem?.change24hPct ?? 0;
+  const xlmSpark = xlmItem?.sparkline7d;
 
   // Instant self-serve listing state
   const [listAssetId, setListAssetId] = useState("");
@@ -489,23 +511,41 @@ export function RadarView() {
       )}
 
       <section className="glass-card ad-stack-10">
-        <div className="ad-row" style={{ gap: 8, alignItems: "center" }}>
+        <div className="ad-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <strong className="ad-text-base">
             Stellar Markets ({filteredCatalog.length})
           </strong>
-          <select
-            className="ad-input"
-            style={{ width: "auto", minWidth: 130, padding: "5px 10px", fontSize: 13 }}
-            value={trustFilter}
-            onChange={(e) => setTrustFilter(e.target.value as TrustFilter)}
-            aria-label="Filter by trust or category"
-          >
-            <option value="all">All Assets</option>
-            <option value="official">Official</option>
-            <option value="community">Community</option>
-            <option value="rwa">Stables &amp; RWA</option>
-            <option value="unreviewed">Unreviewed</option>
-          </select>
+          <div className="ad-flex-6" style={{ alignItems: "center" }}>
+            <div role="group" aria-label="Quote Unit" className="ad-mode-group">
+              <button
+                type="button"
+                className={`glass-pill ad-mode-btn ${quoteUnit === "usd" ? "glass-pill--gold" : ""}`}
+                onClick={() => setQuoteUnit("usd")}
+              >
+                $ USD
+              </button>
+              <button
+                type="button"
+                className={`glass-pill ad-mode-btn ${quoteUnit === "xlm" ? "glass-pill--gold" : ""}`}
+                onClick={() => setQuoteUnit("xlm")}
+              >
+                ✦ XLM
+              </button>
+            </div>
+            <select
+              className="ad-input"
+              style={{ width: "auto", minWidth: 115, padding: "5px 8px", fontSize: 13 }}
+              value={trustFilter}
+              onChange={(e) => setTrustFilter(e.target.value as TrustFilter)}
+              aria-label="Filter by trust or category"
+            >
+              <option value="all">All Assets</option>
+              <option value="official">Official</option>
+              <option value="community">Community</option>
+              <option value="rwa">Stables &amp; RWA</option>
+              <option value="unreviewed">Unreviewed</option>
+            </select>
+          </div>
         </div>
 
         <div className="ad-grid-2" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
@@ -544,8 +584,43 @@ export function RadarView() {
         ) : (
           <div className="ad-stack-8">
             {filteredCatalog.slice(0, 35).map((item, idx) => {
-              const pct24 = item.change24hPct;
-              const positive7d = (item.change7dPct ?? pct24 ?? 0) >= 0;
+              const isXlm = item.assetKey === "XLM";
+              const pct24 =
+                quoteUnit === "usd"
+                  ? item.change24hPct
+                  : isXlm
+                    ? 0
+                    : typeof item.change24hPct === "number"
+                      ? Number(
+                          ((((1 + item.change24hPct / 100) / (1 + xlmChange24h / 100)) - 1) * 100).toFixed(2),
+                        )
+                      : undefined;
+              const sparkPts =
+                quoteUnit === "xlm" &&
+                !isXlm &&
+                item.sparkline7d &&
+                xlmSpark &&
+                item.sparkline7d.length === xlmSpark.length
+                  ? item.sparkline7d.map((p, sIdx) => (xlmSpark[sIdx]! > 0 ? p / xlmSpark[sIdx]! : p))
+                  : item.sparkline7d;
+              const positive7d =
+                sparkPts && sparkPts.length >= 2
+                  ? sparkPts[sparkPts.length - 1]! >= sparkPts[0]!
+                  : (pct24 ?? 0) >= 0;
+              const displayPrice =
+                quoteUnit === "usd"
+                  ? formatUsdPrice(item.priceUsd)
+                  : isXlm
+                    ? "1.0000 XLM"
+                    : formatXlmPrice(item.priceUsd && liveXlmUsd > 0 ? item.priceUsd / liveXlmUsd : undefined);
+              const displayMcap =
+                quoteUnit === "usd"
+                  ? formatCompactUsd(item.marketCapUsd)
+                  : formatCompactXlm(item.marketCapUsd && liveXlmUsd > 0 ? item.marketCapUsd / liveXlmUsd : undefined);
+              const displayVol =
+                quoteUnit === "usd"
+                  ? formatCompactUsd(item.volume7dUsd)
+                  : formatCompactXlm(item.volume7dUsd && liveXlmUsd > 0 ? item.volume7dUsd / liveXlmUsd : undefined);
               return (
                 <div
                   key={item.assetKey}
@@ -572,11 +647,11 @@ export function RadarView() {
                       </div>
                     </div>
 
-                    <Sparkline points={item.sparkline7d} positive={positive7d} />
+                    <Sparkline points={sparkPts} positive={positive7d} />
 
                     <div className="ad-text-right ad-no-shrink tabular-nums">
                       <div className="ad-font-bold ad-text-sm">
-                        {formatUsdPrice(item.priceUsd)}
+                        {displayPrice}
                       </div>
                       {typeof pct24 === "number" ? (
                         <span
@@ -594,7 +669,7 @@ export function RadarView() {
 
                   <div className="ad-row ad-text-xxs ad-text-muted tabular-nums" style={{ marginTop: 4 }}>
                     <span>
-                      MCap {formatCompactUsd(item.marketCapUsd)} · 7d Vol {formatCompactUsd(item.volume7dUsd)}
+                      MCap {displayMcap} · 7d Vol {displayVol}
                     </span>
                     <span>
                       {item.holdersCount

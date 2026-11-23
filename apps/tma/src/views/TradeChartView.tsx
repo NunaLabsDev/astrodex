@@ -189,20 +189,6 @@ export function TradeChartView() {
     [catalog, focusAsset],
   );
 
-  const quickPairChips = useMemo(() => {
-    const seen = new Set<string>();
-    const out = [];
-    for (const item of catalog) {
-      if (item.assetKey === "XLM") continue;
-      const u = item.code.toUpperCase();
-      if (seen.has(u)) continue;
-      seen.add(u);
-      out.push(item);
-      if (out.length >= 8) break;
-    }
-    return out;
-  }, [catalog]);
-
   useEffect(() => {
     let cancelled = false;
     async function loadChartAndDepth() {
@@ -445,27 +431,6 @@ export function TradeChartView() {
 
   return (
     <div className="ad-stack-12">
-      {quickPairChips.length > 0 && (
-        <div className="ad-chip-row" aria-label="1-Tap Trading Pairs">
-          {quickPairChips.map((item) => (
-            <button
-              key={item.assetKey}
-              type="button"
-              className={`glass-pill ad-clickable ${toAsset === item.assetKey ? "glass-pill--gold" : ""}`}
-              onClick={() => {
-                setFromAsset("XLM");
-                setToAsset(item.assetKey);
-                setSelectedAsset(item.assetKey);
-                setShowTokenFinder(false);
-              }}
-            >
-              <span>XLM / {item.code}</span>
-              {item.reviewStatus === "unreviewed_warning" && <span>⚠️</span>}
-            </button>
-          ))}
-        </div>
-      )}
-
       {focusToken && (
         <section className="glass-card ad-stack-8">
           <div className="ad-row">
@@ -520,7 +485,7 @@ export function TradeChartView() {
                 className={`glass-pill ad-clickable ${tradeSubTab === "pools" ? "glass-pill--gold" : ""}`}
                 onClick={() => setTradeSubTab("pools")}
               >
-                AMMs ({tokenHub?.ammPools.length ?? 0})
+                Pairs &amp; AMMs ({tokenHub?.ammPools.length ?? 0})
               </button>
               <button
                 type="button"
@@ -607,11 +572,14 @@ export function TradeChartView() {
                   <div className="ad-min-w-0">
                     <div className="ad-font-bold ad-text-sm">
                       {pool.venue.toUpperCase()} · {focusToken?.code ?? focusAsset}/{pool.counterCode}
+                      {pool.poolType ? ` · ${pool.poolType === "concentrated" ? "Conc." : pool.poolType}` : ""}
                     </div>
                     <div className="ad-text-xs ad-text-muted tabular-nums">
                       Fee {(pool.feeBps / 100).toFixed(2)}%
                       {pool.tvlUsd && pool.tvlUsd > 0 ? ` · TVL $${Math.round(pool.tvlUsd).toLocaleString("en-US")}` : ""}
+                      {pool.volume24hUsd && pool.volume24hUsd > 0 ? ` · 24h $${Math.round(pool.volume24hUsd).toLocaleString("en-US")}` : ""}
                       {pool.totalApyPct && pool.totalApyPct > 0 ? ` · APY ${pool.totalApyPct.toFixed(1)}%` : ""}
+                      {pool.rewardsApyPct && pool.rewardsApyPct > 0 ? ` (+${pool.rewardsApyPct.toFixed(1)}% AQUA)` : ""}
                       {pool.totalTrustlines > 0 ? ` · ${pool.totalTrustlines} LPs` : ""}
                       {!pool.tvlUsd && pool.reserves.map((r) => ` · ${Number(r.amount).toFixed(2)} ${r.code}`).join("")}
                     </div>
@@ -625,7 +593,7 @@ export function TradeChartView() {
                       setTradeSubTab("swap");
                     }}
                   >
-                    Swap Pair
+                    Trade Pair
                   </button>
                 </div>
               ))}

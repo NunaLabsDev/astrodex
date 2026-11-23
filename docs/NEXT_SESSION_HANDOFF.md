@@ -58,3 +58,19 @@
    - Migrated `@astrodex/tg-protocol` (`intent-token.ts`, `ecosystem.ts`) to consume `@astrowallet/connect` v0.2.0 (`vendor/astrowallet-connect-0.2.0.tgz`) and set `EXECUTION_ENABLED = "false"` by default under `[env.mainnet.vars]` in `apps/server/wrangler.toml`.
 3. **Mainnet Cutover Gate (When Approved):**
    - Provision `[env.mainnet]` D1/KV IDs and secrets, deploy in 48h Read-Only Shadow Mode (`EXECUTION_ENABLED=false`) before flipping `EXECUTION_ENABLED=true`, keep `FRIENDBOT_URL` / `VITE_FRIENDBOT_URL` unset and `VITE_ALLOW_DEV_OUTSIDE_TELEGRAM=false`, and re-run `pnpm check`.
+
+---
+
+## 4. Mainnet Live Status & Session Handoff (2026-11-23)
+
+- **Mainnet-Default Token-First CoinGecko × Aquarius UX:**
+  - `apps/tma` now defaults unconditionally to **Mainnet** (`feedNetwork = "mainnet"`), with 3 bottom tabs (`Markets`, `Token & Swap`, `Orders & Alerts`).
+  - `Markets` (`RadarView.tsx`) is strictly **token-first** with a **`$ USD` | `✦ XLM`** price/evolution toggle, 24h % change, 7d SVG sparklines, and `All / Gainers / Losers / Vol` tabs.
+  - All pairs, Aquarius AMM pools (`GET /v1/pools/top` + `amm-api.aqua.network`), Soroswap pools, Horizon SDEX pools, orderbooks, top holders (`fetchTokenTopHolders`), and Astro Shield X-Ray live **inside each token's Hub** (`TradeChartView.tsx`).
+- **Cross-App Signing Bridge Fixed:**
+  - `ECOSYSTEM_SHARED_INTENT_SECRET` synced across `astrodex-server`, `astrowallet-server-mainnet`, and `astrowallet-server` (stored locally at `~/.secrets/astrowallet/ecosystem-intent.env`, mode `600`).
+  - `createEcosystemFetch` routes `env.ASTROWALLET` by `X-Astro-Network`.
+- **Live Mainnet Transaction Tests (`externawallet` `GCOKDLYTDOFSLBXOA4PGNSEG6RAYZN2THJJHZ5PFB2RT4GIZWR2N4RGD`):**
+  - **Test 1 (`0.5 XLM -> AQUA` + auto-trustline):** **CONFIRMED ON-CHAIN ON MAINNET** (`306.4852274 AQUA` received, `64.2874826 XLM` remaining).
+  - **Test 2 (`150 AQUA -> XLM`):** Sent to Telegram DM (`1572614676`) via `@AstroDexBot`.
+  - **Next Mainnet Tests:** Verify Test 2 confirmation on Horizon Mainnet, then run Test 3 (Classic SDEX Limit Order + Cancel Order) and Soroswap Smart Route swap.

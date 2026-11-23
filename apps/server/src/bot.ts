@@ -121,7 +121,7 @@ export function createAstroDexBot(
     const walletBase = (config.astroWalletApiBaseUrl ?? "https://astrowallet-soroban.pages.dev").replace(/\/+$/, "");
     await ctx.reply(
       [
-        `📊 <b>AstroDex · Live Traction</b> · <code>${config.network.toUpperCase()}</code>`,
+        `📊 <b>AstroDex · Live Traction</b> · <code>MAINNET &amp; TESTNET</code>`,
         "",
         `• <b>Active (DAU / WAU / MAU):</b> <code>${snap.dau} / ${snap.wau} / ${snap.mau}</code>`,
         `• <b>Indexed Pairs / Tokens:</b> <code>${snap.totalPairs} / ${snap.totalTokens}</code>`,
