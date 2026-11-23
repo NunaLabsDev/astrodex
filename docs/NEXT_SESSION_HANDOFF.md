@@ -40,9 +40,9 @@
   - Sanitized `sorobitSvg` rendered via isolated `<img src="data:image/svg+xml;utf8,..." />` (zero `dangerouslySetInnerHTML`).
   - `SOURCE_ACCOUNT_MISMATCH` blocking and live StellarExpert Directory lookup inside `scanTransactionXdr` / `POST /v1/intents`.
   - Soroban RPC `envelopeXdr` source-account verification in `verifyTransactionConfirmed`, plus D1 rate limiting on `POST /v1/quote` and `POST /v1/markets/listings`.
-- **Cross-Ecosystem Harmony (`astrowallet` & `AstroGate`):** Synchronized `GET /v1/identity/resolve`, `POST /v1/intents/external` (`X-Ecosystem-Secret`), `IntentSheet` `sign_xdr` Clear-Sign + Boomerang return, and `AstroGate` `AstroWallet SSO` / `"Pro Terminal on AstroDex"` links.
+- **Cross-Ecosystem Harmony (`astrowallet` & `AstroGate`):** Synchronized `GET /v1/identity/resolve`, `POST /v1/intents/external` (`X-Ecosystem-Secret`), `POST /v1/intents/:intentId/confirm` Boomerang callback acceptance via constant-time `X-Ecosystem-Secret`, automatic `feedNetwork` sync on `token_`/`scan_`/`pair_` deep-links (`testnet`), and strict cross-network guard `executionDisabled = !config.executionEnabled || feedNetwork !== config.network`.
 - **Verification Results:**
-  - `pnpm check` passes (`10` test files / `28` Vitest tests, `58` source files clean on `secret-scan`, `@astrodex/tma` build clean with zero `@stellar/stellar-xdr-json` in initial chunks).
+  - `pnpm check` passes (**10 test files / 31 Vitest tests**, **60 source files clean on `secret-scan`**, `@astrodex/tma` build clean).
   - `gitleaks detect --no-git --no-banner` clean (`0` leaks across `2.23 MB`).
   - `node scripts/verify-testnet.mjs` verified live Testnet Soroban contracts (`$ASTRO`, `ASTRO/XLM` pair, `AstroGate Launchpad v4.5`, `Testnet USDC SAC`, `Sorobits SEP-50`) and Horizon `/order_book` + `/liquidity_pools`.
 
@@ -50,12 +50,11 @@
 
 ## 3. Live Testnet Deployment & Next-Session Roadmap
 
-1. **Live Testnet Resources Deployed (`15cf4d9`):**
+1. **Live Testnet Resources Deployed (`58f369a`):**
    - **D1 (`astrodex`, `4f7684e0-86dd-4696-b725-d7b109f4dd67`):** `0001_init.sql` & `0002_community_listings.sql` applied remotely (`$ASTRO`, `DOGEE`, `HEY` seeded).
-   - **Worker (`astrodex-server`):** Deployed (`Version ID: 8f05fdde-668a-42cd-a510-4b661859ddc6`) with `ASTROWALLET`, `ASTROGATE`, `DB`, `CACHE`, and `DEX_INDEXER` bindings.
-   - **Pages + Functions (`astrodex-testnet`):** Live at `https://astrodex-testnet.pages.dev` (`GET /health` -> `200 ok`, `GET /v1/markets/overview` -> `49` hydrated catalog items + live `xlmUsd`, `GET /v1/orderbook/astro-XLM` -> live Soroswap reserves + 5 bid/ask levels).
-2. **Next Session — Live Telegram E2E & Optional Enhancements:**
-   - Test `@AstroDexBot` (`/start`, `/scan`, `/list`, `/route`, Mini App 1-tap swap & `+ List`) live in Telegram and verify Boomerang round-trip signing with `@AstroWalletAppBot`.
-   - Optionally add `[ai] binding = "AI"` to `apps/server/wrangler.toml` for Workers AI summaries on `unreviewed_warning` listings.
+   - **Worker (`astrodex-server`):** Deployed (`Version ID: 013fc7eb-fa02-4677-b83d-87d2108a4d48`) with `ASTROWALLET`, `ASTROGATE`, `DB`, `CACHE`, and `DEX_INDEXER` bindings.
+   - **Pages + Functions (`astrodex-testnet`):** Live at `https://astrodex-testnet.pages.dev` (latest deploy `https://40f08e9a.astrodex-testnet.pages.dev`; `GET /health` -> `200 ok`, `GET /v1/markets/overview` -> `49` hydrated catalog items + live `xlmUsd`).
+2. **Next Session — Shared `@astrowallet/connect-sdk` & Gate 2 Mainnet Shadow Mode:**
+   - Migrate `@astrodex/tg-protocol` / Clear-Sign glue to the universal `@astrowallet/connect-sdk` (keeping wallet primitives protocol-agnostic), test live Telegram Boomerang signing round-trips, and prepare Gate 2 Mainnet 48h read-only shadow deployment (`EXECUTION_ENABLED=false` $\rightarrow$ `true`).
 3. **Mainnet Cutover Gate (When Ready):**
    - Provision `[env.mainnet]` D1/KV IDs and secrets, keep `FRIENDBOT_URL` / `VITE_FRIENDBOT_URL` unset and `VITE_ALLOW_DEV_OUTSIDE_TELEGRAM=false`, and re-run `pnpm check` + external security audit before onboarding Mainnet users.
