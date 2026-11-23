@@ -1,3 +1,4 @@
+import { createAstroConnectClient } from "@astrowallet/connect";
 import {
   AstroIdProfileSchema,
   defaultCapabilitiesForKind,
@@ -26,14 +27,6 @@ export interface AstroIdResolverConfig {
   astroWalletApiBaseUrl?: string | undefined;
   astroGateApiBaseUrl?: string | undefined;
   fetchFn?: FetchLike | undefined;
-}
-
-function sanitizeSvgMarkup(raw: unknown): string | undefined {
-  if (typeof raw !== "string") return undefined;
-  const trimmed = raw.trim();
-  if (!/^<svg[\s>]/i.test(trimmed) || !/<\/svg>$/i.test(trimmed)) return undefined;
-  if (/<script\b|<foreignObject\b|javascript:/i.test(trimmed)) return undefined;
-  return trimmed.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
 function normalizeAccounts(
@@ -95,46 +88,30 @@ export function createAstroIdResolver(config: AstroIdResolverConfig): IdentityRe
         return { found: false, source: "none", accounts: [] };
       }
 
-      // 1. Primary: AstroWallet AstroID SSO Directory
+      // 1. Primary: AstroWallet AstroID SSO Directory (via universal @astrowallet/connect)
       if (config.astroWalletApiBaseUrl) {
-        const base = config.astroWalletApiBaseUrl.replace(/\/+$/, "");
         try {
-          const res = await fetchFn(
-            `${base}/v1/identity/resolve?q=${encodeURIComponent(query)}`,
-            { headers: { Accept: "application/json" } },
-          );
-          if (res.ok) {
-            const json = (await res.json()) as {
-              ok?: boolean;
-              found?: boolean;
-              telegramUserId?: string;
-              username?: string;
-              primaryAddress?: string;
-              accounts?: Array<{
-                address?: string;
-                kind?: string;
-                label?: string;
-                isDefault?: boolean;
-              }>;
-              sorobitTokenId?: string;
-              sorobitSvg?: string;
-            };
-            if (json.ok && json.found) {
-              const accounts = normalizeAccounts(json.accounts ?? [], json.primaryAddress);
-              const primaryAddress =
-                accounts.find((a) => a.isDefault)?.address ?? accounts[0]?.address;
-              if (primaryAddress) {
-                return AstroIdProfileSchema.parse({
-                  found: true,
-                  source: "astrowallet",
-                  telegramUserId: json.telegramUserId,
-                  usernameLower: json.username?.replace(/^@/, "").toLowerCase(),
-                  primaryAddress,
-                  accounts,
-                  sorobitTokenId: json.sorobitTokenId,
-                  sorobitSvg: sanitizeSvgMarkup(json.sorobitSvg),
-                });
-              }
+          const client = createAstroConnectClient({
+            apiBaseUrl: config.astroWalletApiBaseUrl,
+            app: { name: "AstroDex", botUsername: "AstroDexBot" },
+            fetchFn: fetchFn as unknown as NonNullable<
+              Parameters<typeof createAstroConnectClient>[0]["fetchFn"]
+            >,
+          });
+          const resolved = await client.resolveIdentity(query);
+          if (resolved.found) {
+            const accounts = normalizeAccounts(resolved.accounts ?? [], resolved.primaryAddress);
+            const primaryAddress =
+              accounts.find((a) => a.isDefault)?.address ?? accounts[0]?.address;
+            if (primaryAddress) {
+              return AstroIdProfileSchema.parse({
+                found: true,
+                source: "astrowallet",
+                telegramUserId: resolved.telegramUserId,
+                usernameLower: resolved.username?.replace(/^@/, "").toLowerCase(),
+                primaryAddress,
+                accounts,
+              });
             }
           }
         } catch {

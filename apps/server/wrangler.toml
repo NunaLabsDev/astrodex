@@ -34,6 +34,7 @@ new_sqlite_classes = ["DexIndexerDO"]
 crons = ["0 */6 * * *"]
 
 [vars]
+EXECUTION_ENABLED = "true"
 STELLAR_NETWORK = "testnet"
 STELLAR_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
 STELLAR_RPC_URLS = "https://soroban-testnet.stellar.org,https://rpc-testnet.stellar.org"
@@ -91,6 +92,7 @@ class_name = "DexIndexerDO"
 crons = ["0 */6 * * *"]
 
 [env.mainnet.vars]
+EXECUTION_ENABLED = "false"
 STELLAR_NETWORK = "mainnet"
 STELLAR_NETWORK_PASSPHRASE = "Public Global Stellar Network ; September 2015"
 STELLAR_RPC_URLS = "https://mainnet.sorobanrpc.com,https://rpc.lightsail.network"
