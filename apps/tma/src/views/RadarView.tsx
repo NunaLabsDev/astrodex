@@ -5,25 +5,10 @@ import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
-type CatalogFilter = "all" | "movers" | "defi" | "rwa" | "community" | "launchpad";
-type CatalogSort = "rank" | "change24h" | "volume7d" | "holders";
+type MarketViewTab = "all" | "gainers" | "losers" | "volume";
+type TrustFilter = "all" | "official" | "community" | "rwa" | "unreviewed";
 
-const DEFI_CODES = new Set([
-  "AQUA",
-  "KALE",
-  "SSLX",
-  "VELO",
-  "XRF",
-  "ASTRO",
-  "YBX",
-  "LSP",
-  "HITZ",
-  "BLND",
-  "PHO",
-  "SCOP",
-  "SHX",
-]);
-const COMMUNITY_CODES = new Set(["ACT", "SSLX", "XTAR", "MIXT", "LMT", "KALE", "ASTRO"]);
+const COMMUNITY_CODES = new Set(["ACT", "SSLX", "XTAR", "MIXT", "LMT", "KALE", "ASTRO", "BLND", "PHO", "SCOP", "SHX"]);
 const RWA_CODES = new Set([
   "USDC",
   "EURC",
@@ -150,7 +135,6 @@ export function RadarView() {
     executionDisabled,
     catalog,
     xlmUsd,
-    launchpadTokens,
     catalogLoading,
     refreshCatalog,
     setSelectedAsset,
@@ -159,8 +143,8 @@ export function RadarView() {
 
   const [query, setQuery] = useState("");
   const [searchHint, setSearchHint] = useState<string | null>(null);
-  const [filter, setFilter] = useState<CatalogFilter>("all");
-  const [sortBy, setSortBy] = useState<CatalogSort>("rank");
+  const [viewTab, setViewTab] = useState<MarketViewTab>("all");
+  const [trustFilter, setTrustFilter] = useState<TrustFilter>("all");
   const [showListForm, setShowListForm] = useState(false);
 
   // Instant self-serve listing state
@@ -267,76 +251,30 @@ export function RadarView() {
     }
   };
 
-  const quickChips = useMemo(() => {
-    const seenCodes = new Set<string>();
-    const prioritized = [...catalog].sort((a, b) => {
-      const diff = catalogRank(b) - catalogRank(a);
-      if (diff !== 0) return diff;
-      return b.shieldScore - a.shieldScore;
-    });
-    const out: CatalogTokenItem[] = [];
-    for (const item of prioritized) {
-      if (item.assetKey === "XLM") continue;
-      const codeKey = item.code.toUpperCase();
-      if (seenCodes.has(codeKey)) continue;
-      seenCodes.add(codeKey);
-      out.push(item);
-      if (out.length >= 7) break;
-    }
-    return out;
-  }, [catalog]);
-
-  const defiCount = useMemo(
-    () =>
-      catalog.filter(
-        (item) =>
-          DEFI_CODES.has(item.code.toUpperCase()) ||
-          item.ammVenue === "soroswap" ||
-          item.ammVenue === "aquarius",
-      ).length,
-    [catalog],
-  );
-  const rwaCount = useMemo(
-    () => catalog.filter((item) => RWA_CODES.has(item.code.toUpperCase())).length,
-    [catalog],
-  );
-  const moversCount = useMemo(
-    () => catalog.filter((item) => typeof item.change24hPct === "number" && item.change24hPct !== 0).length,
-    [catalog],
-  );
-  const topMovers = useMemo(
-    () =>
-      [...catalog]
-        .filter((item) => typeof item.change24hPct === "number" && Number.isFinite(item.change24hPct))
-        .sort((a, b) => Math.abs(b.change24hPct ?? 0) - Math.abs(a.change24hPct ?? 0))
-        .slice(0, 6),
-    [catalog],
-  );
-  const communityCount = useMemo(
-    () =>
-      catalog.filter(
-        (item) => COMMUNITY_CODES.has(item.code.toUpperCase()) || item.reviewStatus !== "official",
-      ).length,
-    [catalog],
-  );
-
   const filteredCatalog = useMemo(() => {
     const rawQ = query.trim().toLowerCase();
     const q = rawQ.includes("/") ? (rawQ.split("/")[0]?.trim() ?? rawQ) : rawQ;
     return catalog
       .filter((item) => {
         const codeUp = item.code.toUpperCase();
-        if (filter === "movers" && typeof item.change24hPct !== "number") return false;
+        if (trustFilter === "official" && item.reviewStatus !== "official") return false;
         if (
-          filter === "defi" &&
-          !DEFI_CODES.has(codeUp) &&
-          item.ammVenue !== "soroswap" &&
-          item.ammVenue !== "aquarius"
+          trustFilter === "community" &&
+          !COMMUNITY_CODES.has(codeUp) &&
+          item.reviewStatus !== "verified"
         ) {
           return false;
         }
-        if (filter === "rwa" && !RWA_CODES.has(codeUp)) return false;
-        if (filter === "community" && !COMMUNITY_CODES.has(codeUp) && item.reviewStatus === "official") {
+        if (trustFilter === "rwa" && !RWA_CODES.has(codeUp)) return false;
+        if (trustFilter === "unreviewed" && item.reviewStatus !== "unreviewed_warning") return false;
+
+        if (viewTab === "gainers" && !(typeof item.change24hPct === "number" && item.change24hPct > 0)) {
+          return false;
+        }
+        if (viewTab === "losers" && !(typeof item.change24hPct === "number" && item.change24hPct < 0)) {
+          return false;
+        }
+        if (viewTab === "volume" && !(typeof item.volume7dUsd === "number" && item.volume7dUsd > 0)) {
           return false;
         }
         if (
@@ -351,20 +289,20 @@ export function RadarView() {
         return true;
       })
       .sort((a, b) => {
-        if (filter === "movers" || sortBy === "change24h") {
+        if (viewTab === "gainers") {
           return (b.change24hPct ?? -9999) - (a.change24hPct ?? -9999);
         }
-        if (sortBy === "volume7d") {
-          return (b.volume7dUsd ?? 0) - (a.volume7dUsd ?? 0);
+        if (viewTab === "losers") {
+          return (a.change24hPct ?? 9999) - (b.change24hPct ?? 9999);
         }
-        if (sortBy === "holders") {
-          return (b.holdersCount ?? 0) - (a.holdersCount ?? 0);
+        if (viewTab === "volume") {
+          return (b.volume7dUsd ?? 0) - (a.volume7dUsd ?? 0);
         }
         const diff = catalogRank(b) - catalogRank(a);
         if (diff !== 0) return diff;
         return (b.holdersCount ?? b.shieldScore) - (a.holdersCount ?? a.shieldScore);
       });
-  }, [catalog, filter, query, sortBy]);
+  }, [catalog, query, trustFilter, viewTab]);
 
   return (
     <div className="ad-stack-12">
@@ -434,22 +372,6 @@ export function RadarView() {
           }}
         />
         {searchHint && <div className="ad-banner ad-banner--warn">{searchHint}</div>}
-
-        {quickChips.length > 0 && (
-          <div className="ad-chip-row" aria-label="1-Tap Official Pairs">
-            {quickChips.map((chip) => (
-              <button
-                key={chip.assetKey}
-                type="button"
-                className="glass-pill ad-clickable"
-                onClick={() => handleOpenAsset(chip.assetKey, "trade")}
-              >
-                <span>XLM / {chip.code}</span>
-                {chip.reviewStatus === "unreviewed_warning" && <span>⚠️</span>}
-              </button>
-            ))}
-          </div>
-        )}
       </section>
 
       {showListForm && (
@@ -567,132 +489,53 @@ export function RadarView() {
       )}
 
       <section className="glass-card ad-stack-10">
-        <div className="ad-row">
-          <strong className="ad-text-base">Official, Community &amp; Launchpad</strong>
-          <span className="glass-pill">{catalogLoading ? "Syncing..." : `${catalog.length} listed`}</span>
+        <div className="ad-row" style={{ gap: 8, alignItems: "center" }}>
+          <strong className="ad-text-base">
+            Stellar Markets ({filteredCatalog.length})
+          </strong>
+          <select
+            className="ad-input"
+            style={{ width: "auto", minWidth: 130, padding: "5px 10px", fontSize: 13 }}
+            value={trustFilter}
+            onChange={(e) => setTrustFilter(e.target.value as TrustFilter)}
+            aria-label="Filter by trust or category"
+          >
+            <option value="all">All Assets</option>
+            <option value="official">Official</option>
+            <option value="community">Community</option>
+            <option value="rwa">Stables &amp; RWA</option>
+            <option value="unreviewed">Unreviewed</option>
+          </select>
         </div>
 
-        {topMovers.length > 0 && (
-          <div className="ad-stack-4">
-            <div className="ad-text-xs ad-text-muted">Top Movers (24h)</div>
-            <div className="ad-chip-row" aria-label="Top Movers 24h">
-              {topMovers.map((m) => {
-                const pct = m.change24hPct ?? 0;
-                return (
-                  <button
-                    key={`mover-${m.assetKey}`}
-                    type="button"
-                    className="glass-pill ad-clickable tabular-nums"
-                    onClick={() => handleOpenAsset(m.assetKey, "trade")}
-                  >
-                    <strong>{m.code}</strong>{" "}
-                    <span className={pct >= 0 ? "ad-text-safe" : "ad-text-danger"}>
-                      {pct >= 0 ? "+" : ""}
-                      {pct.toFixed(1)}%
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <div className="ad-chip-row" role="tablist" aria-label="Token Category Filter">
+        <div className="ad-grid-2" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
           {(
             [
-              { id: "all", label: `All (${catalog.length})` },
-              { id: "movers", label: `Movers (${moversCount})` },
-              { id: "defi", label: `DeFi (${defiCount})` },
-              { id: "rwa", label: `Stables & RWA (${rwaCount})` },
-              { id: "community", label: `Community (${communityCount})` },
-              { id: "launchpad", label: `Launchpad (${launchpadTokens.length})` },
+              { id: "all", label: "All" },
+              { id: "gainers", label: "🟢 Gainers" },
+              { id: "losers", label: "🔴 Losers" },
+              { id: "volume", label: "🔥 Vol" },
             ] as const
           ).map((tab) => (
             <button
               key={tab.id}
               type="button"
-              className={`glass-pill ad-clickable ${filter === tab.id ? "glass-pill--gold" : ""}`}
-              onClick={() => setFilter(tab.id)}
+              className={`glass-pill ad-clickable ${viewTab === tab.id ? "glass-pill--gold" : ""}`}
+              style={{ justifyContent: "center", fontSize: 11, padding: "5px 6px" }}
+              onClick={() => setViewTab(tab.id)}
             >
               {tab.label}
             </button>
           ))}
         </div>
 
-        <div className="ad-chip-row" aria-label="Sort Tokens">
-          {(
-            [
-              { id: "rank", label: "Rank" },
-              { id: "change24h", label: "24h %" },
-              { id: "volume7d", label: "7d Vol" },
-              { id: "holders", label: "Holders" },
-            ] as const
-          ).map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={`glass-pill ad-clickable ${sortBy === s.id ? "glass-pill--safe" : ""}`}
-              style={{ fontSize: 11, padding: "3px 9px" }}
-              onClick={() => setSortBy(s.id)}
-            >
-              Sort: {s.label}
-            </button>
-          ))}
+        <div className="ad-row ad-text-xxs ad-text-muted" style={{ padding: "0 4px" }}>
+          <span># Asset</span>
+          <span>7d</span>
+          <span>Price / 24h</span>
         </div>
 
-        {filter === "launchpad" ? (
-          launchpadTokens.length === 0 ? (
-            <div className="ad-banner">
-              {catalogLoading
-                ? "Syncing AstroGate v4.5 Launchpad curves..."
-                : "No active AstroGate v4.5 curves indexed right now."}
-            </div>
-          ) : (
-            <div className="ad-stack-8">
-              {launchpadTokens.slice(0, 12).map((item) => (
-                <div key={item.id ?? item.symbol} className="ad-item-card">
-                  <div className="ad-row">
-                    <div className="ad-min-w-0">
-                      <div className="ad-font-bold ad-text-base">
-                        ${item.symbol ?? "TOKEN"} · {item.name ?? "Soroban Token"}
-                      </div>
-                      <div className="ad-text-xs ad-text-muted tabular-nums">
-                        {item.graduated
-                          ? `Graduated (Soroswap 7Y Lock) · Reserve ${item.reserveXlm ?? "0"} XLM`
-                          : `Bonding Curve ${item.graduationPercent ?? 0}% -> 1,000 XLM · Reserve ${item.reserveXlm ?? "0"} XLM`}
-                      </div>
-                    </div>
-                    {item.id && (
-                      <div className="ad-flex-6 ad-no-shrink">
-                        <button
-                          type="button"
-                          className="ad-btn-secondary ad-btn-sm"
-                          onClick={() => handleOpenAsset(item.id!, "trade")}
-                        >
-                          Trade
-                        </button>
-                        <button
-                          type="button"
-                          className="glass-pill ad-clickable"
-                          onClick={() => handleOpenAsset(item.id!, "book")}
-                        >
-                          Book
-                        </button>
-                        <button
-                          type="button"
-                          className="glass-pill ad-clickable"
-                          onClick={() => handleOpenAsset(item.id!, "scanner")}
-                        >
-                          Scan
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
-        ) : catalogLoading && catalog.length === 0 ? (
+        {catalogLoading && catalog.length === 0 ? (
           <div className="ad-banner">Syncing live Stellar &amp; AstroGate markets...</div>
         ) : filteredCatalog.length === 0 ? (
           <div className="ad-banner">

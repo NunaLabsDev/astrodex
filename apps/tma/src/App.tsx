@@ -10,6 +10,7 @@ import {
   shouldAllowMiniAppAccess,
 } from "./telegram/webapp.js";
 import { OrdersAlertsView } from "./views/OrdersAlertsView.js";
+import { PoolsView } from "./views/PoolsView.js";
 import { RadarView } from "./views/RadarView.js";
 import { TradeChartView } from "./views/TradeChartView.js";
 
@@ -113,9 +114,8 @@ function AstroDexShell() {
         ) : (
           <>
             {activeTab === "radar" && <RadarView />}
-            {(activeTab === "trade" || activeTab === "scanner" || activeTab === "book") && (
-              <TradeChartView />
-            )}
+            {activeTab === "book" && <PoolsView />}
+            {(activeTab === "trade" || activeTab === "scanner") && <TradeChartView />}
             {activeTab === "orders" && <OrdersAlertsView />}
           </>
         )}

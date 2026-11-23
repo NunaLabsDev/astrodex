@@ -48,6 +48,8 @@ interface AppContextValue {
   setActiveTab: (tab: DockTab) => void;
   tradeSubTab: TradeSubTab;
   setTradeSubTab: (sub: TradeSubTab) => void;
+  tradePairOverride: { fromAsset: string; toAsset: string } | null;
+  openTradePair: (fromAsset: string, toAsset: string) => void;
   selectedAsset: string;
   setSelectedAsset: (assetId: string) => void;
   defaultPairAsset: string;
@@ -89,6 +91,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<AppMode>("basic");
   const [activeTab, setActiveTabState] = useState<DockTab>("radar");
   const [tradeSubTab, setTradeSubTab] = useState<TradeSubTab>("swap");
+  const [tradePairOverride, setTradePairOverride] = useState<{
+    fromAsset: string;
+    toAsset: string;
+  } | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<string>("XLM");
   const [authAttempt, setAuthAttempt] = useState(0);
   const [catalog, setCatalog] = useState<CatalogTokenItem[]>([]);
@@ -171,9 +177,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } else if (parsed.kind === "tab") {
       if (parsed.tab === "scanner") {
         setTradeSubTab("safety");
-        setActiveTabState("trade");
-      } else if (parsed.tab === "book") {
-        setTradeSubTab("pools");
         setActiveTabState("trade");
       } else {
         const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
@@ -273,12 +276,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveTabState("trade");
       return;
     }
-    if (next === "book") {
-      setTradeSubTab("pools");
-      setActiveTabState("trade");
-      return;
-    }
     setActiveTabState(next);
+  }, []);
+
+  const openTradePair = useCallback((fromAsset: string, toAsset: string) => {
+    triggerTelegramHaptic("selection");
+    setTradePairOverride({ fromAsset, toAsset });
+    setSelectedAsset(toAsset === "XLM" ? fromAsset : toAsset);
+    setTradeSubTab("swap");
+    setActiveTabState("trade");
   }, []);
 
   const resolvePublicIdentity = useCallback(
@@ -378,6 +384,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActiveTab,
         tradeSubTab,
         setTradeSubTab,
+        tradePairOverride,
+        openTradePair,
         selectedAsset,
         setSelectedAsset,
         defaultPairAsset,

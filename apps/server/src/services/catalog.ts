@@ -1107,7 +1107,7 @@ export async function loadLiveAmmOrderbookAndSpot(input: {
 
 export interface TokenAmmPoolSummary {
   poolId: string;
-  venue: "sdex_pool" | "soroswap" | "astrogate_curve";
+  venue: "sdex_pool" | "soroswap" | "astrogate_curve" | "aquarius";
   feeBps: number;
   totalShares: string;
   totalTrustlines: number;
@@ -1120,6 +1120,159 @@ export interface TokenAmmPoolSummary {
   counterAssetKey: string;
   counterCode: string;
   spotPriceInCounter: number | null;
+  tvlUsd?: number | undefined;
+  volume24hUsd?: number | undefined;
+  totalApyPct?: number | undefined;
+  rewardsApyPct?: number | undefined;
+  poolType?: string | undefined;
+}
+
+export interface AquariusPoolSummary {
+  poolId: string;
+  poolType: string;
+  feePct: number;
+  tokenA: { assetKey: string; code: string; contractId?: string; reserve: string };
+  tokenB: { assetKey: string; code: string; contractId?: string; reserve: string };
+  tvlUsd: number;
+  volume24hUsd: number;
+  feeApyPct: number;
+  rewardsApyPct: number;
+  totalApyPct: number;
+}
+
+function parseAquariusTokenStr(raw: string): { assetKey: string; code: string } {
+  if (!raw || raw === "native") return { assetKey: "XLM", code: "XLM" };
+  const [code] = raw.split(":");
+  return { assetKey: raw, code: code || raw };
+}
+
+export async function fetchAquariusTopPools(input: {
+  config: ServerConfig;
+  fetchFn: AdaptedFetch;
+  sort?: "volume" | "liquidity" | "apy";
+  limit?: number;
+  query?: string;
+}): Promise<AquariusPoolSummary[]> {
+  const limit = Math.min(Math.max(input.limit ?? 30, 1), 60);
+  const sortMode = input.sort ?? "volume";
+  const q = input.query?.trim().toLowerCase() ?? "";
+
+  if (input.config.network === "mainnet" && input.config.aquariusAmmApiBase) {
+    const aquaBase = input.config.aquariusAmmApiBase.replace(/\/+$/, "");
+    const sortParam =
+      sortMode === "liquidity" ? "-liquidity" : sortMode === "apy" ? "-total_apy" : "-volume";
+    try {
+      const res = await input.fetchFn(
+        `${aquaBase}/pools/?page=1&size=${Math.max(limit, q ? 60 : limit)}&sort=${sortParam}`,
+        { headers: { Accept: "application/json" } },
+      );
+      if (res.ok) {
+        const json = (await res.json()) as {
+          items?: Array<{
+            address?: string;
+            pool_type?: string;
+            fee?: string;
+            tokens_str?: string[];
+            tokens_addresses?: string[];
+            reserves?: string[];
+            liquidity_usd?: string;
+            volume_usd?: string;
+            apy?: string;
+            rewards_apy?: string;
+            incentive_apy?: string;
+            total_apy?: string;
+          }>;
+        };
+        const out: AquariusPoolSummary[] = [];
+        for (const p of json.items ?? []) {
+          if (!p.address || !p.tokens_str || p.tokens_str.length < 2) continue;
+          const a = parseAquariusTokenStr(p.tokens_str[0]!);
+          const b = parseAquariusTokenStr(p.tokens_str[1]!);
+          const pool: AquariusPoolSummary = {
+            poolId: p.address,
+            poolType: p.pool_type ?? "constant_product",
+            feePct: Number(p.fee ?? 0) * 100,
+            tokenA: {
+              ...a,
+              ...(p.tokens_addresses?.[0] ? { contractId: p.tokens_addresses[0] } : {}),
+              reserve: ((Number(p.reserves?.[0] ?? 0)) / 1e7).toFixed(2),
+            },
+            tokenB: {
+              ...b,
+              ...(p.tokens_addresses?.[1] ? { contractId: p.tokens_addresses[1] } : {}),
+              reserve: ((Number(p.reserves?.[1] ?? 0)) / 1e7).toFixed(2),
+            },
+            tvlUsd: Number(p.liquidity_usd ?? 0) / 1e7,
+            volume24hUsd: Number(p.volume_usd ?? 0) / 1e7,
+            feeApyPct: Number(p.apy ?? 0) * 100,
+            rewardsApyPct: (Number(p.rewards_apy ?? 0) + Number(p.incentive_apy ?? 0)) * 100,
+            totalApyPct: Number(p.total_apy ?? 0) * 100,
+          };
+          if (
+            q &&
+            !pool.tokenA.code.toLowerCase().includes(q) &&
+            !pool.tokenB.code.toLowerCase().includes(q) &&
+            !pool.poolId.toLowerCase().includes(q)
+          ) {
+            continue;
+          }
+          out.push(pool);
+          if (out.length >= limit) break;
+        }
+        return out;
+      }
+    } catch {
+      // Fall back to Horizon liquidity pools below
+    }
+  }
+
+  const horizonBase = input.config.horizonUrls[0]?.replace(/\/+$/, "");
+  if (!horizonBase) return [];
+  try {
+    const res = await input.fetchFn(`${horizonBase}/liquidity_pools?limit=${limit}&order=desc`);
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      _embedded?: {
+        records?: Array<{
+          id: string;
+          fee_bp?: number;
+          type?: string;
+          reserves?: Array<{ asset: string; amount: string }>;
+        }>;
+      };
+    };
+    const out: AquariusPoolSummary[] = [];
+    for (const rec of json._embedded?.records ?? []) {
+      const r0 = rec.reserves?.[0];
+      const r1 = rec.reserves?.[1];
+      if (!r0 || !r1) continue;
+      const a = parseHorizonReserveAsset(r0.asset);
+      const b = parseHorizonReserveAsset(r1.asset);
+      if (
+        q &&
+        !a.code.toLowerCase().includes(q) &&
+        !b.code.toLowerCase().includes(q) &&
+        !rec.id.toLowerCase().includes(q)
+      ) {
+        continue;
+      }
+      out.push({
+        poolId: rec.id,
+        poolType: rec.type ?? "constant_product",
+        feePct: (rec.fee_bp ?? 30) / 100,
+        tokenA: { assetKey: a.assetKey, code: a.code, reserve: Number(r0.amount).toFixed(2) },
+        tokenB: { assetKey: b.assetKey, code: b.code, reserve: Number(r1.amount).toFixed(2) },
+        tvlUsd: 0,
+        volume24hUsd: 0,
+        feeApyPct: 0,
+        rewardsApyPct: 0,
+        totalApyPct: 0,
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 export interface TokenRecentTradeSummary {
@@ -1286,6 +1439,41 @@ export async function fetchTokenAmmPools(input: {
       counterCode: "XLM",
       spotPriceInCounter: null,
     });
+  }
+
+  // Merge matching Aquarius AMM pools (with TVL, 24h Vol & Total APY) on Mainnet
+  if (input.config.network === "mainnet" && input.config.aquariusAmmApiBase) {
+    const aquaPools = await fetchAquariusTopPools({
+      config: input.config,
+      fetchFn: input.fetchFn,
+      sort: "volume",
+      limit: 12,
+      query: selfNorm.code,
+    }).catch(() => []);
+    for (const ap of aquaPools) {
+      if (pools.some((p) => p.poolId === ap.poolId)) continue;
+      const isA = ap.tokenA.code.toUpperCase() === selfNorm.code.toUpperCase();
+      const counter = isA ? ap.tokenB : ap.tokenA;
+      pools.unshift({
+        poolId: ap.poolId,
+        venue: "aquarius",
+        feeBps: Math.round(ap.feePct * 100),
+        totalShares: "0",
+        totalTrustlines: 0,
+        reserves: [
+          { assetKey: ap.tokenA.assetKey, code: ap.tokenA.code, amount: ap.tokenA.reserve },
+          { assetKey: ap.tokenB.assetKey, code: ap.tokenB.code, amount: ap.tokenB.reserve },
+        ],
+        counterAssetKey: counter.assetKey,
+        counterCode: counter.code,
+        spotPriceInCounter: null,
+        tvlUsd: ap.tvlUsd,
+        volume24hUsd: ap.volume24hUsd,
+        totalApyPct: ap.totalApyPct,
+        rewardsApyPct: ap.rewardsApyPct,
+        poolType: ap.poolType,
+      });
+    }
   }
 
   return pools.slice(0, limit);

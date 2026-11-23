@@ -49,6 +49,11 @@ interface TokenHubData {
     counterAssetKey: string;
     counterCode: string;
     spotPriceInCounter: number | null;
+    tvlUsd?: number;
+    volume24hUsd?: number;
+    totalApyPct?: number;
+    rewardsApyPct?: number;
+    poolType?: string;
   }>;
   orderbook: {
     bestBid: string | null;
@@ -110,6 +115,7 @@ export function TradeChartView() {
     setSelectedAsset,
     tradeSubTab,
     setTradeSubTab,
+    tradePairOverride,
     defaultPairAsset,
     catalog,
     xlmUsd,
@@ -140,6 +146,13 @@ export function TradeChartView() {
   const [limitSide, setLimitSide] = useState<"buy" | "sell">("buy");
   const [limitPrice, setLimitPrice] = useState("1.0");
   const [limitAmount, setLimitAmount] = useState("10");
+
+  useEffect(() => {
+    if (tradePairOverride) {
+      setFromAsset(tradePairOverride.fromAsset);
+      setToAsset(tradePairOverride.toAsset);
+    }
+  }, [tradePairOverride]);
 
   useEffect(() => {
     if (selectedAsset && selectedAsset !== "XLM") {
@@ -597,8 +610,10 @@ export function TradeChartView() {
                     </div>
                     <div className="ad-text-xs ad-text-muted tabular-nums">
                       Fee {(pool.feeBps / 100).toFixed(2)}%
+                      {pool.tvlUsd && pool.tvlUsd > 0 ? ` · TVL $${Math.round(pool.tvlUsd).toLocaleString("en-US")}` : ""}
+                      {pool.totalApyPct && pool.totalApyPct > 0 ? ` · APY ${pool.totalApyPct.toFixed(1)}%` : ""}
                       {pool.totalTrustlines > 0 ? ` · ${pool.totalTrustlines} LPs` : ""}
-                      {pool.reserves.map((r) => ` · ${Number(r.amount).toFixed(2)} ${r.code}`).join("")}
+                      {!pool.tvlUsd && pool.reserves.map((r) => ` · ${Number(r.amount).toFixed(2)} ${r.code}`).join("")}
                     </div>
                   </div>
                   <button

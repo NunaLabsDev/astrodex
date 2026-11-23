@@ -384,6 +384,7 @@ const RawServerEnvSchema = z
     SOROSWAP_API_BASE: OptionalUrlSchema("SOROSWAP_API_BASE"),
     XOXNO_SWAP_API_BASE: OptionalUrlSchema("XOXNO_SWAP_API_BASE"),
     STELLAR_EXPERT_API_BASE: OptionalUrlSchema("STELLAR_EXPERT_API_BASE"),
+    AQUARIUS_AMM_API_BASE: OptionalUrlSchema("AQUARIUS_AMM_API_BASE"),
     STELLAR_PRICES_API_BASE: OptionalUrlSchema("STELLAR_PRICES_API_BASE"),
     STELLAR_REGISTRY_API_BASE: OptionalUrlSchema("STELLAR_REGISTRY_API_BASE"),
     SEP42_ASSET_LIST_URLS: parseUrlCsv("SEP42_ASSET_LIST_URLS", false),
@@ -482,6 +483,7 @@ export interface ServerConfig {
   soroswapApiBase?: string | undefined;
   xoxnoSwapApiBase?: string | undefined;
   stellarExpertApiBase?: string | undefined;
+  aquariusAmmApiBase?: string | undefined;
   stellarPricesApiBase?: string | undefined;
   stellarRegistryApiBase?: string | undefined;
   sep42AssetListUrls: string[];
@@ -535,6 +537,7 @@ export function parseServerConfig(rawEnv: Record<string, unknown>): ServerConfig
     soroswapApiBase: parsed.SOROSWAP_API_BASE,
     xoxnoSwapApiBase: parsed.XOXNO_SWAP_API_BASE,
     stellarExpertApiBase: parsed.STELLAR_EXPERT_API_BASE,
+    aquariusAmmApiBase: parsed.AQUARIUS_AMM_API_BASE,
     stellarPricesApiBase: parsed.STELLAR_PRICES_API_BASE,
     stellarRegistryApiBase: parsed.STELLAR_REGISTRY_API_BASE,
     sep42AssetListUrls: parsed.SEP42_ASSET_LIST_URLS,

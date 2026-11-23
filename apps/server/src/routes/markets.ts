@@ -21,6 +21,7 @@ import type { DexServerRepository, DexTokenRecord } from "../db/repository.js";
 import { checkRateLimit, clientKeyFromHeaders } from "../rate-limit.js";
 import {
   buildUnifiedCatalog,
+  fetchAquariusTopPools,
   fetchSingleTokenStellarExpertMetric,
   fetchTokenAmmPools,
   fetchTokenRecentTrades,
@@ -240,6 +241,53 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     }
     c.header("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
     c.header("X-AstroDex-Cache", "MISS");
+    return c.json(payload);
+  });
+
+  router.get("/pools/top", async (c) => {
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const sortParam = c.req.query("sort");
+    const sort =
+      sortParam === "liquidity" || sortParam === "apy" ? sortParam : "volume";
+    const query = c.req.query("q")?.trim() ?? "";
+    const cacheKey = `pools:top:${config.network}:${sort}`;
+    const nowMs = Date.now();
+
+    if (!query && c.env.CACHE) {
+      const cachedRaw = await c.env.CACHE.get(cacheKey);
+      if (cachedRaw) {
+        try {
+          const cached = JSON.parse(cachedRaw) as {
+            cachedAt?: number;
+            payload?: Record<string, unknown>;
+          };
+          if (cached.payload && typeof cached.cachedAt === "number" && nowMs - cached.cachedAt < 25_000) {
+            c.header("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
+            return c.json(cached.payload);
+          }
+        } catch {
+          // ignore corrupt cache
+        }
+      }
+    }
+
+    const pools = await fetchAquariusTopPools({
+      config,
+      fetchFn,
+      sort,
+      limit: 30,
+      ...(query ? { query } : {}),
+    });
+
+    const payload = { ok: true, network: config.network, sort, pools };
+    if (!query && c.env.CACHE && pools.length > 0) {
+      await c.env.CACHE.put(
+        cacheKey,
+        JSON.stringify({ cachedAt: nowMs, payload }),
+        { expirationTtl: 60 },
+      );
+    }
     return c.json(payload);
   });
 

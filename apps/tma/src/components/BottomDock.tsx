@@ -2,8 +2,8 @@ import { useAppState, type DockTab } from "../state/app-context.js";
 
 const TABS: Array<{ id: DockTab; label: string; short: string }> = [
   { id: "radar", label: "Markets", short: "Markets" },
-  { id: "trade", label: "Trade & Pools", short: "Trade" },
-  { id: "orders", label: "Portfolio", short: "Portfolio" },
+  { id: "book", label: "Pools & APY", short: "Pools" },
+  { id: "trade", label: "Trade", short: "Trade" },
 ];
 
 export function BottomDock() {
