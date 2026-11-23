@@ -25,9 +25,8 @@ import {
   type TelegramAuthStatus,
 } from "../telegram/webapp.js";
 
-export type AppMode = "basic" | "pro";
 export type DockTab = "radar" | "trade" | "scanner" | "book" | "orders";
-export type TradeSubTab = "swap" | "pools" | "holders" | "safety";
+export type TradeScrollTarget = "swap" | "pools" | "safety" | "limit" | null;
 
 interface AppContextValue {
   config: TmaConfig;
@@ -42,12 +41,10 @@ interface AppContextValue {
   setActiveAccountAddress: (addr: string) => void;
   resolvePublicIdentity: (query: string) => Promise<{ ok: boolean; message: string }>;
   disconnectPublicIdentity: () => void;
-  mode: AppMode;
-  setMode: (mode: AppMode) => void;
   activeTab: DockTab;
   setActiveTab: (tab: DockTab) => void;
-  tradeSubTab: TradeSubTab;
-  setTradeSubTab: (sub: TradeSubTab) => void;
+  tradeScrollTarget: TradeScrollTarget;
+  setTradeScrollTarget: (target: TradeScrollTarget) => void;
   tradePairOverride: { fromAsset: string; toAsset: string } | null;
   openTradePair: (fromAsset: string, toAsset: string) => void;
   selectedAsset: string;
@@ -88,9 +85,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     accounts: [],
   });
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
-  const [mode, setModeState] = useState<AppMode>("basic");
   const [activeTab, setActiveTabState] = useState<DockTab>("radar");
-  const [tradeSubTab, setTradeSubTab] = useState<TradeSubTab>("swap");
+  const [tradeScrollTarget, setTradeScrollTarget] = useState<TradeScrollTarget>(null);
   const [tradePairOverride, setTradePairOverride] = useState<{
     fromAsset: string;
     toAsset: string;
@@ -157,22 +153,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!parsed) return;
     if (parsed.kind === "token") {
       setSelectedAsset(parsed.assetId);
-      setTradeSubTab("swap");
+      setTradeScrollTarget("swap");
       setActiveTabState("trade");
     } else if (parsed.kind === "scan") {
       setSelectedAsset(parsed.assetId);
-      setTradeSubTab("safety");
+      setTradeScrollTarget("safety");
       setActiveTabState("trade");
     } else if (parsed.kind === "pair") {
       setSelectedAsset(parsed.pairId);
-      setTradeSubTab("swap");
+      setTradeScrollTarget("swap");
       setActiveTabState("trade");
     } else if (parsed.kind === "tab") {
       if (parsed.tab === "scanner") {
-        setTradeSubTab("safety");
+        setTradeScrollTarget("safety");
         setActiveTabState("trade");
       } else if (parsed.tab === "book") {
-        setTradeSubTab("pools");
+        setTradeScrollTarget("pools");
         setActiveTabState("trade");
       } else {
         const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
@@ -260,20 +256,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, [astroId.accounts, selectedAddress]);
 
-  const setMode = useCallback((next: AppMode) => {
-    triggerTelegramHaptic("selection");
-    setModeState(next);
-  }, []);
-
   const setActiveTab = useCallback((next: DockTab) => {
     triggerTelegramHaptic("selection");
     if (next === "scanner") {
-      setTradeSubTab("safety");
+      setTradeScrollTarget("safety");
       setActiveTabState("trade");
       return;
     }
     if (next === "book") {
-      setTradeSubTab("pools");
+      setTradeScrollTarget("pools");
       setActiveTabState("trade");
       return;
     }
@@ -284,7 +275,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     triggerTelegramHaptic("selection");
     setTradePairOverride({ fromAsset, toAsset });
     setSelectedAsset(toAsset === "XLM" ? fromAsset : toAsset);
-    setTradeSubTab("swap");
+    setTradeScrollTarget("swap");
     setActiveTabState("trade");
   }, []);
 
@@ -379,12 +370,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActiveAccountAddress: setSelectedAddress,
         resolvePublicIdentity,
         disconnectPublicIdentity,
-        mode,
-        setMode,
         activeTab,
         setActiveTab,
-        tradeSubTab,
-        setTradeSubTab,
+        tradeScrollTarget,
+        setTradeScrollTarget,
         tradePairOverride,
         openTradePair,
         selectedAsset,

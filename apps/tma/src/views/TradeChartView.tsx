@@ -108,13 +108,12 @@ export function TradeChartView() {
     config,
     feedNetwork,
     executionDisabled,
-    mode,
     activeAccount,
     sessionToken,
     selectedAsset,
     setSelectedAsset,
-    tradeSubTab,
-    setTradeSubTab,
+    tradeScrollTarget,
+    setTradeScrollTarget,
     tradePairOverride,
     defaultPairAsset,
     catalog,
@@ -142,10 +141,27 @@ export function TradeChartView() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState(false);
 
-  // Classic SDEX Limit Order fields (Pro Mode)
+  // Classic SDEX Limit Order fields
   const [limitSide, setLimitSide] = useState<"buy" | "sell">("buy");
   const [limitPrice, setLimitPrice] = useState("1.0");
   const [limitAmount, setLimitAmount] = useState("10");
+
+  useEffect(() => {
+    if (!tradeScrollTarget || tradeScrollTarget === "swap") {
+      if (tradeScrollTarget === "swap") setTradeScrollTarget(null);
+      return;
+    }
+    const idMap: Record<"pools" | "safety" | "limit", string> = {
+      pools: "astro-pools",
+      safety: "astro-xray",
+      limit: "astro-limit-order",
+    };
+    const el = document.getElementById(idMap[tradeScrollTarget]);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    setTradeScrollTarget(null);
+  }, [tradeScrollTarget, setTradeScrollTarget]);
 
   useEffect(() => {
     if (tradePairOverride) {
@@ -429,341 +445,48 @@ export function TradeChartView() {
     }
   };
 
+  const shieldScore = tokenHub?.audit?.astroShieldScore ?? focusToken?.shieldScore;
+
   return (
     <div className="ad-stack-12">
-      {focusToken && (
-        <section className="glass-card ad-stack-8">
-          <div className="ad-row">
-            <div className="ad-min-w-0">
-              <div className="ad-text-xl ad-font-extrabold ad-flex-wrap">
-                <span>{focusToken.code} / XLM</span>
+      {/* BLOCK 1 (Top — Novice Friendly): Minimalist Instant Swap Card */}
+      <section className="glass-card ad-stack-10">
+        <div className="ad-row ad-row-wrap">
+          <div className="ad-min-w-0">
+            <div className="ad-text-lg ad-font-extrabold ad-flex-6">
+              <span>{focusToken ? `${focusToken.code} / XLM` : "Instant Swap"}</span>
+              {typeof shieldScore === "number" && (
                 <span
                   className={`glass-pill ${
-                    focusToken.shieldScore >= 75 ? "glass-pill--safe" : "glass-pill--warn"
+                    shieldScore >= 75 ? "glass-pill--safe" : "glass-pill--warn"
                   }`}
                 >
-                  Shield {focusToken.shieldScore}/100
+                  Shield {shieldScore}
                 </span>
-              </div>
-              <div className="ad-text-xs ad-text-muted">
-                {focusToken.name ?? focusToken.kind.toUpperCase()} ·{" "}
-                <button type="button" onClick={() => void handleCopyFocusId()} className="ad-link-inline">
-                  {copiedId ? "Copied ID!" : `${focusAsset.slice(0, 6)}…${focusAsset.slice(-4)} (Copy)`}
-                </button>
-              </div>
-            </div>
-            <div className="ad-text-right tabular-nums">
-              <div className="ad-text-lg ad-font-extrabold ad-text-gold">
-                {spotXlmPerToken
-                  ? `${spotXlmPerToken < 0.01 ? spotXlmPerToken.toFixed(6) : spotXlmPerToken.toFixed(4)} XLM`
-                  : "Quoting..."}
-              </div>
-              {spotXlmPerToken && xlmUsd && xlmUsd > 0 && (
-                <div className="ad-text-xs ad-text-muted">
-                  ≈ ${(spotXlmPerToken * xlmUsd).toFixed(4)} USD
-                </div>
               )}
             </div>
-          </div>
-
-          <div className="ad-row ad-row-wrap ad-text-xs ad-text-muted">
-            <span className="tabular-nums">
-              {ammPair
-                ? `Pool Reserve: ${ammPair.reserveQuote} XLM · ${ammPair.reserveBase} ${focusToken.code}`
-                : "Multi-Venue Liquidity Active"}
-            </span>
-            <div className="ad-flex-6">
-              <button
-                type="button"
-                className={`glass-pill ad-clickable ${tradeSubTab === "swap" ? "glass-pill--gold" : ""}`}
-                onClick={() => setTradeSubTab("swap")}
-              >
-                Chart &amp; Swap
-              </button>
-              <button
-                type="button"
-                className={`glass-pill ad-clickable ${tradeSubTab === "pools" ? "glass-pill--gold" : ""}`}
-                onClick={() => setTradeSubTab("pools")}
-              >
-                Pairs &amp; AMMs ({tokenHub?.ammPools.length ?? 0})
-              </button>
-              <button
-                type="button"
-                className={`glass-pill ad-clickable ${tradeSubTab === "holders" ? "glass-pill--gold" : ""}`}
-                onClick={() => setTradeSubTab("holders")}
-              >
-                Holders ({tokenHub?.topHolders?.length ?? 0})
-              </button>
-              <button
-                type="button"
-                className={`glass-pill ad-clickable ${tradeSubTab === "safety" ? "glass-pill--gold" : ""}`}
-                onClick={() => setTradeSubTab("safety")}
-              >
-                X-Ray
-              </button>
+            <div className="ad-text-xs ad-text-muted tabular-nums">
+              {spotXlmPerToken
+                ? `1 ${focusToken?.code ?? "TOK"} ≈ ${
+                    spotXlmPerToken < 0.01
+                      ? spotXlmPerToken.toFixed(6)
+                      : spotXlmPerToken.toFixed(4)
+                  } XLM${
+                    xlmUsd && xlmUsd > 0
+                      ? ` ($${(spotXlmPerToken * xlmUsd).toFixed(4)})`
+                      : ""
+                  }`
+                : "5-Way Smart Router"}
             </div>
           </div>
 
-          {tokenHub?.marketStats && (
-            <div className="ad-grid-2 ad-text-xs tabular-nums">
-              <div className="ad-subcard">
-                <div className="ad-text-muted">USD Price / 24h</div>
-                <div className="ad-font-bold">
-                  {tokenHub.marketStats.priceUsd
-                    ? `$${tokenHub.marketStats.priceUsd < 0.01 ? tokenHub.marketStats.priceUsd.toFixed(6) : tokenHub.marketStats.priceUsd.toFixed(4)}`
-                    : "--"}
-                  {tokenHub.marketStats.change24hPct !== null && (
-                    <span
-                      className={
-                        tokenHub.marketStats.change24hPct >= 0 ? "ad-text-safe" : "ad-text-danger"
-                      }
-                      style={{ marginLeft: 6 }}
-                    >
-                      {tokenHub.marketStats.change24hPct >= 0 ? "+" : ""}
-                      {tokenHub.marketStats.change24hPct.toFixed(2)}%
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="ad-subcard">
-                <div className="ad-text-muted">Holders / 7d Vol</div>
-                <div className="ad-font-bold">
-                  {tokenHub.marketStats.holdersCount
-                    ? tokenHub.marketStats.holdersCount.toLocaleString("en-US")
-                    : "--"}
-                  {tokenHub.marketStats.volume7dUsd
-                    ? ` · $${Math.round(tokenHub.marketStats.volume7dUsd).toLocaleString("en-US")}`
-                    : ""}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="ad-chip-row" aria-label="Chart Timeframe">
-            {TIMEFRAMES.map((tf) => (
-              <button
-                key={tf}
-                type="button"
-                className={`glass-pill ad-clickable ${timeframe === tf ? "glass-pill--gold" : ""}`}
-                onClick={() => setTimeframe(tf)}
-              >
-                {tf}
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {tradeSubTab === "pools" && (
-        <section className="glass-card ad-stack-10">
-          <div className="ad-row">
-            <strong className="ad-text-base">
-              AMM Pools &amp; Orderbook · {focusToken?.code ?? focusAsset}
-            </strong>
-            <span className="glass-pill">
-              {hubLoading ? "Syncing..." : `${tokenHub?.ammPools.length ?? 0} pools`}
-            </span>
-          </div>
-
-          {tokenHub && tokenHub.ammPools.length > 0 ? (
-            <div className="ad-stack-6">
-              {tokenHub.ammPools.map((pool) => (
-                <div key={pool.poolId} className="ad-row ad-item-card">
-                  <div className="ad-min-w-0">
-                    <div className="ad-font-bold ad-text-sm">
-                      {pool.venue.toUpperCase()} · {focusToken?.code ?? focusAsset}/{pool.counterCode}
-                      {pool.poolType ? ` · ${pool.poolType === "concentrated" ? "Conc." : pool.poolType}` : ""}
-                    </div>
-                    <div className="ad-text-xs ad-text-muted tabular-nums">
-                      Fee {(pool.feeBps / 100).toFixed(2)}%
-                      {pool.tvlUsd && pool.tvlUsd > 0 ? ` · TVL $${Math.round(pool.tvlUsd).toLocaleString("en-US")}` : ""}
-                      {pool.volume24hUsd && pool.volume24hUsd > 0 ? ` · 24h $${Math.round(pool.volume24hUsd).toLocaleString("en-US")}` : ""}
-                      {pool.totalApyPct && pool.totalApyPct > 0 ? ` · APY ${pool.totalApyPct.toFixed(1)}%` : ""}
-                      {pool.rewardsApyPct && pool.rewardsApyPct > 0 ? ` (+${pool.rewardsApyPct.toFixed(1)}% AQUA)` : ""}
-                      {pool.totalTrustlines > 0 ? ` · ${pool.totalTrustlines} LPs` : ""}
-                      {!pool.tvlUsd && pool.reserves.map((r) => ` · ${Number(r.amount).toFixed(2)} ${r.code}`).join("")}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="ad-btn-secondary ad-btn-sm ad-no-shrink"
-                    onClick={() => {
-                      setFromAsset(pool.counterAssetKey);
-                      setToAsset(focusAsset);
-                      setTradeSubTab("swap");
-                    }}
-                  >
-                    Trade Pair
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="ad-banner">
-              {hubLoading
-                ? "Loading live AMM pools across Horizon & Soroswap..."
-                : "No AMM pools indexed for this token yet; Classic SDEX pathfinding still active."}
-            </div>
-          )}
-
-          {tokenHub?.orderbook && (
-            <div className="ad-grid-2">
-              <div className="ad-stack-4">
-                <div className="ad-text-xs ad-text-muted">Top Bids</div>
-                {tokenHub.orderbook.bids.slice(0, 5).map((b, idx) => (
-                  <div key={`bid-${idx}`} className="ad-book-bid ad-text-xs tabular-nums">
-                    {b.price} · {b.amount}
-                  </div>
-                ))}
-              </div>
-              <div className="ad-stack-4">
-                <div className="ad-text-xs ad-text-muted">Top Asks</div>
-                {tokenHub.orderbook.asks.slice(0, 5).map((a, idx) => (
-                  <div key={`ask-${idx}`} className="ad-book-ask ad-text-xs tabular-nums">
-                    {a.price} · {a.amount}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {tokenHub && tokenHub.recentTrades.length > 0 && (
-            <div className="ad-stack-4">
-              <div className="ad-text-xs ad-text-muted">Recent Ledger Trades</div>
-              {tokenHub.recentTrades.slice(0, 6).map((t) => (
-                <div key={t.id} className="ad-row ad-text-xs tabular-nums">
-                  <span className={t.side === "buy" ? "ad-text-safe" : "ad-text-danger"}>
-                    {t.side.toUpperCase()} {t.baseAmount} {t.baseCode}
-                  </span>
-                  <span className="ad-text-muted">@ {t.price} {t.counterCode}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {tradeSubTab === "holders" && (
-        <section className="glass-card ad-stack-10">
-          <div className="ad-row">
-            <strong className="ad-text-base">
-              Top On-Chain Holders · {focusToken?.code ?? focusAsset}
-            </strong>
-            <span className="glass-pill">
-              {tokenHub?.marketStats?.holdersCount
-                ? `${tokenHub.marketStats.holdersCount.toLocaleString("en-US")} total`
-                : `${tokenHub?.topHolders?.length ?? 0} shown`}
-            </span>
-          </div>
-          {tokenHub?.topHolders && tokenHub.topHolders.length > 0 ? (
-            <div className="ad-stack-6">
-              {tokenHub.topHolders.map((h, idx) => (
-                <div key={h.address} className="ad-row ad-item-card">
-                  <div className="ad-min-w-0">
-                    <div className="ad-font-bold ad-text-sm tabular-nums">
-                      #{idx + 1} ·{" "}
-                      <a
-                        href={`https://stellar.expert/explorer/${feedNetwork === "mainnet" ? "public" : "testnet"}/account/${h.address}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="ad-link-inline"
-                      >
-                        {h.address.slice(0, 6)}…{h.address.slice(-4)}
-                      </a>
-                    </div>
-                  </div>
-                  <div className="ad-text-right ad-text-xs tabular-nums">
-                    <strong>{Number(h.balance).toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong>
-                    {h.sharePct !== null && (
-                      <div className="ad-text-muted">{h.sharePct.toFixed(2)}%</div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="ad-banner">
-              {hubLoading
-                ? "Loading live holders from Stellar Horizon..."
-                : "No public holder snapshot returned for this asset on Horizon."}
-            </div>
-          )}
-        </section>
-      )}
-
-      {tradeSubTab === "safety" && (
-        <section className="glass-card ad-stack-10">
-          <div className="ad-row">
-            <strong className="ad-text-base">
-              Astro Shield X-Ray · {focusToken?.code ?? focusAsset}
-            </strong>
-            <span
-              className={`glass-pill ${
-                (tokenHub?.audit?.astroShieldScore ?? 0) >= 75
-                  ? "glass-pill--safe"
-                  : "glass-pill--warn"
-              }`}
-            >
-              Score {tokenHub?.audit?.astroShieldScore ?? "--"}/100
-            </span>
-          </div>
-          <div className="ad-grid-2">
-            <div className="ad-subcard">
-              <div className="ad-text-xs ad-text-muted">Verdict</div>
-              <div className="ad-font-bold">{tokenHub?.audit?.verdict ?? "Scanning..."}</div>
-            </div>
-            <div className="ad-subcard">
-              <div className="ad-text-xs ad-text-muted">Holders / Supply</div>
-              <div className="ad-font-bold tabular-nums">
-                {tokenHub?.audit?.holdersCount ?? "--"} · {tokenHub?.audit?.circulatingSupply ?? "--"}
-              </div>
-            </div>
-          </div>
-          {tokenHub?.audit?.findings && tokenHub.audit.findings.length > 0 ? (
-            <div className="ad-stack-6">
-              {tokenHub.audit.findings.map((f, i) => (
-                <div key={i} className="ad-banner ad-banner--warn ad-text-xs">
-                  <strong>{f.severity.toUpperCase()}:</strong> {f.title}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="ad-banner">
-              No critical risk findings detected on {feedNetwork.toUpperCase()} for {focusToken?.code ?? focusAsset}.
-            </div>
-          )}
-        </section>
-      )}
-
-      {tradeSubTab === "swap" && (
-        <>
-          <ChartCanvas
-            mode={mode}
-            candles={candles}
-            depth={depth}
-            quoteLabel={focusAsset === "XLM" ? "USDC" : "XLM"}
-            timeframe={timeframe}
-          />
-
-      <section className="glass-card ad-stack-10">
-        <div className="ad-row">
-          <strong className="ad-text-lg">
-            {executionDisabled
-              ? `5-Way Router Simulator (${feedNetwork.toUpperCase()} Live)`
-              : "5-Way Smart Router Swap"}
-          </strong>
-          <div className="ad-flex-6">
-            <button
-              type="button"
-              className="glass-pill ad-clickable"
-              onClick={() => setShowTokenFinder((prev) => !prev)}
-            >
-              {showTokenFinder ? "Hide Search" : "🔍 Find Token"}
-            </button>
-            <span className="glass-pill">
-              {activeAccount?.kind === "smart" ? "Smart C..." : "Classic G..."}
-            </span>
-          </div>
+          <button
+            type="button"
+            className="glass-pill ad-clickable"
+            onClick={() => setShowTokenFinder((prev) => !prev)}
+          >
+            {showTokenFinder ? "Close Search" : "🔍 Find Token"}
+          </button>
         </div>
 
         {showTokenFinder && (
@@ -786,92 +509,169 @@ export function TradeChartView() {
           />
         )}
 
-        <div className="ad-stack-8">
-          <div className="ad-grid-swap">
-            <select
-              className="ad-input"
-              value={fromAsset}
-              onChange={(e) => setFromAsset(e.target.value)}
-              aria-label="From Asset"
-            >
-              {catalog.length === 0 && <option value="XLM">XLM (Native)</option>}
-              {catalog.map((t) => (
-                <option key={`from-${t.assetKey}`} value={t.assetKey}>
-                  {formatSelectLabel(t.code, t.name, t.assetKey, t.reviewStatus)}
-                </option>
-              ))}
-              {!catalog.some((t) => t.assetKey === fromAsset) && (
-                <option value={fromAsset}>{fromAsset}</option>
-              )}
-            </select>
-
-            <button
-              type="button"
-              className="ad-btn-secondary ad-btn-flip"
-              onClick={handleFlipPair}
-              aria-label="Flip Swap Pair"
-            >
-              ⇄
-            </button>
-
-            <select
-              className="ad-input"
-              value={toAsset}
-              onChange={(e) => {
-                setToAsset(e.target.value);
-                setSelectedAsset(e.target.value);
-              }}
-              aria-label="To Asset"
-            >
-              <option value="">Select token...</option>
-              {catalog.map((t) => (
-                <option key={`to-${t.assetKey}`} value={t.assetKey}>
-                  {formatSelectLabel(t.code, t.name, t.assetKey, t.reviewStatus)}
-                </option>
-              ))}
-              {!catalog.some((t) => t.assetKey === toAsset) && toAsset && (
-                <option value={toAsset}>{toAsset}</option>
-              )}
-            </select>
-          </div>
-
-          <div className="ad-stack-6">
-            <input
-              type="text"
-              className="ad-input tabular-nums"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="Amount"
-              aria-label="Swap Amount"
-            />
+        <div className="ad-stack-6">
+          {/* You Pay */}
+          <div className="ad-swap-panel">
+            <div className="ad-row ad-text-xs ad-text-muted">
+              <span>You Pay</span>
+              <span>{activeAccount?.kind === "smart" ? "Smart C…" : "Classic G…"}</span>
+            </div>
+            <div className="ad-grid-2">
+              <select
+                className="ad-input"
+                value={fromAsset}
+                onChange={(e) => setFromAsset(e.target.value)}
+                aria-label="From Asset"
+              >
+                {catalog.length === 0 && <option value="XLM">XLM (Native)</option>}
+                {catalog.map((t) => (
+                  <option key={`from-${t.assetKey}`} value={t.assetKey}>
+                    {formatSelectLabel(t.code, t.name, t.assetKey, t.reviewStatus)}
+                  </option>
+                ))}
+                {!catalog.some((t) => t.assetKey === fromAsset) && (
+                  <option value={fromAsset}>{fromAsset}</option>
+                )}
+              </select>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="ad-input tabular-nums ad-text-right ad-font-bold"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                aria-label="Swap Amount"
+              />
+            </div>
             <div className="ad-row ad-row-wrap">
               <div className="ad-chip-row">
                 {QUICK_AMOUNTS.map((preset) => (
                   <button
                     key={preset}
                     type="button"
-                    className={`glass-pill tabular-nums ad-clickable ${amount === preset ? "glass-pill--gold" : ""}`}
+                    className={`glass-pill tabular-nums ad-clickable ${
+                      amount === preset ? "glass-pill--gold" : ""
+                    }`}
                     onClick={() => setAmount(preset)}
                   >
                     {preset}
                   </button>
                 ))}
               </div>
-              {mode === "pro" && (
-                <div className="ad-chip-row" aria-label="Slippage Tolerance">
-                  {SLIPPAGE_PRESETS.map((s) => (
-                    <button
-                      key={s.bps}
-                      type="button"
-                      className={`glass-pill tabular-nums ad-clickable ${slippageBps === s.bps ? "glass-pill--gold" : ""}`}
-                      onClick={() => setSlippageBps(s.bps)}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
+              <div className="ad-chip-row" aria-label="Slippage Tolerance">
+                {SLIPPAGE_PRESETS.map((s) => (
+                  <button
+                    key={s.bps}
+                    type="button"
+                    className={`glass-pill tabular-nums ad-clickable ${
+                      slippageBps === s.bps ? "glass-pill--gold" : ""
+                    }`}
+                    onClick={() => setSlippageBps(s.bps)}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="ad-swap-flip-row">
+            <button
+              type="button"
+              className="ad-btn-flip-circle"
+              onClick={handleFlipPair}
+              aria-label="Flip Swap Pair"
+              title="Flip Swap Pair"
+            >
+              ⇅
+            </button>
+          </div>
+
+          {/* You Receive */}
+          <div className="ad-swap-panel">
+            <div className="ad-row ad-text-xs ad-text-muted">
+              <span>You Receive</span>
+              {quote?.bestRoute && (
+                <span className="glass-pill glass-pill--safe" style={{ fontSize: 10, padding: "1px 6px" }}>
+                  Best: {quote.bestRoute.venue}
+                </span>
               )}
             </div>
+            <div className="ad-grid-2" style={{ alignItems: "center" }}>
+              <select
+                className="ad-input"
+                value={toAsset}
+                onChange={(e) => {
+                  setToAsset(e.target.value);
+                  setSelectedAsset(e.target.value);
+                }}
+                aria-label="To Asset"
+              >
+                <option value="">Select token...</option>
+                {catalog.map((t) => (
+                  <option key={`to-${t.assetKey}`} value={t.assetKey}>
+                    {formatSelectLabel(t.code, t.name, t.assetKey, t.reviewStatus)}
+                  </option>
+                ))}
+                {!catalog.some((t) => t.assetKey === toAsset) && toAsset && (
+                  <option value={toAsset}>{toAsset}</option>
+                )}
+              </select>
+              <div className="ad-text-right tabular-nums">
+                <div className="ad-text-lg ad-font-extrabold ad-text-emerald">
+                  {quoting
+                    ? "Quoting…"
+                    : quote?.bestRoute
+                      ? quote.bestRoute.expectedOutputAmount
+                      : "--"}
+                </div>
+                {effectiveRateLabel && (
+                  <div className="ad-text-xxs ad-text-muted">{effectiveRateLabel}</div>
+                )}
+              </div>
+            </div>
+
+            {quote?.bestRoute && (
+              <div className="ad-stack-6">
+                <div className="ad-text-xs ad-text-muted tabular-nums">
+                  Min Received ({(slippageBps / 100).toFixed(1)}%): {quote.bestRoute.minOutputAmount} ·
+                  Fee {(quote.bestRoute.feeBps / 100).toFixed(2)}% · Impact{" "}
+                  {quote.bestRoute.priceImpactPct}%
+                </div>
+                {quote.routes.length > 0 && (
+                  <details className="ad-details">
+                    <summary>
+                      <span>View 5-Venue Route Matrix ({quote.routes.length} routes)</span>
+                      <span>▾</span>
+                    </summary>
+                    <div className="ad-route-matrix">
+                      {quote.routes.map((r, i) => (
+                        <div key={`${r.venue}-${i}`} className="ad-row tabular-nums ad-text-xs">
+                          <span>
+                            {i === 0 ? "★ " : ""}
+                            {r.venue}
+                          </span>
+                          <span>
+                            {r.expectedOutputAmount} {activeToToken?.code ?? ""} (
+                            {(r.feeBps / 100).toFixed(2)}%)
+                          </span>
+                        </div>
+                      ))}
+                      {quote.skippedVenues.map((s) => (
+                        <div key={s.venue} className="ad-row ad-text-xxs ad-text-muted">
+                          <span>{s.venue}</span>
+                          <span>{s.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
+
+            {quote?.blockedReason && (
+              <div className="ad-banner ad-banner--danger">{quote.blockedReason}</div>
+            )}
           </div>
         </div>
 
@@ -882,65 +682,15 @@ export function TradeChartView() {
           </div>
         )}
 
-        <div className="ad-quote-slot">
-          {quoting ? (
-            <div className="ad-banner">Racing 5 liquidity venues in parallel...</div>
-          ) : quote?.blockedReason ? (
-            <div className="ad-banner ad-banner--danger">{quote.blockedReason}</div>
-          ) : quote?.bestRoute ? (
-            <div className="ad-banner ad-stack-6">
-              <div className="ad-row">
-                <strong>Best Route ({quote.bestRoute.venue})</strong>
-                {effectiveRateLabel && (
-                  <span className="ad-text-xs ad-text-muted tabular-nums">{effectiveRateLabel}</span>
-                )}
-              </div>
-              <div className="tabular-nums ad-text-base ad-font-bold">
-                {quote.bestRoute.inputAmount} {activeFromToken?.code ?? "FROM"} →{" "}
-                <span className="ad-text-emerald">
-                  {quote.bestRoute.expectedOutputAmount} {activeToToken?.code ?? quote.bestRoute.toAsset}
-                </span>
-              </div>
-              <div className="ad-text-xs ad-text-muted tabular-nums">
-                Min Received ({(slippageBps / 100).toFixed(1)}% slip): {quote.bestRoute.minOutputAmount} · Fee {(quote.bestRoute.feeBps / 100).toFixed(2)}% · Impact {quote.bestRoute.priceImpactPct}%
-              </div>
-
-              {mode === "pro" && quote.routes.length > 0 && (
-                <div className="ad-route-matrix">
-                  <div className="ad-text-xs ad-font-bold">5-Venue Route Matrix</div>
-                  {quote.routes.map((r, i) => (
-                    <div key={`${r.venue}-${i}`} className="ad-row tabular-nums ad-text-xs">
-                      <span>{i === 0 ? "★ " : ""}{r.venue}</span>
-                      <span>
-                        {r.expectedOutputAmount} {activeToToken?.code ?? ""} ({(r.feeBps / 100).toFixed(2)}%)
-                      </span>
-                    </div>
-                  ))}
-                  {quote.skippedVenues.map((s) => (
-                    <div key={s.venue} className="ad-row ad-text-xxs ad-text-muted">
-                      <span>{s.venue}</span>
-                      <span>{s.reason}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="ad-banner">
-              {toAsset
-                ? "No active liquidity pool found on Testnet for this pair/amount. Try XLM / ASTRO, XLM / USDC, or XLM / STELA."
-                : "Pick a pair & amount for a live 5-Way routing quote."}
-            </div>
-          )}
-        </div>
-
         {errorMsg && <div className="ad-banner ad-banner--danger">{errorMsg}</div>}
         {statusMsg && <div className="ad-banner">{statusMsg}</div>}
 
         <button
           type="button"
           className="ad-btn-primary"
-          disabled={executionDisabled || submitting || Boolean(quote?.blockedReason) || !quote?.bestRoute}
+          disabled={
+            executionDisabled || submitting || Boolean(quote?.blockedReason) || !quote?.bestRoute
+          }
           onClick={() => void handleHandoffSwap()}
         >
           {executionDisabled
@@ -949,32 +699,159 @@ export function TradeChartView() {
               ? "Pre-Scanning Swap XDR..."
               : "Sign Swap in AstroWallet"}
         </button>
+
+        <div className="ad-text-center ad-text-xs ad-text-muted">
+          ↓ Scroll down for Live Chart, Orderbook, Limit Orders, Pools &amp; X-Ray
+        </div>
       </section>
 
-      {mode === "pro" && (
-        <section className="glass-card ad-stack-10">
+      {/* BLOCK 2 (Scroll Down): Live Price Chart */}
+      <section className="glass-card ad-stack-10">
+        <div className="ad-row ad-row-wrap">
+          <strong className="ad-text-base">
+            Price Chart · {focusToken?.code ?? focusAsset} / {focusAsset === "XLM" ? "USDC" : "XLM"}
+          </strong>
+          <div className="ad-chip-row" aria-label="Chart Timeframe">
+            {TIMEFRAMES.map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                className={`glass-pill ad-clickable ${timeframe === tf ? "glass-pill--gold" : ""}`}
+                onClick={() => setTimeframe(tf)}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {tokenHub?.marketStats && (
+          <div className="ad-grid-2 ad-text-xs tabular-nums">
+            <div className="ad-subcard">
+              <div className="ad-text-muted">USD Price / 24h</div>
+              <div className="ad-font-bold">
+                {tokenHub.marketStats.priceUsd
+                  ? `$${
+                      tokenHub.marketStats.priceUsd < 0.01
+                        ? tokenHub.marketStats.priceUsd.toFixed(6)
+                        : tokenHub.marketStats.priceUsd.toFixed(4)
+                    }`
+                  : "--"}
+                {tokenHub.marketStats.change24hPct !== null && (
+                  <span
+                    className={
+                      tokenHub.marketStats.change24hPct >= 0 ? "ad-text-emerald" : "ad-text-coral"
+                    }
+                    style={{ marginLeft: 6 }}
+                  >
+                    {tokenHub.marketStats.change24hPct >= 0 ? "+" : ""}
+                    {tokenHub.marketStats.change24hPct.toFixed(2)}%
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="ad-subcard">
+              <div className="ad-text-muted">Holders / 7d Vol</div>
+              <div className="ad-font-bold">
+                {tokenHub.marketStats.holdersCount
+                  ? tokenHub.marketStats.holdersCount.toLocaleString("en-US")
+                  : "--"}
+                {tokenHub.marketStats.volume7dUsd
+                  ? ` · $${Math.round(tokenHub.marketStats.volume7dUsd).toLocaleString("en-US")}`
+                  : ""}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <ChartCanvas
+          candles={candles}
+          depth={depth}
+          quoteLabel={focusAsset === "XLM" ? "USDC" : "XLM"}
+          timeframe={timeframe}
+        />
+      </section>
+
+      {/* BLOCK 3 (Scroll Down): Live Orderbook & Classic SDEX Limit Order */}
+      <section id="astro-limit-order" className="glass-card ad-stack-10">
+        <div className="ad-row">
+          <strong className="ad-text-base">Orderbook &amp; Limit Orders</strong>
+          {tokenHub?.orderbook?.spreadPct && (
+            <span className="glass-pill tabular-nums">
+              Spread {tokenHub.orderbook.spreadPct}%
+            </span>
+          )}
+        </div>
+
+        {tokenHub?.orderbook ? (
+          <div className="ad-grid-2">
+            <div className="ad-stack-4">
+              <div className="ad-text-xs ad-text-muted">Top Bids</div>
+              {tokenHub.orderbook.bids.slice(0, 5).map((b, idx) => (
+                <div key={`bid-${idx}`} className="ad-book-bid ad-text-xs tabular-nums">
+                  {b.price} · {b.amount}
+                </div>
+              ))}
+            </div>
+            <div className="ad-stack-4">
+              <div className="ad-text-xs ad-text-muted">Top Asks</div>
+              {tokenHub.orderbook.asks.slice(0, 5).map((a, idx) => (
+                <div key={`ask-${idx}`} className="ad-book-ask ad-text-xs tabular-nums">
+                  {a.price} · {a.amount}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="ad-banner">
+            {hubLoading
+              ? "Loading live orderbook depth..."
+              : "No resting SDEX orderbook depth indexed for this pair."}
+          </div>
+        )}
+
+        {tokenHub && tokenHub.recentTrades.length > 0 && (
+          <div className="ad-stack-4">
+            <div className="ad-text-xs ad-text-muted">Recent Ledger Trades</div>
+            {tokenHub.recentTrades.slice(0, 5).map((t) => (
+              <div key={t.id} className="ad-row ad-text-xs tabular-nums">
+                <span className={t.side === "buy" ? "ad-text-emerald" : "ad-text-coral"}>
+                  {t.side.toUpperCase()} {t.baseAmount} {t.baseCode}
+                </span>
+                <span className="ad-text-muted">
+                  @ {t.price} {t.counterCode}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="ad-divider" />
+
+        <div className="ad-stack-8">
           <div className="ad-row">
-            <strong className="ad-text-lg">Classic SDEX Limit Order (G... Only)</strong>
-            <span className="glass-pill glass-pill--gold">manageBuy/SellOffer</span>
+            <strong className="ad-text-md">Place Limit Order (Classic G…)</strong>
+            <span className="glass-pill glass-pill--gold">SDEX</span>
           </div>
 
           {activeAccount?.kind === "smart" ? (
             <div className="ad-banner ad-banner--warn">
-              Smart Accounts (`C...`) cannot place Classic SDEX offers. Switch to your Classic `G...` pill above.
+              Smart Accounts (<code>C...</code>) trade via AMMs. Switch to a Classic <code>G...</code>{" "}
+              key in Account menu to place SDEX limit orders.
             </div>
           ) : (
             <>
               <div className="ad-flex-8 ad-row-wrap">
                 <button
                   type="button"
-                  className={limitSide === "buy" ? "ad-btn-primary" : "ad-btn-secondary"}
+                  className={limitSide === "buy" ? "ad-btn-primary ad-btn-sm" : "ad-btn-secondary ad-btn-sm"}
                   onClick={() => setLimitSide("buy")}
                 >
                   Buy Limit
                 </button>
                 <button
                   type="button"
-                  className={limitSide === "sell" ? "ad-btn-primary" : "ad-btn-secondary"}
+                  className={limitSide === "sell" ? "ad-btn-primary ad-btn-sm" : "ad-btn-secondary ad-btn-sm"}
                   onClick={() => setLimitSide("sell")}
                 >
                   Sell Limit
@@ -992,17 +869,21 @@ export function TradeChartView() {
               <div className="ad-grid-2">
                 <input
                   type="text"
+                  inputMode="decimal"
                   className="ad-input tabular-nums"
                   value={limitAmount}
                   onChange={(e) => setLimitAmount(e.target.value)}
                   placeholder="Amount"
+                  aria-label="Limit Order Amount"
                 />
                 <input
                   type="text"
+                  inputMode="decimal"
                   className="ad-input tabular-nums"
                   value={limitPrice}
                   onChange={(e) => setLimitPrice(e.target.value)}
                   placeholder="Price in XLM"
+                  aria-label="Limit Order Price in XLM"
                 />
               </div>
               <button
@@ -1019,10 +900,177 @@ export function TradeChartView() {
               </button>
             </>
           )}
-        </section>
-      )}
-        </>
-      )}
+        </div>
+      </section>
+
+      {/* BLOCK 4 (Scroll Down): AMM Liquidity Pools & Top Holders */}
+      <section id="astro-pools" className="glass-card ad-stack-10">
+        <div className="ad-row">
+          <strong className="ad-text-base">
+            AMM Pools &amp; Liquidity · {focusToken?.code ?? focusAsset}
+          </strong>
+          <span className="glass-pill">
+            {hubLoading ? "Syncing..." : `${tokenHub?.ammPools.length ?? 0} pools`}
+          </span>
+        </div>
+
+        {tokenHub && tokenHub.ammPools.length > 0 ? (
+          <div className="ad-stack-6">
+            {tokenHub.ammPools.map((pool) => (
+              <div key={pool.poolId} className="ad-row ad-item-card">
+                <div className="ad-min-w-0">
+                  <div className="ad-font-bold ad-text-sm">
+                    {pool.venue.toUpperCase()} · {focusToken?.code ?? focusAsset}/{pool.counterCode}
+                    {pool.poolType
+                      ? ` · ${pool.poolType === "concentrated" ? "Conc." : pool.poolType}`
+                      : ""}
+                  </div>
+                  <div className="ad-text-xs ad-text-muted tabular-nums">
+                    Fee {(pool.feeBps / 100).toFixed(2)}%
+                    {pool.tvlUsd && pool.tvlUsd > 0
+                      ? ` · TVL $${Math.round(pool.tvlUsd).toLocaleString("en-US")}`
+                      : ""}
+                    {pool.volume24hUsd && pool.volume24hUsd > 0
+                      ? ` · 24h $${Math.round(pool.volume24hUsd).toLocaleString("en-US")}`
+                      : ""}
+                    {pool.totalApyPct && pool.totalApyPct > 0
+                      ? ` · APY ${pool.totalApyPct.toFixed(1)}%`
+                      : ""}
+                    {pool.rewardsApyPct && pool.rewardsApyPct > 0
+                      ? ` (+${pool.rewardsApyPct.toFixed(1)}% AQUA)`
+                      : ""}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="ad-btn-secondary ad-btn-sm ad-no-shrink"
+                  onClick={() => {
+                    setFromAsset(pool.counterAssetKey);
+                    setToAsset(focusAsset);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                >
+                  Use Pair
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="ad-banner">
+            {hubLoading
+              ? "Loading live AMM pools across Horizon & Soroswap..."
+              : "No AMM pools indexed for this token yet; Classic SDEX pathfinding still active."}
+          </div>
+        )}
+
+        <div className="ad-divider" />
+
+        <div className="ad-row">
+          <strong className="ad-text-md">Top On-Chain Holders</strong>
+          <span className="glass-pill">
+            {tokenHub?.marketStats?.holdersCount
+              ? `${tokenHub.marketStats.holdersCount.toLocaleString("en-US")} total`
+              : `${tokenHub?.topHolders?.length ?? 0} shown`}
+          </span>
+        </div>
+
+        {tokenHub?.topHolders && tokenHub.topHolders.length > 0 ? (
+          <div className="ad-stack-6">
+            {tokenHub.topHolders.slice(0, 6).map((h, idx) => (
+              <div key={h.address} className="ad-row ad-item-card">
+                <div className="ad-font-bold ad-text-sm tabular-nums">
+                  #{idx + 1} ·{" "}
+                  <a
+                    href={`https://stellar.expert/explorer/${feedNetwork === "mainnet" ? "public" : "testnet"}/account/${h.address}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ad-link-inline"
+                  >
+                    {h.address.slice(0, 6)}…{h.address.slice(-4)}
+                  </a>
+                </div>
+                <div className="ad-text-right ad-text-xs tabular-nums">
+                  <strong>
+                    {Number(h.balance).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                  </strong>
+                  {h.sharePct !== null && (
+                    <div className="ad-text-muted">{h.sharePct.toFixed(2)}%</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="ad-banner">
+            {hubLoading
+              ? "Loading live holders from Stellar Horizon..."
+              : "No public holder snapshot returned for this asset on Horizon."}
+          </div>
+        )}
+      </section>
+
+      {/* BLOCK 5 (Bottom of Scroll): Astro Shield X-Ray & On-Chain Audit */}
+      <section id="astro-xray" className="glass-card ad-stack-10">
+        <div className="ad-row">
+          <strong className="ad-text-base">
+            Astro Shield X-Ray · {focusToken?.code ?? focusAsset}
+          </strong>
+          <span
+            className={`glass-pill ${
+              (shieldScore ?? 0) >= 75 ? "glass-pill--safe" : "glass-pill--warn"
+            }`}
+          >
+            Score {shieldScore ?? "--"}/100
+          </span>
+        </div>
+
+        <div className="ad-grid-2">
+          <div className="ad-subcard">
+            <div className="ad-text-xs ad-text-muted">Verdict</div>
+            <div className="ad-font-bold">{tokenHub?.audit?.verdict ?? "Scanning..."}</div>
+          </div>
+          <div className="ad-subcard">
+            <div className="ad-text-xs ad-text-muted">Holders / Supply</div>
+            <div className="ad-font-bold tabular-nums">
+              {tokenHub?.audit?.holdersCount ?? "--"} · {tokenHub?.audit?.circulatingSupply ?? "--"}
+            </div>
+          </div>
+        </div>
+
+        {tokenHub?.audit?.findings && tokenHub.audit.findings.length > 0 ? (
+          <div className="ad-stack-6">
+            {tokenHub.audit.findings.map((f, i) => (
+              <div key={i} className="ad-banner ad-banner--warn ad-text-xs">
+                <strong>{f.severity.toUpperCase()}:</strong> {f.title}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="ad-banner">
+            No critical risk findings detected on {feedNetwork.toUpperCase()} for{" "}
+            {focusToken?.code ?? focusAsset}.
+          </div>
+        )}
+
+        <details className="ad-details">
+          <summary>
+            <span>Asset &amp; Contract Metadata</span>
+            <span>▾</span>
+          </summary>
+          <div className="ad-stack-6" style={{ marginTop: 8 }}>
+            <div className="ad-text-xs ad-text-muted">
+              Asset Key: <code className="tabular-nums">{focusAsset}</code>
+            </div>
+            <button
+              type="button"
+              className="ad-btn-secondary ad-btn-sm"
+              onClick={() => void handleCopyFocusId()}
+            >
+              {copiedId ? "Copied Asset ID!" : "Copy Asset ID"}
+            </button>
+          </div>
+        </details>
+      </section>
     </div>
   );
 }

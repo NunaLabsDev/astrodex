@@ -52,7 +52,7 @@ export function OrdersAlertsView() {
     selectedAsset,
     setSelectedAsset,
     setActiveTab,
-    setMode,
+    setTradeScrollTarget,
   } = useAppState();
   const [watchlist, setWatchlist] = useState<string[]>(() =>
     readLocalJson<string[]>(LOCAL_WATCHLIST_KEY, []),
@@ -293,28 +293,31 @@ export function OrdersAlertsView() {
 
   return (
     <div className="ad-stack-12">
+      {/* Card 1: My Wallet Balances & LP Positions */}
       <section className="glass-card ad-stack-10">
         <div className="ad-row">
-          <strong className="ad-text-lg">Open Orders &amp; Alerts</strong>
-          <span className="glass-pill">
-            {activeAccount ? activeAccount.kind.toUpperCase() : "READ-ONLY"}
-          </span>
-        </div>
-
-        <div className="ad-banner">
-          {activeAccount
-            ? `Monitoring ${activeAccount.kind === "classic" ? "Classic SDEX offers" : "Soroban account"} for ${activeAccount.address.slice(0, 6)}...${activeAccount.address.slice(-4)}.`
-            : "Tap 'Connect AstroID / Address' above to load live Classic G... SDEX offers, or manage local Watchlists & Alerts below."}
+          <div className="ad-flex-6">
+            <strong className="ad-text-lg">My Wallet Balances</strong>
+            <span className="glass-pill">
+              {activeAccount ? (activeAccount.kind === "smart" ? "C… Smart" : "G… Classic") : "Read-Only"}
+            </span>
+          </div>
+          {activeAccount && (
+            <button
+              type="button"
+              className="glass-pill ad-clickable"
+              onClick={() => void loadData()}
+            >
+              ↻ Refresh
+            </button>
+          )}
         </div>
 
         {errorMsg && <div className="ad-banner ad-banner--danger">{errorMsg}</div>}
         {statusMsg && <div className="ad-banner">{statusMsg}</div>}
 
-        {portfolio.balances.length > 0 && (
+        {portfolio.balances.length > 0 ? (
           <div className="ad-stack-6">
-            <strong className="ad-text-md">
-              On-Chain Balances ({portfolio.balances.length})
-            </strong>
             {portfolio.balances.map((b) => (
               <div key={b.assetKey} className="ad-row ad-item-card">
                 <div className="ad-text-sm tabular-nums">
@@ -325,13 +328,24 @@ export function OrdersAlertsView() {
                   className="ad-btn-secondary ad-btn-sm"
                   onClick={() => {
                     setSelectedAsset(b.assetKey);
+                    setTradeScrollTarget("swap");
                     setActiveTab("trade");
                   }}
                 >
-                  Trade
+                  Swap
                 </button>
               </div>
             ))}
+          </div>
+        ) : (
+          <div className="ad-banner">
+            {!activeAccount
+              ? "Open Account in the top bar to connect your AstroWallet and view live balances."
+              : activeAccount.kind === "smart"
+                ? "Smart Account (C...) balances sync directly inside AstroWallet."
+                : accountFunded === false
+                  ? `This G... account is not yet activated on Stellar ${feedNetwork === "mainnet" ? "Mainnet" : "Testnet"} (requires 1 XLM base reserve).`
+                  : "No Classic balances found yet on this account. Fund it in AstroWallet or tap Refresh."}
           </div>
         )}
 
@@ -350,41 +364,31 @@ export function OrdersAlertsView() {
             ))}
           </div>
         )}
+      </section>
 
+      {/* Card 2: My Open Limit Orders (Classic SDEX) */}
+      <section className="glass-card ad-stack-10">
         <div className="ad-row">
-          <strong className="ad-text-md">Classic SDEX Open Offers ({offers.length})</strong>
-          <div className="ad-flex-6">
-            {activeAccount && (
-              <button
-                type="button"
-                className="glass-pill ad-clickable"
-                onClick={() => void loadData()}
-              >
-                Refresh
-              </button>
-            )}
-            <button
-              type="button"
-              className="ad-btn-secondary ad-btn-sm"
-              onClick={() => {
-                setMode("pro");
-                setActiveTab("trade");
-              }}
-            >
-              + Limit Order
-            </button>
-          </div>
+          <strong className="ad-text-base">Open Limit Orders ({offers.length})</strong>
+          <button
+            type="button"
+            className="ad-btn-secondary ad-btn-sm"
+            onClick={() => {
+              setTradeScrollTarget("limit");
+              setActiveTab("trade");
+            }}
+          >
+            + New Limit Order
+          </button>
         </div>
 
         {offers.length === 0 ? (
           <div className="ad-text-sm ad-text-muted">
             {activeAccount
               ? activeAccount.kind === "classic"
-                ? accountFunded === false
-                  ? `This G... account is not yet activated on Stellar ${feedNetwork === "mainnet" ? "Mainnet" : "Testnet"} (requires 1 XLM base reserve).`
-                  : "No open Classic SDEX offers found on this G... account."
-                : "Smart Accounts (C...) trade via Soroban AMMs; switch to a Classic G... account to place SDEX limit orders."
-              : "Connect or preview a Classic G... address above to inspect live resting SDEX offers."}
+                ? "No open Classic SDEX limit orders on this G... account."
+                : "Smart Accounts (C...) trade via AMMs; switch to a Classic G... key to place SDEX limit orders."
+              : "Connect a Classic G... account to inspect or cancel resting SDEX limit orders."}
           </div>
         ) : (
           <div className="ad-stack-6">
@@ -408,6 +412,7 @@ export function OrdersAlertsView() {
         )}
       </section>
 
+      {/* Card 3: Watchlist & Price Alerts */}
       <section className="glass-card ad-stack-10">
         <div className="ad-row">
           <strong className="ad-text-base">
@@ -424,6 +429,28 @@ export function OrdersAlertsView() {
               : `+ Watch ${activeToken?.code ?? selectedAsset}`}
           </button>
         </div>
+
+        {watchlist.length > 0 && (
+          <div className="ad-chip-row">
+            {watchlist.map((item) => {
+              const tok = catalog.find((c) => c.assetKey === item);
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  className="glass-pill ad-clickable"
+                  onClick={() => {
+                    setSelectedAsset(item);
+                    setTradeScrollTarget("swap");
+                    setActiveTab("trade");
+                  }}
+                >
+                  ★ {tok?.code ?? item.split(":")[0]}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <TokenSearchInput
           query={alertQuery}
@@ -448,10 +475,11 @@ export function OrdersAlertsView() {
           </select>
           <input
             type="text"
+            inputMode="decimal"
             className="ad-input tabular-nums"
             value={alertThreshold}
             onChange={(e) => setAlertThreshold(e.target.value)}
-            placeholder="Threshold in XLM"
+            placeholder="Price in XLM"
             aria-label="Alert Threshold"
           />
           <button type="submit" className="ad-btn-primary" disabled={busyId === "create-alert"}>
@@ -477,27 +505,6 @@ export function OrdersAlertsView() {
             </div>
           );
         })}
-
-        {watchlist.length > 0 && (
-          <div className="ad-chip-row">
-            {watchlist.map((item) => {
-              const tok = catalog.find((c) => c.assetKey === item);
-              return (
-                <button
-                  key={item}
-                  type="button"
-                  className="glass-pill ad-clickable"
-                  onClick={() => {
-                    setSelectedAsset(item);
-                    setActiveTab("trade");
-                  }}
-                >
-                  ★ {tok?.code ?? item.split(":")[0]}
-                </button>
-              );
-            })}
-          </div>
-        )}
       </section>
     </div>
   );

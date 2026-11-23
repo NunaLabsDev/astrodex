@@ -5,10 +5,8 @@ import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
-type MarketViewTab = "all" | "gainers" | "losers" | "volume";
-type TrustFilter = "all" | "official" | "community" | "rwa" | "unreviewed";
+type MarketFilter = "all" | "gainers" | "losers" | "volume" | "official" | "rwa";
 
-const COMMUNITY_CODES = new Set(["ACT", "SSLX", "XTAR", "MIXT", "LMT", "KALE", "ASTRO", "BLND", "PHO", "SCOP", "SHX"]);
 const RWA_CODES = new Set([
   "USDC",
   "EURC",
@@ -74,7 +72,7 @@ function Sparkline({ points, positive }: { points?: number[] | undefined; positi
   const min = Math.min(...points);
   const max = Math.max(...points);
   const span = max - min || 1;
-  const w = 62;
+  const w = 56;
   const h = 22;
   const coords = points
     .map((p, i) => {
@@ -96,16 +94,17 @@ function Sparkline({ points, positive }: { points?: number[] | undefined; positi
     </svg>
   );
 }
+
 type AmmVenueChoice = "soroswap" | "aquarius" | "phoenix" | "sdex_pool" | "astrogate_curve";
 
 function reviewBadge(token: CatalogTokenItem) {
   if (token.reviewStatus === "official") {
-    return <span className="glass-pill glass-pill--safe">Official</span>;
+    return <span className="glass-pill glass-pill--safe" style={{ fontSize: 10, padding: "1px 6px" }}>Official</span>;
   }
   if (token.reviewStatus === "verified") {
-    return <span className="glass-pill glass-pill--gold">Verified</span>;
+    return <span className="glass-pill glass-pill--gold" style={{ fontSize: 10, padding: "1px 6px" }}>Verified</span>;
   }
-  return <span className="glass-pill glass-pill--warn">⚠️ Unreviewed</span>;
+  return <span className="glass-pill glass-pill--warn" style={{ fontSize: 10, padding: "1px 6px" }}>⚠️</span>;
 }
 
 function venueLabel(venue?: string): string {
@@ -144,6 +143,15 @@ function catalogRank(item: CatalogTokenItem): number {
   return 20;
 }
 
+const FILTER_CHIPS: Array<{ id: MarketFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "gainers", label: "🟢 Gainers" },
+  { id: "losers", label: "🔴 Losers" },
+  { id: "volume", label: "🔥 Volume" },
+  { id: "official", label: "🛡️ Official" },
+  { id: "rwa", label: "🏦 RWA & Stables" },
+];
+
 export function RadarView() {
   const {
     config,
@@ -155,12 +163,12 @@ export function RadarView() {
     refreshCatalog,
     setSelectedAsset,
     setActiveTab,
+    setTradeScrollTarget,
   } = useAppState();
 
   const [query, setQuery] = useState("");
   const [searchHint, setSearchHint] = useState<string | null>(null);
-  const [viewTab, setViewTab] = useState<MarketViewTab>("all");
-  const [trustFilter, setTrustFilter] = useState<TrustFilter>("all");
+  const [activeFilter, setActiveFilter] = useState<MarketFilter>("all");
   const [quoteUnit, setQuoteUnit] = useState<"usd" | "xlm">("usd");
   const [showListForm, setShowListForm] = useState(false);
 
@@ -183,10 +191,11 @@ export function RadarView() {
     warning?: boolean | undefined;
   } | null>(null);
 
-  const handleOpenAsset = (assetId: string, tab: "trade" | "scanner" | "book") => {
+  const handleOpenAsset = (assetId: string, scrollTo: "swap" | "safety" = "swap") => {
     setSearchHint(null);
     setSelectedAsset(assetId.trim());
-    setActiveTab(tab);
+    setTradeScrollTarget(scrollTo);
+    setActiveTab("trade");
   };
 
   useEffect(() => {
@@ -279,24 +288,15 @@ export function RadarView() {
     return catalog
       .filter((item) => {
         const codeUp = item.code.toUpperCase();
-        if (trustFilter === "official" && item.reviewStatus !== "official") return false;
-        if (
-          trustFilter === "community" &&
-          !COMMUNITY_CODES.has(codeUp) &&
-          item.reviewStatus !== "verified"
-        ) {
+        if (activeFilter === "official" && item.reviewStatus !== "official") return false;
+        if (activeFilter === "rwa" && !RWA_CODES.has(codeUp)) return false;
+        if (activeFilter === "gainers" && !(typeof item.change24hPct === "number" && item.change24hPct > 0)) {
           return false;
         }
-        if (trustFilter === "rwa" && !RWA_CODES.has(codeUp)) return false;
-        if (trustFilter === "unreviewed" && item.reviewStatus !== "unreviewed_warning") return false;
-
-        if (viewTab === "gainers" && !(typeof item.change24hPct === "number" && item.change24hPct > 0)) {
+        if (activeFilter === "losers" && !(typeof item.change24hPct === "number" && item.change24hPct < 0)) {
           return false;
         }
-        if (viewTab === "losers" && !(typeof item.change24hPct === "number" && item.change24hPct < 0)) {
-          return false;
-        }
-        if (viewTab === "volume" && !(typeof item.volume7dUsd === "number" && item.volume7dUsd > 0)) {
+        if (activeFilter === "volume" && !(typeof item.volume7dUsd === "number" && item.volume7dUsd > 0)) {
           return false;
         }
         if (
@@ -311,49 +311,65 @@ export function RadarView() {
         return true;
       })
       .sort((a, b) => {
-        if (viewTab === "gainers") {
+        if (activeFilter === "gainers") {
           return (b.change24hPct ?? -9999) - (a.change24hPct ?? -9999);
         }
-        if (viewTab === "losers") {
+        if (activeFilter === "losers") {
           return (a.change24hPct ?? 9999) - (b.change24hPct ?? 9999);
         }
-        if (viewTab === "volume") {
+        if (activeFilter === "volume") {
           return (b.volume7dUsd ?? 0) - (a.volume7dUsd ?? 0);
         }
         const diff = catalogRank(b) - catalogRank(a);
         if (diff !== 0) return diff;
         return (b.holdersCount ?? b.shieldScore) - (a.holdersCount ?? a.shieldScore);
       });
-  }, [catalog, query, trustFilter, viewTab]);
+  }, [catalog, query, activeFilter]);
 
   return (
     <div className="ad-stack-12">
       <section className="glass-card ad-stack-10">
-        <div className="ad-row">
-          <div>
-            <div className="ad-text-sm ad-text-muted">
-              Live {feedNetwork.toUpperCase()} Market Radar
-            </div>
-            <h2 className="ad-heading-sm">
-              XLM:{" "}
-              <span className="tabular-nums ad-text-gold">
-                {xlmUsd && xlmUsd > 0 ? `$${xlmUsd.toFixed(4)}` : "Live Feed"}
-              </span>
+        <div className="ad-row ad-row-wrap">
+          <div className="ad-flex-8 ad-min-w-0">
+            <h2 className="ad-heading-sm" style={{ margin: 0 }}>
+              Stellar Markets
             </h2>
+            <span className="glass-pill tabular-nums">
+              XLM {xlmUsd && xlmUsd > 0 ? `$${xlmUsd.toFixed(4)}` : "Live"}
+            </span>
           </div>
+
           <div className="ad-flex-6">
+            <div role="group" aria-label="Quote Unit" className="ad-mode-group">
+              <button
+                type="button"
+                className={`glass-pill ad-mode-btn ${quoteUnit === "usd" ? "glass-pill--gold" : ""}`}
+                onClick={() => setQuoteUnit("usd")}
+              >
+                $ USD
+              </button>
+              <button
+                type="button"
+                className={`glass-pill ad-mode-btn ${quoteUnit === "xlm" ? "glass-pill--gold" : ""}`}
+                onClick={() => setQuoteUnit("xlm")}
+              >
+                ✦ XLM
+              </button>
+            </div>
             <button
               type="button"
-              className="ad-btn-secondary"
+              className="glass-pill ad-clickable"
               onClick={() => void refreshCatalog()}
               disabled={catalogLoading}
+              aria-label="Refresh Markets"
+              title="Refresh Markets"
             >
-              {catalogLoading ? "Sync..." : "↻ Sync"}
+              {catalogLoading ? "…" : "↻"}
             </button>
             {!executionDisabled && (
               <button
                 type="button"
-                className="ad-btn-secondary"
+                className="glass-pill ad-clickable"
                 onClick={() => setShowListForm((prev) => !prev)}
               >
                 {showListForm ? "Close" : "+ List"}
@@ -370,30 +386,45 @@ export function RadarView() {
           }}
           placeholder={
             feedNetwork === "mainnet"
-              ? "Search Mainnet token or pair (AQUA/XLM, KALE, CETES, USDC) or CODE:G..."
-              : "Search Testnet token or pair (ASTRO/XLM, USDC, STELA) or CODE:G..."
+              ? "Search token (USDC, AQUA, KALE, CETES) or CODE:G..."
+              : "Search Testnet token (ASTRO, USDC, STELA) or CODE:G..."
           }
-          submitLabel="Scan"
-          primaryActionLabel="Quote"
-          secondaryActionLabel="Scan"
+          submitLabel="Swap"
+          primaryActionLabel="Swap"
+          secondaryActionLabel="X-Ray"
           onSelectToken={(item, action) =>
-            handleOpenAsset(item.assetKey, action === "secondary" ? "scanner" : "trade")
+            handleOpenAsset(item.assetKey, action === "secondary" ? "safety" : "swap")
           }
           onSubmitRaw={(raw, bestMatch) => {
             if (bestMatch) {
-              handleOpenAsset(bestMatch.assetKey, "scanner");
+              handleOpenAsset(bestMatch.assetKey, "swap");
               return;
             }
             if (/^(?:XLM|[GC][A-Z2-7]{55}|[A-Za-z0-9]{1,12}:G[A-Z2-7]{55})$/i.test(raw)) {
-              handleOpenAsset(raw, "scanner");
+              handleOpenAsset(raw, "swap");
               return;
             }
             setSearchHint(
-              `Pick a matching token from the live suggestions below or paste a full CODE:G... / C... ID in "+ List".`,
+              `Pick a matching token from the suggestions or paste a full CODE:G... / C... ID in "+ List".`,
             );
           }}
         />
         {searchHint && <div className="ad-banner ad-banner--warn">{searchHint}</div>}
+
+        <div className="ad-chip-row" role="tablist" aria-label="Market Filters">
+          {FILTER_CHIPS.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              role="tab"
+              aria-selected={activeFilter === chip.id}
+              className={`glass-pill ad-clickable ${activeFilter === chip.id ? "glass-pill--gold" : ""}`}
+              onClick={() => setActiveFilter(chip.id)}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
       </section>
 
       {showListForm && (
@@ -484,7 +515,7 @@ export function RadarView() {
                   <button
                     type="button"
                     className="ad-btn-secondary"
-                    onClick={() => handleOpenAsset(listingResult.assetKey!, "trade")}
+                    onClick={() => handleOpenAsset(listingResult.assetKey!, "swap")}
                   >
                     Trade Now
                   </button>
@@ -510,67 +541,9 @@ export function RadarView() {
         </section>
       )}
 
-      <section className="glass-card ad-stack-10">
-        <div className="ad-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <strong className="ad-text-base">
-            Stellar Markets ({filteredCatalog.length})
-          </strong>
-          <div className="ad-flex-6" style={{ alignItems: "center" }}>
-            <div role="group" aria-label="Quote Unit" className="ad-mode-group">
-              <button
-                type="button"
-                className={`glass-pill ad-mode-btn ${quoteUnit === "usd" ? "glass-pill--gold" : ""}`}
-                onClick={() => setQuoteUnit("usd")}
-              >
-                $ USD
-              </button>
-              <button
-                type="button"
-                className={`glass-pill ad-mode-btn ${quoteUnit === "xlm" ? "glass-pill--gold" : ""}`}
-                onClick={() => setQuoteUnit("xlm")}
-              >
-                ✦ XLM
-              </button>
-            </div>
-            <select
-              className="ad-input"
-              style={{ width: "auto", minWidth: 115, padding: "5px 8px", fontSize: 13 }}
-              value={trustFilter}
-              onChange={(e) => setTrustFilter(e.target.value as TrustFilter)}
-              aria-label="Filter by trust or category"
-            >
-              <option value="all">All Assets</option>
-              <option value="official">Official</option>
-              <option value="community">Community</option>
-              <option value="rwa">Stables &amp; RWA</option>
-              <option value="unreviewed">Unreviewed</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="ad-grid-2" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
-          {(
-            [
-              { id: "all", label: "All" },
-              { id: "gainers", label: "🟢 Gainers" },
-              { id: "losers", label: "🔴 Losers" },
-              { id: "volume", label: "🔥 Vol" },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={`glass-pill ad-clickable ${viewTab === tab.id ? "glass-pill--gold" : ""}`}
-              style={{ justifyContent: "center", fontSize: 11, padding: "5px 6px" }}
-              onClick={() => setViewTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="ad-row ad-text-xxs ad-text-muted" style={{ padding: "0 4px" }}>
-          <span># Asset</span>
+      <section className="glass-card ad-stack-8">
+        <div className="ad-row ad-text-xs ad-text-muted" style={{ padding: "0 4px" }}>
+          <span>Asset ({filteredCatalog.length})</span>
           <span>7d</span>
           <span>Price / 24h</span>
         </div>
@@ -579,10 +552,10 @@ export function RadarView() {
           <div className="ad-banner">Syncing live Stellar &amp; AstroGate markets...</div>
         ) : filteredCatalog.length === 0 ? (
           <div className="ad-banner">
-            No matching tokens in the local catalog. Check the live network results above or click &quot;+ List&quot;.
+            No matching tokens found. Try another filter or paste a token ID in Search.
           </div>
         ) : (
-          <div className="ad-stack-8">
+          <div className="ad-stack-6">
             {filteredCatalog.slice(0, 35).map((item, idx) => {
               const isXlm = item.assetKey === "XLM";
               const pct24 =
@@ -621,28 +594,29 @@ export function RadarView() {
                 quoteUnit === "usd"
                   ? formatCompactUsd(item.volume7dUsd)
                   : formatCompactXlm(item.volume7dUsd && liveXlmUsd > 0 ? item.volume7dUsd / liveXlmUsd : undefined);
+
               return (
                 <div
                   key={item.assetKey}
                   role="button"
                   tabIndex={0}
-                  onClick={() => handleOpenAsset(item.assetKey, "trade")}
+                  onClick={() => handleOpenAsset(item.assetKey, "swap")}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      handleOpenAsset(item.assetKey, "trade");
+                      handleOpenAsset(item.assetKey, "swap");
                     }
                   }}
                   className={`ad-item-card ad-clickable ${item.reviewStatus === "unreviewed_warning" ? "ad-item-card--warn" : ""}`}
                 >
-                  <div className="ad-row" style={{ gap: 8, alignItems: "center" }}>
+                  <div className="ad-row" style={{ gap: 10, alignItems: "center" }}>
                     <div className="ad-min-w-0 ad-stack-3" style={{ flex: 1 }}>
-                      <div className="ad-font-bold ad-text-base ad-flex-wrap" style={{ alignItems: "center" }}>
+                      <div className="ad-font-bold ad-text-base ad-flex-6" style={{ alignItems: "center" }}>
                         <span className="ad-text-xs ad-text-muted tabular-nums">#{idx + 1}</span>
-                        <span>{item.code}</span>
+                        <span className="ad-ellipsis">{item.code}</span>
                         {reviewBadge(item)}
                       </div>
-                      <div className="ad-text-xs ad-text-muted">
+                      <div className="ad-text-xs ad-text-muted ad-ellipsis">
                         {item.name ?? item.domain ?? venueLabel(item.ammVenue)}
                       </div>
                     </div>
@@ -650,9 +624,7 @@ export function RadarView() {
                     <Sparkline points={sparkPts} positive={positive7d} />
 
                     <div className="ad-text-right ad-no-shrink tabular-nums">
-                      <div className="ad-font-bold ad-text-sm">
-                        {displayPrice}
-                      </div>
+                      <div className="ad-font-bold ad-text-sm">{displayPrice}</div>
                       {typeof pct24 === "number" ? (
                         <span
                           className={`glass-pill ${pct24 >= 0 ? "glass-pill--safe" : "glass-pill--warn"}`}
@@ -667,7 +639,7 @@ export function RadarView() {
                     </div>
                   </div>
 
-                  <div className="ad-row ad-text-xxs ad-text-muted tabular-nums" style={{ marginTop: 4 }}>
+                  <div className="ad-row ad-text-xxs ad-text-muted tabular-nums" style={{ marginTop: 2 }}>
                     <span>
                       MCap {displayMcap} · 7d Vol {displayVol}
                     </span>
@@ -677,10 +649,6 @@ export function RadarView() {
                         : shortKey(item.assetKey)}
                     </span>
                   </div>
-
-                  {item.reviewStatus === "unreviewed_warning" && item.reviewNote && (
-                    <div className="ad-text-xs ad-text-warn">⚠️ {item.reviewNote}</div>
-                  )}
                 </div>
               );
             })}

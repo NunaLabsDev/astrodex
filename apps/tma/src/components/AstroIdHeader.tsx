@@ -22,8 +22,6 @@ export function AstroIdHeader() {
     resolvePublicIdentity,
     disconnectPublicIdentity,
     retryAuth,
-    mode,
-    setMode,
   } = useAppState();
 
   const [showConnectSheet, setShowConnectSheet] = useState(false);
@@ -56,8 +54,16 @@ export function AstroIdHeader() {
     }
   };
 
+  const accountLabel = showConnectSheet
+    ? "Close ✕"
+    : astroId.found && activeAccount
+      ? astroId.usernameLower
+        ? `@${astroId.usernameLower} · ${shortAddr(activeAccount.address)} ▾`
+        : `${shortAddr(activeAccount.address)} ▾`
+      : "Account ▾";
+
   return (
-    <header className="glass-card ad-stack-10">
+    <header className="glass-card ad-header-bar ad-stack-10">
       <div className="ad-row">
         <div className="ad-flex-8 ad-min-w-0">
           {astroId.sorobitSvg ? (
@@ -71,142 +77,89 @@ export function AstroIdHeader() {
               AD
             </div>
           )}
-          <div className="ad-min-w-0">
-            <div className="ad-font-extrabold ad-flex-wrap ad-text-lg">
-              <span>AstroDex</span>
-              <div role="group" aria-label="Stellar Network" className="ad-mode-group">
-                <button
-                  type="button"
-                  className={`glass-pill ad-mode-btn ${feedNetwork === "mainnet" ? "glass-pill--safe" : ""}`}
-                  onClick={() => setFeedNetwork("mainnet")}
-                >
-                  Mainnet
-                </button>
-                <button
-                  type="button"
-                  className={`glass-pill ad-mode-btn ${feedNetwork === "testnet" ? "glass-pill--gold" : ""}`}
-                  onClick={() => setFeedNetwork("testnet")}
-                >
-                  Testnet
-                </button>
-              </div>
-            </div>
-            <div className="ad-text-xs ad-text-muted">
-              {astroId.found && activeAccount
-                ? `● AstroWallet Connected · @${astroId.usernameLower ?? "astroid"} · ${shortAddr(activeAccount.address)}`
-                : executionDisabled
-                  ? "AstroWallet Disconnected · Sign in below"
-                  : "Sign in with AstroWallet (@AstroID)"}
-            </div>
+          <div className="ad-flex-6 ad-min-w-0">
+            <span className="ad-font-extrabold ad-text-base">AstroDex</span>
+            <span
+              className={`glass-pill ad-net-badge ${
+                feedNetwork === "mainnet" ? "glass-pill--safe" : "glass-pill--gold"
+              }`}
+              title={`Active network: ${feedNetwork}`}
+            >
+              ● {feedNetwork === "mainnet" ? "Mainnet" : "Testnet"}
+            </span>
           </div>
         </div>
 
-        <div className="ad-flex-6">
-          <div role="group" aria-label="UI Disclosure Mode" className="ad-mode-group">
-            <button
-              type="button"
-              className={`glass-pill ad-mode-btn ${mode === "basic" ? "ad-mode-btn--basic-active" : ""}`}
-              onClick={() => setMode("basic")}
-            >
-              Basic
-            </button>
-            <button
-              type="button"
-              className={`glass-pill ad-mode-btn ${mode === "pro" ? "ad-mode-btn--pro-active" : ""}`}
-              onClick={() => setMode("pro")}
-            >
-              Pro
-            </button>
-          </div>
-          <button
-            type="button"
-            className="glass-pill ad-clickable"
-            onClick={() => setShowConnectSheet((prev) => !prev)}
-          >
-            {showConnectSheet
-              ? "Close"
-              : astroId.found
-                ? activeAccount
-                  ? shortAddr(activeAccount.address)
-                  : "Account"
-                : "Menu"}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="glass-pill ad-clickable ad-account-pill"
+          onClick={() => setShowConnectSheet((prev) => !prev)}
+          aria-expanded={showConnectSheet}
+        >
+          {accountLabel}
+        </button>
       </div>
 
-      {astroId.found && astroId.accounts.length > 0 && (
-        <div
-          className="ad-flex-wrap"
-          style={{
-            gap: 6,
-            paddingTop: 6,
-            borderTop: "1px solid rgba(255,255,255,0.08)",
-            alignItems: "center",
-          }}
-        >
-          <span className="ad-text-xs ad-text-muted" style={{ fontWeight: 600 }}>
-            AstroWallet Keys:
-          </span>
-          {astroId.accounts.map((acc, idx) => {
-            const isSelected = activeAccount?.address === acc.address;
-            return (
-              <button
-                key={acc.address}
-                type="button"
-                className={`glass-pill ad-clickable ${isSelected ? "glass-pill--safe" : ""}`}
-                onClick={() => setActiveAccountAddress(acc.address)}
-                title={acc.address}
-              >
-                {isSelected ? "● " : ""}
-                {acc.label ?? `#${idx + 1}`} ({shortAddr(acc.address)})
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {showConnectSheet && (
-        <div className="ad-sub-panel">
-          <div className="ad-row ad-row-wrap">
-            <div className="ad-flex-wrap">
+        <div className="ad-sub-panel ad-stack-10">
+          {astroId.found && astroId.accounts.length > 0 && (
+            <div className="ad-stack-6">
+              <div className="ad-text-xs ad-text-muted ad-font-bold">Active Wallet Key</div>
+              <div className="ad-flex-wrap">
+                {astroId.accounts.map((acc, idx) => {
+                  const isSelected = activeAccount?.address === acc.address;
+                  return (
+                    <button
+                      key={acc.address}
+                      type="button"
+                      className={`glass-pill ad-clickable ${isSelected ? "glass-pill--safe" : ""}`}
+                      onClick={() => setActiveAccountAddress(acc.address)}
+                      title={acc.address}
+                    >
+                      {isSelected ? "● " : ""}
+                      {acc.kind === "smart" ? "C…" : "G…"} {acc.label ?? `#${idx + 1}`} (
+                      {shortAddr(acc.address)})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="ad-stack-6">
+            <div className="ad-text-xs ad-text-muted ad-font-bold">Network Environment</div>
+            <div className="ad-grid-2">
               <button
                 type="button"
-                className={`glass-pill ad-clickable ${feedNetwork === "mainnet" ? "glass-pill--safe" : ""}`}
+                className={`ad-btn-secondary ad-btn-sm ${
+                  feedNetwork === "mainnet" ? "ad-btn-net-active-mainnet" : ""
+                }`}
                 onClick={() => setFeedNetwork("mainnet")}
               >
-                Mainnet
+                {feedNetwork === "mainnet" ? "● " : ""}Mainnet (Live)
               </button>
               <button
                 type="button"
-                className={`glass-pill ad-clickable ${feedNetwork === "testnet" ? "glass-pill--gold" : ""}`}
+                className={`ad-btn-secondary ad-btn-sm ${
+                  feedNetwork === "testnet" ? "ad-btn-net-active-testnet" : ""
+                }`}
                 onClick={() => setFeedNetwork("testnet")}
               >
-                Testnet
+                {feedNetwork === "testnet" ? "● " : ""}Testnet (Sandbox)
               </button>
-              {astroId.accounts.map((acc) => (
-                <button
-                  key={acc.address}
-                  type="button"
-                  className={`glass-pill ad-clickable ${activeAccount?.address === acc.address ? "glass-pill--gold" : ""}`}
-                  onClick={() => setActiveAccountAddress(acc.address)}
-                >
-                  {acc.kind === "smart" ? "C..." : "G..."} {shortAddr(acc.address)}
-                </button>
-              ))}
             </div>
           </div>
 
-          <div className="ad-text-sm ad-text-muted">
+          <div className="ad-text-xs ad-text-muted">
             {executionDisabled
               ? `Read-only ${feedNetwork.toUpperCase()} quotes, charts, orderbooks, and X-Ray scans are active.`
-              : `Live ${feedNetwork.toUpperCase()} routing and X-Ray scans active.`}{" "}
-            Load any public <code>@AstroID</code> or <code>G...</code>/<code>C...</code> address to inspect orders.
+              : `Live ${feedNetwork.toUpperCase()} routing and X-Ray scans active.`}
           </div>
 
           <div className="ad-flex-wrap">
             <button
               type="button"
-              className="ad-btn-secondary ad-btn-md"
+              className="ad-btn-secondary ad-btn-sm"
               onClick={() => {
                 retryAuth();
                 setLookupFeedback({ ok: true, text: "Syncing active network & keys from AstroWallet..." });
@@ -216,7 +169,7 @@ export function AstroIdHeader() {
             </button>
             <button
               type="button"
-              className="ad-btn-secondary ad-btn-md"
+              className="ad-btn-secondary ad-btn-sm"
               onClick={() => openTelegramDeepLink(walletConnectUrl)}
             >
               Open AstroWallet
@@ -224,7 +177,7 @@ export function AstroIdHeader() {
             {astroGateUrl && (
               <button
                 type="button"
-                className="ad-btn-secondary ad-btn-md"
+                className="ad-btn-secondary ad-btn-sm"
                 onClick={() => openTelegramDeepLink(astroGateUrl)}
               >
                 Open AstroGate
@@ -233,13 +186,14 @@ export function AstroIdHeader() {
             {astroId.found && (
               <button
                 type="button"
-                className="ad-btn-secondary ad-btn-md"
+                className="ad-btn-secondary ad-btn-sm"
                 onClick={() => {
                   disconnectPublicIdentity();
                   setLookupFeedback(null);
+                  setShowConnectSheet(false);
                 }}
               >
-                Clear Preview
+                Disconnect
               </button>
             )}
           </div>
@@ -248,7 +202,7 @@ export function AstroIdHeader() {
             <input
               type="text"
               className="ad-input ad-input-compact"
-              placeholder="@AstroID username or public G... / C... address"
+              placeholder="Inspect @AstroID or public G... / C... address"
               value={lookupInput}
               onChange={(e) => setLookupInput(e.target.value)}
             />

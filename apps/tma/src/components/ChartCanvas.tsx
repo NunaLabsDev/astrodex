@@ -36,14 +36,12 @@ function formatPrice(val: number): string {
 }
 
 function ChartSurface({
-  mode,
   candles,
   quoteLabel,
   timeframe,
   expanded,
   onToggleExpand,
 }: {
-  mode: "basic" | "pro";
   candles: readonly OhlcvCandle[];
   quoteLabel: string;
   timeframe?: string | undefined;
@@ -54,13 +52,7 @@ function ChartSurface({
   const chartRef = useRef<IChartApi | null>(null);
   const [hovered, setHovered] = useState<OhlcvCandle | null>(null);
   const [logScale, setLogScale] = useState(false);
-  const [chartStyle, setChartStyle] = useState<"area" | "candles">(
-    mode === "pro" ? "candles" : "area",
-  );
-
-  useEffect(() => {
-    setChartStyle(mode === "pro" ? "candles" : "area");
-  }, [mode]);
+  const [chartStyle, setChartStyle] = useState<"area" | "candles">("area");
 
   const normalized = useMemo(() => {
     const bySec = new Map<number, OhlcvCandle>();
@@ -77,7 +69,7 @@ function ChartSurface({
 
   useEffect(() => {
     setHovered(null);
-  }, [candles, mode, timeframe]);
+  }, [candles, timeframe]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -85,9 +77,7 @@ function ChartSurface({
 
     const chartHeight = expanded
       ? Math.max(300, Math.min(460, Math.floor(window.innerHeight * 0.56)))
-      : mode === "pro"
-        ? 230
-        : 195;
+      : 210;
 
     const showTime = timeframe !== "1d";
     const chart = createChart(el, {
@@ -239,7 +229,7 @@ function ChartSurface({
       chart.remove();
       chartRef.current = null;
     };
-  }, [normalized, candles, mode, chartStyle, timeframe, expanded, logScale]);
+  }, [normalized, candles, chartStyle, timeframe, expanded, logScale]);
 
   if (normalized.length === 0) return null;
 
@@ -269,9 +259,7 @@ function ChartSurface({
         </strong>
         <div className="ad-flex-6" style={{ alignItems: "center" }}>
           <span className="tabular-nums ad-text-xs ad-text-muted">
-            {mode === "pro"
-              ? `O:${formatPrice(active.open)} H:${formatPrice(active.high)} L:${formatPrice(active.low)}`
-              : `H ${formatPrice(active.high)} / L ${formatPrice(active.low)}`}
+            H {formatPrice(active.high)} / L {formatPrice(active.low)}
           </span>
           <button
             type="button"
@@ -315,8 +303,8 @@ function ChartSurface({
         aria-label="Interactive Price Chart"
         style={{
           width: "100%",
-          height: expanded ? "min(56vh, 460px)" : mode === "pro" ? 230 : 195,
-          minHeight: expanded ? 300 : 195,
+          height: expanded ? "min(56vh, 460px)" : 210,
+          minHeight: expanded ? 300 : 210,
           position: "relative",
           touchAction: expanded ? "none" : "pan-y",
         }}
@@ -326,13 +314,11 @@ function ChartSurface({
 }
 
 export function ChartCanvas({
-  mode,
   candles,
   depth,
   quoteLabel,
   timeframe,
 }: {
-  mode: "basic" | "pro";
   candles: readonly OhlcvCandle[];
   depth: readonly DepthPoint[];
   quoteLabel: string;
@@ -354,7 +340,6 @@ export function ChartCanvas({
     <>
       <div className="ad-chart-stage ad-stack-8">
         <ChartSurface
-          mode={mode}
           candles={candles}
           quoteLabel={quoteLabel}
           timeframe={timeframe}
@@ -362,7 +347,7 @@ export function ChartCanvas({
           onToggleExpand={() => setExpanded(true)}
         />
 
-        {mode === "pro" && depth.length > 0 && (
+        {depth.length > 0 && (
           <div className="tabular-nums ad-text-xs ad-text-muted">
             Combined Depth Levels: {depth.length} active bid/ask levels
           </div>
@@ -390,7 +375,6 @@ export function ChartCanvas({
         >
           <div className="glass-card" style={{ width: "100%", maxWidth: 720 }}>
             <ChartSurface
-              mode={mode}
               candles={candles}
               quoteLabel={quoteLabel}
               timeframe={timeframe}

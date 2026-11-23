@@ -12,7 +12,7 @@ interface AmmPairInfo {
 }
 
 export function BookPoolsView() {
-  const { config, feedNetwork, mode, catalog, selectedAsset, defaultPairAsset, setSelectedAsset, setActiveTab } =
+  const { config, feedNetwork, catalog, selectedAsset, defaultPairAsset, setSelectedAsset, setActiveTab } =
     useAppState();
   const [snapshot, setSnapshot] = useState<OrderbookSnapshot | null>(null);
   const [ammPair, setAmmPair] = useState<AmmPairInfo | null>(null);
@@ -170,7 +170,7 @@ export function BookPoolsView() {
             </div>
             <div className="ad-text-xs ad-text-muted">
               Pool Liquidity: {ammPair.reserveBase} {selectedToken?.code ?? "TOK"} · {ammPair.reserveQuote} XLM
-              {mode === "pro" && ammPair.pairId
+              {ammPair.pairId
                 ? ` · Pair ${ammPair.pairId.slice(0, 6)}…${ammPair.pairId.slice(-4)}`
                 : ""}
             </div>

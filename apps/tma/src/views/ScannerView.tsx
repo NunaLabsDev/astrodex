@@ -14,7 +14,6 @@ export function ScannerView() {
     config,
     feedNetwork,
     executionDisabled,
-    mode,
     selectedAsset,
     setSelectedAsset,
     setActiveTab,
@@ -234,7 +233,7 @@ export function ScannerView() {
               </div>
             )}
 
-            {mode === "pro" && audit.classicAudit && (
+            {audit.classicAudit && (
               <div className="ad-banner tabular-nums">
                 <strong>Classic Issuer Lock Matrix:</strong> Locked={String(audit.classicAudit.locked)} ·
                 MasterWeight={audit.classicAudit.masterWeight} · SecondarySum={audit.classicAudit.combinedSecondaryWeight} ·
@@ -242,7 +241,7 @@ export function ScannerView() {
               </div>
             )}
 
-            {mode === "pro" && audit.sorobanAudit?.ttlStatus && (
+            {audit.sorobanAudit?.ttlStatus && (
               <div className="ad-banner tabular-nums ad-stack-6">
                 <div>
                   <strong>Protocol 23 TTL Status:</strong>{" "}
@@ -271,26 +270,24 @@ export function ScannerView() {
         )}
       </section>
 
-      {mode === "pro" && (
-        <section className="glass-card ad-stack-8">
-          <strong className="ad-text-base">Lazy Web Worker Raw XDR Inspector</strong>
-          <textarea
-            className="ad-input"
-            rows={3}
-            placeholder="Paste Base64 TransactionEnvelope XDR..."
-            value={rawXdrInput}
-            onChange={(e) => setRawXdrInput(e.target.value)}
-          />
-          <button
-            type="button"
-            className="ad-btn-secondary"
-            onClick={() => void handleInspectRawXdr()}
-          >
-            Decode Raw XDR
-          </button>
-          {rawXdrJson && <pre className="ad-code-block">{rawXdrJson}</pre>}
-        </section>
-      )}
+      <section className="glass-card ad-stack-8">
+        <strong className="ad-text-base">Lazy Web Worker Raw XDR Inspector</strong>
+        <textarea
+          className="ad-input"
+          rows={3}
+          placeholder="Paste Base64 TransactionEnvelope XDR..."
+          value={rawXdrInput}
+          onChange={(e) => setRawXdrInput(e.target.value)}
+        />
+        <button
+          type="button"
+          className="ad-btn-secondary"
+          onClick={() => void handleInspectRawXdr()}
+        >
+          Decode Raw XDR
+        </button>
+        {rawXdrJson && <pre className="ad-code-block">{rawXdrJson}</pre>}
+      </section>
     </div>
   );
 }
