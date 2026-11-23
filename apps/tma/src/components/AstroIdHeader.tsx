@@ -83,10 +83,10 @@ export function AstroIdHeader() {
             </div>
             <div className="ad-text-xs ad-text-muted">
               {astroId.found && activeAccount
-                ? `@${astroId.usernameLower ?? "astroid"} · ${shortAddr(activeAccount.address)}`
+                ? `● AstroWallet Connected · @${astroId.usernameLower ?? "astroid"} · ${shortAddr(activeAccount.address)}`
                 : executionDisabled
-                  ? "Read-only · Live market"
-                  : "Live Stellar & Soroban DEX"}
+                  ? "AstroWallet Disconnected · Sign in below"
+                  : "Sign in with AstroWallet (@AstroID)"}
             </div>
           </div>
         </div>
@@ -123,6 +123,37 @@ export function AstroIdHeader() {
           </button>
         </div>
       </div>
+
+      {astroId.found && astroId.accounts.length > 0 && (
+        <div
+          className="ad-flex-wrap"
+          style={{
+            gap: 6,
+            paddingTop: 6,
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            alignItems: "center",
+          }}
+        >
+          <span className="ad-text-xs ad-text-muted" style={{ fontWeight: 600 }}>
+            AstroWallet Keys:
+          </span>
+          {astroId.accounts.map((acc, idx) => {
+            const isSelected = activeAccount?.address === acc.address;
+            return (
+              <button
+                key={acc.address}
+                type="button"
+                className={`glass-pill ad-clickable ${isSelected ? "glass-pill--safe" : ""}`}
+                onClick={() => setActiveAccountAddress(acc.address)}
+                title={acc.address}
+              >
+                {isSelected ? "● " : ""}
+                {acc.label ?? `#${idx + 1}`} ({shortAddr(acc.address)})
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {showConnectSheet && (
         <div className="ad-sub-panel">

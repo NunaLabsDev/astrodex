@@ -20,7 +20,7 @@ class_name = "DexIndexerDO"
 
 [[services]]
 binding = "ASTROWALLET"
-service = "astrowallet-server"
+service = "astrowallet-server-mainnet"
 
 [[services]]
 binding = "ASTROGATE"
