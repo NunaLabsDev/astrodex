@@ -105,6 +105,7 @@ export function createMcpRoutes(deps: { fetchFn?: FetchLike | undefined } = {}):
         "/v1/markets/search": { get: { summary: "Search Stellar assets by ticker, name, G... issuer, or C... contract" } },
         "/v1/markets/listings": { post: { summary: "Instant self-serve token & AMM listing with Astro Shield" } },
         "/v1/scanner/{assetId}": { get: { summary: "Run Astro Shield forensic token audit" } },
+        "/v1/agent/forensic-alpha/{assetId}": { get: { summary: "x402 HTTP 402 paid forensic alpha report for AI agents (USDC SAC)" } },
         "/v1/quote": { post: { summary: "Quote 5-Way Smart Liquidity Router" } },
         "/v1/orderbook/{pair}": { get: { summary: "Live Classic SDEX orderbook + AMM pool depth" } },
         "/v1/candles/{pair}": { get: { summary: "Merged D1 Soroban + Horizon OHLCV candles" } },

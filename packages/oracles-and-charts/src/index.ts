@@ -12,6 +12,7 @@ import {
 import {
   fetchChainlinkXlmUsd,
   fetchHorizonUsdcSpotXlmUsd,
+  fetchRedStoneSep40Price,
   fetchReflectorSep40Price,
   fetchRumbleFishVwapPrice,
   type OracleFetchLike,
@@ -25,6 +26,7 @@ export interface OraclesAndChartsConfig {
   rpcUrls: readonly string[];
   horizonUrls: readonly string[];
   chainlinkPriceProxyContractId?: string | undefined;
+  redstoneSep40OracleContractId?: string | undefined;
   reflectorDexOracleContractId?: string | undefined;
   xlmSacContractId?: string | undefined;
   stellarPricesApiBase?: string | undefined;
@@ -52,6 +54,17 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
         fetchFn,
       });
       if (chainlink) return chainlink;
+
+      const redstone = await fetchRedStoneSep40Price({
+        rpcUrls: config.rpcUrls,
+        redstoneOracleContractId: config.redstoneSep40OracleContractId,
+        tokenContractId: config.xlmSacContractId,
+        assetCode: "XLM",
+        assetKey: "XLM",
+        networkPassphrase: config.networkPassphrase,
+        fetchFn,
+      });
+      if (redstone) return redstone;
 
       const reflector = await fetchReflectorSep40Price({
         rpcUrls: config.rpcUrls,
@@ -102,7 +115,20 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
       if (assetKey.toUpperCase() === "XLM") {
         return this.getXlmUsdPrice();
       }
-      if (/^C[A-Z2-7]{55}$/.test(assetKey) && config.reflectorDexOracleContractId) {
+      const isContract = /^C[A-Z2-7]{55}$/.test(assetKey);
+      if (config.redstoneSep40OracleContractId) {
+        const redstone = await fetchRedStoneSep40Price({
+          rpcUrls: config.rpcUrls,
+          redstoneOracleContractId: config.redstoneSep40OracleContractId,
+          tokenContractId: isContract ? assetKey : undefined,
+          assetCode: isContract ? undefined : assetKey.split(":")[0],
+          assetKey,
+          networkPassphrase: config.networkPassphrase,
+          fetchFn,
+        });
+        if (redstone) return redstone;
+      }
+      if (isContract && config.reflectorDexOracleContractId) {
         const reflector = await fetchReflectorSep40Price({
           rpcUrls: config.rpcUrls,
           reflectorOracleContractId: config.reflectorDexOracleContractId,

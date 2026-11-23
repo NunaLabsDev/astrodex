@@ -90,6 +90,7 @@ export function resolveReadFeedConfig(
       soroswapRouterContractId: baseConfig.mainnetSoroswapRouterContractId,
       xlmSacContractId: baseConfig.mainnetXlmSacContractId,
       reflectorDexOracleContractId: baseConfig.mainnetReflectorDexOracleContractId,
+      redstoneSep40OracleContractId: baseConfig.mainnetRedstoneSep40OracleContractId,
       chainlinkPriceProxyContractId: baseConfig.mainnetChainlinkPriceProxyContractId,
       astroGateApiBaseUrl: undefined,
       astroGateLaunchpadContractId: undefined,
@@ -123,7 +124,69 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
   domain: string;
   sacId?: string;
   ammVenue: string;
+  category: "ethena_yield" | "omnichain_stable" | "defi" | "community_hub";
+  reviewStatus?: TokenReviewStatus;
+  shieldScore?: number;
 }> = [
+  {
+    code: "USDE",
+    issuer: "GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47",
+    name: "Ethena USDe",
+    domain: "ethena.fi",
+    sacId: "CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN",
+    ammVenue: "soroswap",
+    category: "ethena_yield",
+    reviewStatus: "official",
+    shieldScore: 98,
+  },
+  {
+    code: "SUSDE",
+    issuer: "GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47",
+    name: "Ethena Staked USDe",
+    domain: "ethena.fi",
+    sacId: "CACSKWC753QVGC4J6YPDBIR2BEHFVWIAE7CBSS3HOVYMN623OAIQYE2M",
+    ammVenue: "soroswap",
+    category: "ethena_yield",
+    reviewStatus: "official",
+    shieldScore: 98,
+  },
+  {
+    code: "USDT0",
+    issuer: "GATISXX6BZ6NC7IKQBY37CJD4SOZL3CYZJWXEDG6JVIY4WBS6KXJHN6Q",
+    name: "Tether USDT0 (LayerZero OFT)",
+    domain: "usdt0.to",
+    sacId: "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF",
+    ammVenue: "soroswap",
+    category: "omnichain_stable",
+    reviewStatus: "official",
+    shieldScore: 98,
+  },
+  {
+    code: "xLMNR",
+    issuer: "GDKA6WVMFSA73BMEVKPO6WXSSWP4MPRBDJVSXLLSEVIEVH226L5RJ7NL",
+    name: "Lumenaire",
+    domain: "thelumenaire.com",
+    sacId: "CCEIVLOFQHALNB2ZVQJW55OYKEL7GG52JIGLUGHLRTEAFMISNSMOM5XW",
+    ammVenue: "soroswap",
+    category: "community_hub",
+  },
+  {
+    code: "LIBRE",
+    issuer: "GAYCCWKECNGDRHYU3UTREBD2XLC3CUQN6FV22TKM4WCQER3IWR7TF5CY",
+    name: "LIBRE",
+    domain: "librequidity.org",
+    sacId: "CBEM2CAIYLM3HBOPU5HLQL7V5BUAKM3N77DYQKX4FNHTQLQUUD2ZFBOX",
+    ammVenue: "soroswap",
+    category: "community_hub",
+  },
+  {
+    code: "SVR",
+    issuer: "GAGORNGHVJP5X2QO2NNIIDXKLNHVWJWXC5S73EZNCHOALGFTB2V25YGF",
+    name: "SVRToken",
+    domain: "svrtoken.com",
+    ammVenue: "sdex_pool",
+    category: "community_hub",
+  },
   {
     code: "ACT",
     issuer: "GAHHULDPDVGB5WS5PH7BCGLJ7ZHECDBIIMKB62UPVDUOCHNFL7HX3FS7",
@@ -131,6 +194,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     domain: "authentic-payment.com",
     sacId: "CAU7TR4L52CSCYOLOPXPJJ7T6EMEXTEE4XKRH2ASY23EFYEMU5WUFYP2",
     ammVenue: "sdex_pool",
+    category: "community_hub",
   },
   {
     code: "SSLX",
@@ -139,6 +203,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     domain: "sslx.sl8.online",
     sacId: "CBHBD77PWZ3AXPQVYVDBHDKEMVNOR26UZUZHWCB6QC7J5SETQPRUQAS4",
     ammVenue: "soroswap",
+    category: "community_hub",
   },
   {
     code: "XTAR",
@@ -147,6 +212,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     domain: "dogstarcoin.com",
     sacId: "CDCKFBZYF2AQCSM3JOF2ZM27O3Y6AJAI4OTCQKAFNZ3FHBYUTFOKICIY",
     ammVenue: "sdex_pool",
+    category: "community_hub",
   },
   {
     code: "MIXT",
@@ -154,6 +220,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     name: "MIXT",
     domain: "mixt.ing",
     ammVenue: "sdex_pool",
+    category: "community_hub",
   },
   {
     code: "BLND",
@@ -162,6 +229,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     domain: "blend.capital",
     sacId: "CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY",
     ammVenue: "soroswap",
+    category: "defi",
   },
   {
     code: "PHO",
@@ -170,6 +238,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     domain: "app.phoenix-hub.io",
     sacId: "CBZ7M5B3Y4WWBZ5XK5UZCAFOEZ23KSSZXYECYX3IXM6E2JOLQC52DK32",
     ammVenue: "phoenix",
+    category: "defi",
   },
   {
     code: "SCOP",
@@ -178,6 +247,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     domain: "scopuly.com",
     sacId: "CCJVS6IVXAAXWCMFVK6QLWHZHR4RTVRSEZRQ53GOAEDN3VY2BLPVY72J",
     ammVenue: "sdex_pool",
+    category: "defi",
   },
   {
     code: "SHX",
@@ -186,6 +256,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     domain: "stronghold.co",
     sacId: "CCKCKCPHYVXQD4NECBFJTFSCU2AMSJGCNG4O6K4JVRE2BLPR7WNDBQIQ",
     ammVenue: "sdex_pool",
+    category: "defi",
   },
   {
     code: "LMT",
@@ -193,6 +264,7 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
     name: "Liquid Monetary",
     domain: "liquidmonetary.xmint.io",
     ammVenue: "sdex_pool",
+    category: "community_hub",
   },
 ];
 
@@ -470,7 +542,8 @@ export async function buildUnifiedCatalog(
       const assetKey = `${c.code}:${c.issuer}`;
       const existingByKey = catalogMap.get(assetKey);
       const existingBySac = c.sacId ? catalogMap.get(c.sacId) : undefined;
-      if (!existingByKey && !existingBySac) {
+      const existing = existingByKey ?? existingBySac;
+      if (!existing) {
         catalogMap.set(assetKey, {
           assetKey,
           kind: "classic",
@@ -479,10 +552,17 @@ export async function buildUnifiedCatalog(
           issuer: c.issuer,
           sacId: c.sacId,
           decimals: 7,
-          shieldScore: 90,
-          reviewStatus: "verified",
+          shieldScore: c.shieldScore ?? 90,
+          reviewStatus: c.reviewStatus ?? "verified",
+          category: c.category,
           ammVenue: c.ammVenue,
           domain: c.domain,
+        });
+      } else if (!existing.category) {
+        catalogMap.set(existing.assetKey, {
+          ...existing,
+          category: c.category,
+          ...(c.reviewStatus ? { reviewStatus: c.reviewStatus } : {}),
         });
       }
     }

@@ -10,6 +10,8 @@ import {
   fetchDirectoryTags,
   fetchHorizonWithFailover,
   fetchSep42VerifiedAssets,
+  findKnownLayerZeroOftAsset,
+  KNOWN_MAINNET_LAYERZERO_OFT_ASSETS,
   parseStellarTomlForAsset,
   PROTECTED_CLASSIC_TICKERS,
   type HorizonAccountInput,
@@ -112,18 +114,32 @@ export function createStellarForensicScanner(config: StellarScannerConfig): Scan
             a.code.toUpperCase() === normalized.code.toUpperCase() &&
             a.issuer?.toUpperCase() === normalized.issuer?.toUpperCase(),
         );
+        const oftMatch =
+          config.network === "mainnet"
+            ? findKnownLayerZeroOftAsset({
+                code: normalized.code,
+                issuer: normalized.issuer,
+                contractId: sacContractId,
+              })
+            : undefined;
         const isSep42Verified = Boolean(sep42Match);
+        const isLayerZeroOftVerified = Boolean(oftMatch);
         const upperCode = normalized.code.toUpperCase();
+        const isProtectedOftTicker =
+          config.network === "mainnet" &&
+          KNOWN_MAINNET_LAYERZERO_OFT_ASSETS.some((a) => a.code.toUpperCase() === upperCode);
         const isSpoofedProtectedTicker =
           PROTECTED_CLASSIC_TICKERS.has(upperCode) &&
           !isSep42Verified &&
-          sep42Assets.some((a) => a.code.toUpperCase() === upperCode);
+          !isLayerZeroOftVerified &&
+          (isProtectedOftTicker || sep42Assets.some((a) => a.code.toUpperCase() === upperCode));
 
         const scored = computeAstroShieldScore({
           kind: "classic",
           code: normalized.code,
           isSpoofedProtectedTicker,
           isSep42Verified,
+          isLayerZeroOftVerified,
           directoryTags,
           classicAudit,
         });
@@ -132,7 +148,7 @@ export function createStellarForensicScanner(config: StellarScannerConfig): Scan
           assetKey: normalized.canonicalKey,
           kind: "classic",
           code: normalized.code,
-          name: tomlMeta?.name ?? sep42Match?.name,
+          name: tomlMeta?.name ?? sep42Match?.name ?? oftMatch?.name,
           issuer: normalized.issuer,
           sacContractId,
           decimals: 7,
@@ -158,28 +174,41 @@ export function createStellarForensicScanner(config: StellarScannerConfig): Scan
       const sep42Match = sep42Assets.find(
         (a) => a.contract?.toUpperCase() === contractId.toUpperCase(),
       );
+      const oftMatch =
+        config.network === "mainnet"
+          ? findKnownLayerZeroOftAsset({ contractId })
+          : undefined;
       const isSep42Verified = Boolean(sep42Match);
+      const isLayerZeroOftVerified = Boolean(oftMatch);
       const resolvedCode =
-        sep42Match?.code ?? astroGate.symbol ?? sep41Meta.symbol ?? normalized.code;
+        oftMatch?.code ?? sep42Match?.code ?? astroGate.symbol ?? sep41Meta.symbol ?? normalized.code;
       const resolvedName =
-        sep42Match?.name ?? astroGate.name ?? sep41Meta.name;
+        oftMatch?.name ?? sep42Match?.name ?? astroGate.name ?? sep41Meta.name;
       const resolvedDecimals = astroGate.decimals ?? sep41Meta.decimals ?? 7;
 
       const sorobanAudit = {
-        owner: astroGate.isLaunchpadToken ? null : undefined,
-        ownerRenounced: astroGate.isLaunchpadToken,
+        owner: astroGate.isLaunchpadToken || isLayerZeroOftVerified ? null : undefined,
+        ownerRenounced: astroGate.isLaunchpadToken || isLayerZeroOftVerified,
         dangerousMethods: [] as string[],
-        sep55Verified: registry.verified || astroGate.isLaunchpadToken,
-        registryVerified: registry.verified,
+        sep55Verified: registry.verified || astroGate.isLaunchpadToken || isLayerZeroOftVerified,
+        registryVerified: registry.verified || isLayerZeroOftVerified,
         ttlStatus,
         astroGate,
       };
 
+      const upperSorobanCode = resolvedCode.toUpperCase();
+      const isSpoofedSorobanOft =
+        config.network === "mainnet" &&
+        !isSep42Verified &&
+        !isLayerZeroOftVerified &&
+        KNOWN_MAINNET_LAYERZERO_OFT_ASSETS.some((a) => a.code.toUpperCase() === upperSorobanCode);
+
       const scored = computeAstroShieldScore({
         kind: "soroban",
         code: resolvedCode,
-        isSpoofedProtectedTicker: false,
+        isSpoofedProtectedTicker: isSpoofedSorobanOft,
         isSep42Verified,
+        isLayerZeroOftVerified,
         directoryTags,
         sorobanAudit: {
           owner: sorobanAudit.owner ?? null,

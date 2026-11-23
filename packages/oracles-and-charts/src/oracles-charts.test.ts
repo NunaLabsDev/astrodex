@@ -145,4 +145,45 @@ describe("@astrodex/oracles-and-charts", () => {
     expect(candles).toHaveLength(1);
     expect(candles[0]?.high).toBeLessThan(0.17);
   });
+
+  it("decodes RedStone SEP-40 14-decimal price feeds for USDe", async () => {
+    const { xdr } = await import("@stellar/stellar-sdk");
+    const { fetchRedStoneSep40Price } = await import("./oracles/index.js");
+
+    const priceVal = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol("price"),
+        val: xdr.ScVal.scvI128(
+          new xdr.Int128Parts({
+            hi: xdr.Int64.fromString("0"),
+            lo: xdr.Uint64.fromString("100050000000000"),
+          }),
+        ),
+      }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol("timestamp"),
+        val: xdr.ScVal.scvU64(xdr.Uint64.fromString("1763900000")),
+      }),
+    ]);
+
+    const quote = await fetchRedStoneSep40Price({
+      rpcUrls: ["https://mainnet.sorobanrpc.com"],
+      redstoneOracleContractId: "CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF",
+      tokenContractId: "CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN",
+      assetCode: "USDE",
+      assetKey: "USDE:GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47",
+      networkPassphrase: "Public Global Stellar Network ; September 2015",
+      fetchFn: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          result: { results: [{ xdr: priceVal.toXDR("base64") }] },
+        }),
+      }),
+    });
+
+    expect(quote).not.toBeNull();
+    expect(quote?.source).toBe("redstone");
+    expect(quote?.priceUsd).toBeCloseTo(1.0005, 4);
+  });
 });

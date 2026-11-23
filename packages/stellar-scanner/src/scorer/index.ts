@@ -12,6 +12,7 @@ export interface ScoreComputationInput {
   code: string;
   isSpoofedProtectedTicker: boolean;
   isSep42Verified: boolean;
+  isLayerZeroOftVerified?: boolean | undefined;
   directoryTags: readonly string[];
   classicAudit?: ClassicIssuerLockResult | undefined;
   sorobanAudit?: {
@@ -91,7 +92,13 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
     score -= 90;
   }
 
-  if (input.isSep42Verified) {
+  if (input.isLayerZeroOftVerified) {
+    basicSummary.push({
+      label: "LayerZero V2 OFT Verified",
+      passed: true,
+      detail: "Canonical omnichain asset verified via SAC derivation & LayerZero EID 30600",
+    });
+  } else if (input.isSep42Verified) {
     basicSummary.push({
       label: "Verified Registry",
       passed: true,
@@ -115,8 +122,9 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
   // 2. Classic Asset Checks
   if (input.classicAudit) {
     const ca = input.classicAudit;
+    const isVerifiedCanonical = input.isSep42Verified || Boolean(input.isLayerZeroOftVerified);
     if (ca.flags.authClawbackEnabled) {
-      score -= input.isSep42Verified ? 10 : 35;
+      score -= isVerifiedCanonical ? 10 : 35;
       findings.push({
         code: "CLASSIC_CLAWBACK_ENABLED",
         severity: "warning",
@@ -126,7 +134,7 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
       });
     }
     if (ca.flags.authRevocable) {
-      score -= input.isSep42Verified ? 8 : 20;
+      score -= isVerifiedCanonical ? 8 : 20;
       findings.push({
         code: "CLASSIC_FREEZE_ENABLED",
         severity: "warning",
@@ -135,7 +143,7 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
         blocksSigning: false,
       });
     }
-    if (!ca.locked) {
+    if (!ca.locked && !input.isLayerZeroOftVerified) {
       score -= input.isSep42Verified ? 7 : 20;
       findings.push({
         code: "CLASSIC_ISSUER_UNLOCKED",
@@ -148,6 +156,12 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
         label: "Supply Locked?",
         passed: false,
         detail: "Issuer can still mint additional supply",
+      });
+    } else if (input.isLayerZeroOftVerified) {
+      basicSummary.push({
+        label: "OFT Mint/Burn Bridge",
+        passed: true,
+        detail: "Supply governed by LayerZero V2 OFT SAC Manager",
       });
     } else {
       basicSummary.push({
@@ -250,15 +264,16 @@ export function computeAstroShieldScore(input: ScoreComputationInput): ScoreComp
     ? "malicious"
     : clampedScore >= 75 && !findings.some((f) => f.severity === "warning")
       ? "safe"
-      : clampedScore >= 45 || input.isSep42Verified
+      : clampedScore >= 45 || input.isSep42Verified || input.isLayerZeroOftVerified
         ? "warning"
         : "malicious";
 
-  const trustTier = input.isSep42Verified
-    ? "official"
-    : input.sorobanAudit?.astroGate?.isLaunchpadToken
-      ? "verified"
-      : "unverified";
+  const trustTier =
+    input.isSep42Verified || input.isLayerZeroOftVerified
+      ? "official"
+      : input.sorobanAudit?.astroGate?.isLaunchpadToken
+        ? "verified"
+        : "unverified";
 
   return {
     astroShieldScore: clampedScore,

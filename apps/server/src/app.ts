@@ -9,6 +9,7 @@ import { webhookCallback } from "grammy";
 import { Hono, type Context, type Next } from "hono";
 import { createAstroDexBot } from "./bot.js";
 import { createD1Repository, type DexServerRepository } from "./db/repository.js";
+import { createAgentX402Routes } from "./routes/agent-x402.js";
 import { createMarketRoutes } from "./routes/markets.js";
 import { createMcpRoutes } from "./routes/mcp.js";
 import { createMetricsRoutes } from "./routes/metrics.js";
@@ -130,12 +131,17 @@ export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
     c.set("config", config);
 
     const origin = c.req.header("Origin");
-    const isOpenMetrics = c.req.path.startsWith("/v1/metrics/");
+    const isOpenMetrics =
+      c.req.path.startsWith("/v1/metrics/") || c.req.path.startsWith("/v1/agent/");
     if (origin) {
       if (isOpenMetrics) {
         c.header("Access-Control-Allow-Origin", "*");
         c.header("Access-Control-Allow-Methods", "GET, OPTIONS");
-        c.header("Access-Control-Allow-Headers", "Content-Type");
+        c.header(
+          "Access-Control-Allow-Headers",
+          "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE",
+        );
+        c.header("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, PAYMENT-RESPONSE");
       } else {
         if (!config.allowedOrigins.includes(origin)) {
           return c.json({ error: "Origin not allowed" }, 403);
@@ -253,6 +259,7 @@ export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
 
   app.route("/v1", createTgAuthRoutes({ fetchFn: effectiveFetch }));
   app.route("/v1", createMetricsRoutes());
+  app.route("/v1", createAgentX402Routes({ fetchFn: effectiveFetch }));
   app.route("/v1", createMarketRoutes({ fetchFn: effectiveFetch }));
   app.route(
     "/v1",

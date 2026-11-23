@@ -104,6 +104,14 @@ export interface WhaleTrade {
 
 export type TokenReviewStatus = "official" | "verified" | "unreviewed_warning";
 
+export type CatalogTokenCategory =
+  | "native"
+  | "ethena_yield"
+  | "omnichain_stable"
+  | "defi"
+  | "community_hub"
+  | "launchpad";
+
 export interface CatalogTokenItem {
   assetKey: string;
   kind: "native" | "classic" | "soroban";
@@ -116,6 +124,7 @@ export interface CatalogTokenItem {
   shieldScore: number;
   reviewStatus: TokenReviewStatus;
   reviewNote?: string | undefined;
+  category?: CatalogTokenCategory | undefined;
   ammVenue?: string | undefined;
   pairId?: string | undefined;
   communityUrl?: string | undefined;
@@ -134,6 +143,6 @@ export interface CatalogTokenItem {
 export interface OraclePriceQuote {
   assetKey: string;
   priceUsd: number;
-  source: "chainlink" | "reflector" | "rumble_fish" | "horizon_spot" | "cex_fallback";
+  source: "chainlink" | "redstone" | "reflector" | "rumble_fish" | "horizon_spot" | "cex_fallback";
   updatedAtUnix: number;
 }

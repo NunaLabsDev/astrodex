@@ -380,6 +380,7 @@ const RawServerEnvSchema = z
     XLM_SAC_CONTRACT_ID: OptionalContractAddressSchema,
     REFLECTOR_DEX_ORACLE_CONTRACT_ID: OptionalContractAddressSchema,
     REFLECTOR_CEX_ORACLE_CONTRACT_ID: OptionalContractAddressSchema,
+    REDSTONE_SEP40_ORACLE_CONTRACT_ID: OptionalContractAddressSchema,
     CHAINLINK_PRICE_PROXY_CONTRACT_ID: OptionalContractAddressSchema,
     SOROSWAP_API_BASE: OptionalUrlSchema("SOROSWAP_API_BASE"),
     XOXNO_SWAP_API_BASE: OptionalUrlSchema("XOXNO_SWAP_API_BASE"),
@@ -397,6 +398,7 @@ const RawServerEnvSchema = z
     MAINNET_SOROSWAP_ROUTER_CONTRACT_ID: OptionalContractAddressSchema,
     MAINNET_XLM_SAC_CONTRACT_ID: OptionalContractAddressSchema,
     MAINNET_REFLECTOR_DEX_ORACLE_CONTRACT_ID: OptionalContractAddressSchema,
+    MAINNET_REDSTONE_SEP40_ORACLE_CONTRACT_ID: OptionalContractAddressSchema,
     MAINNET_CHAINLINK_PRICE_PROXY_CONTRACT_ID: OptionalContractAddressSchema,
     EXECUTION_ENABLED: parseBooleanWithDefault(true),
     PROXY_RATE_LIMIT_PER_MIN: parsePositiveIntWithDefault(60, 5000),
@@ -424,6 +426,11 @@ const RawServerEnvSchema = z
         .optional(),
     ),
     INDEXER_WEBHOOK_SECRET: OptionalNonEmptyStringSchema,
+    X402_PAY_TO_ADDRESS: OptionalNonEmptyStringSchema,
+    X402_ASSET_SAC_ID: OptionalContractAddressSchema,
+    X402_FACILITATOR_URL: OptionalUrlSchema("X402_FACILITATOR_URL"),
+    X402_FACILITATOR_API_KEY: OptionalNonEmptyStringSchema,
+    X402_PRICE_STROOPS: parsePositiveStroopsStringWithDefault("X402_PRICE_STROOPS", "10000"),
   })
   .superRefine((env, ctx) => {
     if (env.STELLAR_NETWORK === "mainnet" && env.FRIENDBOT_URL) {
@@ -479,6 +486,7 @@ export interface ServerConfig {
   xlmSacContractId?: ContractAddress | undefined;
   reflectorDexOracleContractId?: ContractAddress | undefined;
   reflectorCexOracleContractId?: ContractAddress | undefined;
+  redstoneSep40OracleContractId?: ContractAddress | undefined;
   chainlinkPriceProxyContractId?: ContractAddress | undefined;
   soroswapApiBase?: string | undefined;
   xoxnoSwapApiBase?: string | undefined;
@@ -496,6 +504,7 @@ export interface ServerConfig {
   mainnetSoroswapRouterContractId?: ContractAddress | undefined;
   mainnetXlmSacContractId?: ContractAddress | undefined;
   mainnetReflectorDexOracleContractId?: ContractAddress | undefined;
+  mainnetRedstoneSep40OracleContractId?: ContractAddress | undefined;
   mainnetChainlinkPriceProxyContractId?: ContractAddress | undefined;
   executionEnabled: boolean;
   proxyRateLimitPerMin: number;
@@ -507,6 +516,11 @@ export interface ServerConfig {
   stellarPricesApiKey?: string | undefined;
   ecosystemSharedIntentSecret?: string | undefined;
   indexerWebhookSecret?: string | undefined;
+  x402PayToAddress?: string | undefined;
+  x402AssetSacId?: ContractAddress | undefined;
+  x402FacilitatorUrl?: string | undefined;
+  x402FacilitatorApiKey?: string | undefined;
+  x402PriceStroops: string;
 }
 
 export function parseServerConfig(rawEnv: Record<string, unknown>): ServerConfig {
@@ -533,6 +547,7 @@ export function parseServerConfig(rawEnv: Record<string, unknown>): ServerConfig
     xlmSacContractId: parsed.XLM_SAC_CONTRACT_ID,
     reflectorDexOracleContractId: parsed.REFLECTOR_DEX_ORACLE_CONTRACT_ID,
     reflectorCexOracleContractId: parsed.REFLECTOR_CEX_ORACLE_CONTRACT_ID,
+    redstoneSep40OracleContractId: parsed.REDSTONE_SEP40_ORACLE_CONTRACT_ID,
     chainlinkPriceProxyContractId: parsed.CHAINLINK_PRICE_PROXY_CONTRACT_ID,
     soroswapApiBase: parsed.SOROSWAP_API_BASE,
     xoxnoSwapApiBase: parsed.XOXNO_SWAP_API_BASE,
@@ -550,6 +565,7 @@ export function parseServerConfig(rawEnv: Record<string, unknown>): ServerConfig
     mainnetSoroswapRouterContractId: parsed.MAINNET_SOROSWAP_ROUTER_CONTRACT_ID,
     mainnetXlmSacContractId: parsed.MAINNET_XLM_SAC_CONTRACT_ID,
     mainnetReflectorDexOracleContractId: parsed.MAINNET_REFLECTOR_DEX_ORACLE_CONTRACT_ID,
+    mainnetRedstoneSep40OracleContractId: parsed.MAINNET_REDSTONE_SEP40_ORACLE_CONTRACT_ID,
     mainnetChainlinkPriceProxyContractId: parsed.MAINNET_CHAINLINK_PRICE_PROXY_CONTRACT_ID,
     executionEnabled: parsed.EXECUTION_ENABLED,
     proxyRateLimitPerMin: parsed.PROXY_RATE_LIMIT_PER_MIN,
@@ -561,5 +577,10 @@ export function parseServerConfig(rawEnv: Record<string, unknown>): ServerConfig
     stellarPricesApiKey: parsed.STELLAR_PRICES_API_KEY,
     ecosystemSharedIntentSecret: parsed.ECOSYSTEM_SHARED_INTENT_SECRET,
     indexerWebhookSecret: parsed.INDEXER_WEBHOOK_SECRET,
+    x402PayToAddress: parsed.X402_PAY_TO_ADDRESS,
+    x402AssetSacId: parsed.X402_ASSET_SAC_ID,
+    x402FacilitatorUrl: parsed.X402_FACILITATOR_URL,
+    x402FacilitatorApiKey: parsed.X402_FACILITATOR_API_KEY,
+    x402PriceStroops: parsed.X402_PRICE_STROOPS,
   };
 }

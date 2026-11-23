@@ -74,9 +74,69 @@ export const PROTECTED_CLASSIC_TICKERS = new Set([
   "BTC",
   "ETH",
   "USDT",
+  "USDT0",
+  "USDE",
+  "SUSDE",
   "YUSDC",
   "YXLM",
 ]);
+
+export interface KnownLayerZeroOftAsset {
+  code: string;
+  name: string;
+  issuer: string;
+  sacId: string;
+  oftContractId?: string | undefined;
+  category: "ethena_yield" | "omnichain_stable";
+}
+
+/**
+ * Canonical Stellar Mainnet LayerZero V2 (EID 30600) OFT assets.
+ * OFT issuers typically omit `stellar.toml` / `home_domain` and mint/burn via SAC Manager.
+ */
+export const KNOWN_MAINNET_LAYERZERO_OFT_ASSETS: readonly KnownLayerZeroOftAsset[] = [
+  {
+    code: "USDE",
+    name: "Ethena USDe",
+    issuer: "GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47",
+    sacId: "CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN",
+    category: "ethena_yield",
+  },
+  {
+    code: "SUSDE",
+    name: "Ethena Staked USDe",
+    issuer: "GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47",
+    sacId: "CACSKWC753QVGC4J6YPDBIR2BEHFVWIAE7CBSS3HOVYMN623OAIQYE2M",
+    category: "ethena_yield",
+  },
+  {
+    code: "USDT0",
+    name: "Tether USDT0 (LayerZero OFT)",
+    issuer: "GATISXX6BZ6NC7IKQBY37CJD4SOZL3CYZJWXEDG6JVIY4WBS6KXJHN6Q",
+    sacId: "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF",
+    oftContractId: "CBOWOLFSDM5PZXNFIVDMP5NZ7U2GSIHED6H6R446QOHF266XINKUMMF6",
+    category: "omnichain_stable",
+  },
+];
+
+export function findKnownLayerZeroOftAsset(input: {
+  code?: string | undefined;
+  issuer?: string | undefined;
+  contractId?: string | undefined;
+}): KnownLayerZeroOftAsset | undefined {
+  const upperCode = input.code?.trim().toUpperCase();
+  const upperIssuer = input.issuer?.trim().toUpperCase();
+  const upperContract = input.contractId?.trim().toUpperCase();
+  return KNOWN_MAINNET_LAYERZERO_OFT_ASSETS.find((entry) => {
+    if (upperContract && (entry.sacId === upperContract || entry.oftContractId === upperContract)) {
+      return true;
+    }
+    if (upperCode && upperIssuer) {
+      return entry.code.toUpperCase() === upperCode && entry.issuer === upperIssuer;
+    }
+    return false;
+  });
+}
 
 /**
  * Computes deterministic Stellar Asset Contract (SAC) C... ID for any Classic or Native asset.

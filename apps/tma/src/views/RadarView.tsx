@@ -5,7 +5,18 @@ import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
-type MarketFilter = "all" | "favorites" | "gainers" | "losers" | "volume" | "official" | "rwa";
+type MarketFilter =
+  | "all"
+  | "favorites"
+  | "ethena"
+  | "stables"
+  | "community"
+  | "launchpad"
+  | "gainers"
+  | "losers"
+  | "volume"
+  | "official"
+  | "rwa";
 
 const RWA_CODES = new Set([
   "USDC",
@@ -15,7 +26,9 @@ const RWA_CODES = new Set([
   "USDY",
   "USDGLO",
   "USDT0",
+  "USDE",
   "SUSDE",
+  "PYUSD",
   "YXLM",
   "YUSDC",
   "YBTC",
@@ -26,6 +39,10 @@ const RWA_CODES = new Set([
   "DEJTRSY",
   "HYB",
 ]);
+
+const ETHENA_CODES = new Set(["USDE", "SUSDE"]);
+const OMNICHAIN_STABLE_CODES = new Set(["USDC", "USDT0", "USDE", "SUSDE", "EURC", "PYUSD"]);
+const COMMUNITY_HUB_CODES = new Set(["LIBRE", "XLMNR", "SVR", "ACT", "SSLX", "XTAR", "MIXT", "LMT"]);
 
 function formatUsdPrice(val?: number): string {
   if (!val || !Number.isFinite(val) || val <= 0) return "--";
@@ -98,6 +115,24 @@ function Sparkline({ points, positive }: { points?: number[] | undefined; positi
 type AmmVenueChoice = "soroswap" | "aquarius" | "phoenix" | "sdex_pool" | "astrogate_curve";
 
 function reviewBadge(token: CatalogTokenItem) {
+  const isEthena = token.category === "ethena_yield" || ETHENA_CODES.has(token.code.toUpperCase());
+  const isOft = token.category === "omnichain_stable" || token.code.toUpperCase() === "USDT0";
+  if (isEthena) {
+    return (
+      <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+        <span className="glass-pill glass-pill--gold" style={{ fontSize: 10, padding: "1px 6px", color: "#0B1433", fontWeight: 700 }}>
+          Ethena Yield
+        </span>
+      </span>
+    );
+  }
+  if (isOft) {
+    return (
+      <span className="glass-pill" style={{ fontSize: 10, padding: "1px 6px", borderColor: "rgba(165, 139, 224, 0.55)", color: "#E9D5FF" }}>
+        LayerZero OFT
+      </span>
+    );
+  }
   if (token.reviewStatus === "official") {
     return <span className="glass-pill glass-pill--safe" style={{ fontSize: 10, padding: "1px 6px" }}>Official</span>;
   }
@@ -133,10 +168,12 @@ function catalogRank(item: CatalogTokenItem): number {
   const code = item.code.toUpperCase();
   if (code === "USDC" && item.reviewStatus === "official") return 100;
   if (item.assetKey === "XLM") return 96;
+  if (code === "USDE" || code === "SUSDE" || code === "USDT0") return 95;
   if (code === "AQUA" || code === "KALE" || code === "CETES" || code === "USDY" || code === "USTRY") return 92;
-  if (code === "YXLM" || code === "YUSDC" || code === "EURC" || code === "USDT0" || code === "USDGLO") return 90;
+  if (code === "YXLM" || code === "YUSDC" || code === "EURC" || code === "PYUSD" || code === "USDGLO") return 90;
   if (code === "XRP" || code === "BTCLN" || code === "SSLX" || code === "VELO" || code === "XRF" || code === "YBTC") return 86;
   if (code === "ASTRO") return 85;
+  if (code === "XLMNR" || code === "LIBRE" || code === "SVR" || code === "ACT") return 82;
   if (code === "HEY" || code === "DOGEE" || code === "STELA") return 80;
   if (item.reviewStatus === "verified") return 70;
   if (item.reviewStatus === "official") return 50;
@@ -145,11 +182,15 @@ function catalogRank(item: CatalogTokenItem): number {
 
 const FILTER_CHIPS: Array<{ id: MarketFilter; label: string }> = [
   { id: "all", label: "All" },
+  { id: "ethena", label: "⚡ Ethena & Yield" },
+  { id: "stables", label: "💵 Stables / OFT" },
+  { id: "community", label: "🌐 Community Hub" },
+  { id: "launchpad", label: "🚀 Launchpad" },
   { id: "gainers", label: "🟢 Gainers" },
   { id: "losers", label: "🔴 Losers" },
   { id: "volume", label: "🔥 Volume" },
   { id: "official", label: "🛡️ Official" },
-  { id: "rwa", label: "🏦 RWA & Stables" },
+  { id: "rwa", label: "🏦 RWA" },
 ];
 
 export function RadarView() {
@@ -293,6 +334,35 @@ export function RadarView() {
       .filter((item) => {
         const codeUp = item.code.toUpperCase();
         if (activeFilter === "favorites" && !favSet.has(item.assetKey)) return false;
+        if (
+          activeFilter === "ethena" &&
+          item.category !== "ethena_yield" &&
+          !ETHENA_CODES.has(codeUp)
+        ) {
+          return false;
+        }
+        if (
+          activeFilter === "stables" &&
+          item.category !== "omnichain_stable" &&
+          item.category !== "ethena_yield" &&
+          !OMNICHAIN_STABLE_CODES.has(codeUp)
+        ) {
+          return false;
+        }
+        if (
+          activeFilter === "community" &&
+          item.category !== "community_hub" &&
+          !COMMUNITY_HUB_CODES.has(codeUp)
+        ) {
+          return false;
+        }
+        if (
+          activeFilter === "launchpad" &&
+          item.category !== "launchpad" &&
+          item.ammVenue !== "astrogate_curve"
+        ) {
+          return false;
+        }
         if (activeFilter === "official" && item.reviewStatus !== "official") return false;
         if (activeFilter === "rwa" && !RWA_CODES.has(codeUp)) return false;
         if (activeFilter === "gainers" && !(typeof item.change24hPct === "number" && item.change24hPct > 0)) {

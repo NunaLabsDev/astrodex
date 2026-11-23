@@ -186,6 +186,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       rpcUrls: config.rpcUrls,
       horizonUrls: config.horizonUrls,
       chainlinkPriceProxyContractId: config.chainlinkPriceProxyContractId,
+      redstoneSep40OracleContractId: config.redstoneSep40OracleContractId,
       reflectorDexOracleContractId: config.reflectorDexOracleContractId,
       xlmSacContractId: config.xlmSacContractId,
       stellarPricesApiBase: config.stellarPricesApiBase,

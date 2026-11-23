@@ -123,4 +123,57 @@ describe("@astrodex/stellar-scanner", () => {
     expect(score.verdict).toBe("safe");
     expect(score.astroShieldScore).toBe(100);
   });
+
+  it("recognizes canonical LayerZero V2 OFT assets (USDE/SUSDE/USDT0) and blocks spoofed tickers", async () => {
+    const { findKnownLayerZeroOftAsset } = await import("./classic/index.js");
+
+    const usde = findKnownLayerZeroOftAsset({
+      code: "USDE",
+      issuer: "GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47",
+    });
+    expect(usde?.sacId).toBe("CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN");
+
+    const usdt0 = findKnownLayerZeroOftAsset({
+      contractId: "CBSJZEIO5C7KC2SF3MKSNXXJSW5G3VTNBX4ATMKUI3B2MR4JKM4R26YF",
+    });
+    expect(usdt0?.code).toBe("USDT0");
+
+    const oftScore = computeAstroShieldScore({
+      kind: "classic",
+      code: "USDE",
+      isSpoofedProtectedTicker: false,
+      isSep42Verified: false,
+      isLayerZeroOftVerified: true,
+      directoryTags: [],
+      classicAudit: {
+        locked: false,
+        masterWeight: 0,
+        lowThreshold: 1,
+        medThreshold: 1,
+        highThreshold: 1,
+        combinedSecondaryWeight: 1,
+        flags: {
+          authRequired: false,
+          authRevocable: false,
+          authImmutable: false,
+          authClawbackEnabled: false,
+        },
+      },
+    });
+    expect(oftScore.verdict).toBe("safe");
+    expect(oftScore.trustTier).toBe("official");
+    expect(oftScore.astroShieldScore).toBe(100);
+
+    const spoofScore = computeAstroShieldScore({
+      kind: "classic",
+      code: "USDE",
+      isSpoofedProtectedTicker: true,
+      isSep42Verified: false,
+      isLayerZeroOftVerified: false,
+      directoryTags: [],
+    });
+    expect(spoofScore.verdict).toBe("malicious");
+    expect(spoofScore.trustTier).toBe("spoof_blocked");
+    expect(spoofScore.astroShieldScore).toBe(0);
+  });
 });

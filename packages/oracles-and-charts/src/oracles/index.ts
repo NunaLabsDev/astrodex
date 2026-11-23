@@ -159,6 +159,75 @@ export async function fetchReflectorSep40Price(input: {
   };
 }
 
+/**
+ * Queries RedStone's audited SEP-40 compliant Soroban oracle (`CBMGLK...WYRF` on Mainnet).
+ * Supports both Stellar C... SAC addresses (`["Stellar", Address]`) and ticker symbols (`["Other", Symbol]`).
+ */
+export async function fetchRedStoneSep40Price(input: {
+  rpcUrls: readonly string[];
+  redstoneOracleContractId?: string | undefined;
+  tokenContractId?: string | undefined;
+  assetCode?: string | undefined;
+  assetKey: string;
+  networkPassphrase: string;
+  fetchFn: OracleFetchLike;
+}): Promise<OraclePriceQuote | null> {
+  if (!input.redstoneOracleContractId) return null;
+
+  const candidateArgs: xdr.ScVal[] = [];
+  if (input.tokenContractId && /^C[A-Z2-7]{55}$/.test(input.tokenContractId)) {
+    candidateArgs.push(
+      xdr.ScVal.scvVec([
+        xdr.ScVal.scvSymbol("Stellar"),
+        new Address(input.tokenContractId).toScVal(),
+      ]),
+    );
+  }
+  const cleanCode = input.assetCode?.trim().toUpperCase();
+  if (cleanCode && /^[A-Z0-9]{1,12}$/.test(cleanCode)) {
+    candidateArgs.push(
+      xdr.ScVal.scvVec([
+        xdr.ScVal.scvSymbol("Other"),
+        xdr.ScVal.scvSymbol(cleanCode),
+      ]),
+    );
+  }
+
+  for (const arg of candidateArgs) {
+    const val = await simulateReadOnlyContractCall({
+      rpcUrls: input.rpcUrls,
+      contractId: input.redstoneOracleContractId,
+      method: "lastprice",
+      args: [arg],
+      networkPassphrase: input.networkPassphrase,
+      fetchFn: input.fetchFn,
+    });
+    if (!val || typeof val !== "object") continue;
+    const obj = val as Record<string, unknown>;
+    const rawPrice = obj.price;
+    const numeric =
+      typeof rawPrice === "bigint"
+        ? Number(rawPrice)
+        : typeof rawPrice === "number"
+          ? rawPrice
+          : typeof rawPrice === "string"
+            ? Number(rawPrice)
+            : 0;
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    // SEP-40 standard uses 14 decimals; guard if a feed uses 8 decimals
+    const priceUsd = numeric > 1e10 ? numeric / 1e14 : numeric > 1e5 ? numeric / 1e8 : numeric;
+    if (!Number.isFinite(priceUsd) || priceUsd <= 0 || priceUsd >= 1_000_000) continue;
+
+    return {
+      assetKey: input.assetKey,
+      priceUsd: Number(priceUsd.toFixed(6)),
+      source: "redstone",
+      updatedAtUnix: Math.floor(Date.now() / 1000),
+    };
+  }
+  return null;
+}
+
 export async function fetchRumbleFishVwapPrice(input: {
   stellarPricesApiBase?: string | undefined;
   stellarPricesApiKey?: string | undefined;

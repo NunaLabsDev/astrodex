@@ -74,3 +74,5 @@
   - **Test 1 (`0.5 XLM -> AQUA` + auto-trustline):** **CONFIRMED ON-CHAIN ON MAINNET** (`306.4852274 AQUA` received, `64.2874826 XLM` remaining).
   - **Test 2 (`150 AQUA -> XLM`):** Sent to Telegram DM (`1572614676`) via `@AstroDexBot`.
   - **Next Mainnet Tests:** Verify Test 2 confirmation on Horizon Mainnet, then run Test 3 (Classic SDEX Limit Order + Cancel Order) and Soroswap Smart Route swap.
+- **Community & SCF Roadmap Execution (Nov 2026 — See `ASTRO/docs/COMMUNITY_INTELLIGENCE_AND_SCF_PLAN.md`):**
+  - Integrate **RedStone SEP-40** oracle (`CBMGLKUQZVSAIL5CPDDAWSUY7MAKXISHMOZEVLMBUWBMFGHRJSR4WYRF`), **LayerZero V2 OFT** scanner recognition (`USDE`, `SUSDE`, `USDT0`), `#ACTHUB` curated tokens (`LIBRE`, `xLMNR`, `SVR`), Liquid Glass category filters in `RadarView`, and live **`HTTP 402` (`x402`) Forensic Alpha API** (`GET /v1/agent/forensic-alpha/:assetId`).
