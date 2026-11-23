@@ -73,6 +73,8 @@ export const AstroIdProfileSchema = z.object({
     .regex(/^[a-z0-9_]{3,32}$/)
     .optional(),
   primaryAddress: StellarAddressSchema.optional(),
+  preferredNetwork: z.enum(["mainnet", "testnet"]).optional(),
+  activeAddress: StellarAddressSchema.optional(),
   accounts: z.array(ResolvedAccountSchema),
   sorobitTokenId: z.string().optional(),
   sorobitSvg: z.string().optional(),

@@ -21,6 +21,7 @@ export function AstroIdHeader() {
     setActiveAccountAddress,
     resolvePublicIdentity,
     disconnectPublicIdentity,
+    retryAuth,
     mode,
     setMode,
   } = useAppState();
@@ -194,6 +195,16 @@ export function AstroIdHeader() {
           </div>
 
           <div className="ad-flex-wrap">
+            <button
+              type="button"
+              className="ad-btn-secondary ad-btn-md"
+              onClick={() => {
+                retryAuth();
+                setLookupFeedback({ ok: true, text: "Syncing active network & keys from AstroWallet..." });
+              }}
+            >
+              🔄 Sync Wallet
+            </button>
             <button
               type="button"
               className="ad-btn-secondary ad-btn-md"

@@ -132,11 +132,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applyStartParam = useCallback((rawParam: string) => {
-    const parsed = parseAstroDexStartAppParam(rawParam);
+    const cleanNetPrefix = rawParam.startsWith("mainnet_")
+      ? "mainnet"
+      : rawParam.startsWith("testnet_")
+        ? "testnet"
+        : null;
+    const strippedParam = cleanNetPrefix
+      ? rawParam.slice(cleanNetPrefix.length + 1)
+      : rawParam;
+    if (cleanNetPrefix) {
+      setFeedNetworkState(cleanNetPrefix);
+    }
+    const parsed = parseAstroDexStartAppParam(strippedParam);
     if (!parsed) return;
     if (
+      !cleanNetPrefix &&
       (parsed.kind === "token" || parsed.kind === "scan" || parsed.kind === "pair") &&
-      (config.network === "testnet" || rawParam.startsWith("testnet_"))
+      config.network === "testnet"
     ) {
       setFeedNetworkState(config.network);
     }
@@ -195,6 +207,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setSessionToken(json.sessionToken);
       if (json.astroId) {
         setAstroId(json.astroId);
+        const explicitNetInParam =
+          startParam.startsWith("mainnet_") ||
+          startParam.startsWith("testnet_") ||
+          Boolean(json.startParam?.startsWith("mainnet_") || json.startParam?.startsWith("testnet_"));
+        if (
+          !explicitNetInParam &&
+          (json.astroId.preferredNetwork === "mainnet" || json.astroId.preferredNetwork === "testnet")
+        ) {
+          setFeedNetworkState(json.astroId.preferredNetwork);
+        }
+        if (json.astroId.activeAddress) {
+          setSelectedAddress(json.astroId.activeAddress);
+        }
       }
       setAuthStatus("verified");
     } catch (err) {
@@ -276,7 +301,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           };
         }
         setAstroId(json);
-        setSelectedAddress(json.primaryAddress ?? json.accounts[0]?.address ?? null);
+        if (json.preferredNetwork === "mainnet" || json.preferredNetwork === "testnet") {
+          setFeedNetworkState(json.preferredNetwork);
+        }
+        setSelectedAddress(
+          json.activeAddress ?? json.primaryAddress ?? json.accounts[0]?.address ?? null,
+        );
         triggerTelegramHaptic("success");
         return { ok: true, message: `Connected AstroID (@${json.usernameLower ?? q}).` };
       } catch (err) {

@@ -98,7 +98,12 @@ export function createAstroIdResolver(config: AstroIdResolverConfig): IdentityRe
               Parameters<typeof createAstroConnectClient>[0]["fetchFn"]
             >,
           });
-          const resolved = await client.resolveIdentity(query);
+          const resolved = (await client.resolveIdentity(query)) as Awaited<
+            ReturnType<typeof client.resolveIdentity>
+          > & {
+            preferredNetwork?: "mainnet" | "testnet" | undefined;
+            activeAddress?: string | undefined;
+          };
           if (resolved.found) {
             const accounts = normalizeAccounts(resolved.accounts ?? [], resolved.primaryAddress);
             const primaryAddress =
@@ -110,6 +115,8 @@ export function createAstroIdResolver(config: AstroIdResolverConfig): IdentityRe
                 telegramUserId: resolved.telegramUserId,
                 usernameLower: resolved.username?.replace(/^@/, "").toLowerCase(),
                 primaryAddress,
+                ...(resolved.preferredNetwork ? { preferredNetwork: resolved.preferredNetwork } : {}),
+                ...(resolved.activeAddress ? { activeAddress: resolved.activeAddress } : {}),
                 accounts,
               });
             }
