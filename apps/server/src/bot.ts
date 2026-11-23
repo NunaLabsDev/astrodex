@@ -70,8 +70,6 @@ export function createAstroDexBot(
     tgMiniAppShortName: config.tgMiniAppShortName,
   });
   const astroWalletUrl = `https://t.me/${config.astroWalletBotUsername ?? "AstroWalletAppBot"}/${config.astroWalletMiniAppShortName ?? "wallet"}`;
-  const astroGateBot = config.astroGateBotUsername ?? "AstroGateSorobanBot";
-  const astroGateHomeUrl = `https://t.me/${astroGateBot}/app`;
   const botHandle = config.tgBotUsername ?? "AstroDexBot";
 
   function isExplicitMentionInGroup(ctx: {
@@ -89,16 +87,19 @@ export function createAstroDexBot(
     if (!isExplicitMentionInGroup(ctx)) return;
     const caption = [
       `<b>AstroDex</b> · <code>MAINNET &amp; TESTNET</code>`,
-      "CoinGecko-style Stellar markets, 5-way routing, AMMs, top holders &amp; Astro Shield X-Ray.",
-      "Tap below to trade, or run /help for chat commands.",
+      "5-Way Stellar Trading Terminal powered by <b>AstroWallet</b>.",
+      "",
+      "• <b>Ethena USDe / sUSDe</b> &amp; <b>LayerZero USDT0</b> live Mainnet routing",
+      "• <b>5-Way Aggregator:</b> XOXNO · Aquarius · Soroswap · SDEX · Path",
+      "• <b>Oracles &amp; Forensics:</b> RedStone SEP-40 · Chainlink · Astro Shield X-Ray",
+      "• <b>Express Sign:</b> One-tap non-custodial Clear-Sign via AstroWallet",
+      "",
+      "Tap below to trade, or run /usde or /help for chat commands.",
     ].join("\n");
     const replyMarkup = {
       inline_keyboard: [
         [{ text: "⚡ Open AstroDex", url: openAppUrl }],
-        [
-          { text: "🛡️ AstroWallet", url: astroWalletUrl },
-          { text: "🚀 AstroGate", url: astroGateHomeUrl },
-        ],
+        [{ text: "🛡️ Open AstroWallet", url: astroWalletUrl }],
       ],
     };
     const bannerUrl = `${config.tmaOrigin.replace(/\/+$/, "")}/telegram/astrodex-bot-banner.png`;
@@ -141,10 +142,12 @@ export function createAstroDexBot(
     await ctx.reply(
       [
         `<b>AstroDex</b> · <code>MAINNET &amp; TESTNET</code>`,
-        "Non-custodial trading terminal powered by AstroWallet (AstroID).",
+        "Non-custodial 5-way trading terminal powered by AstroWallet (Express Sign).",
         "",
-        "<b>Commands:</b> /scan · /route · /book · /chart · /whales · /list · /jackpot · /alerts · /stats",
-        `<i>Inline:</i> <code>@${botHandle} AQUA</code>`,
+        "<b>Markets &amp; Routing:</b> /usde · /route · /chart · /book",
+        "<b>Forensics &amp; Data:</b> /scan · /whales · /list · /alerts · /stats",
+        `<i>Examples:</i> <code>/usde</code> · <code>/route 10 XLM USDE</code> · <code>/scan USDT0</code>`,
+        `<i>Inline:</i> <code>@${botHandle} USDE</code>`,
       ].join("\n"),
       { parse_mode: "HTML" },
     );
@@ -197,7 +200,7 @@ export function createAstroDexBot(
       return;
     }
     const rawVenue = parts[1]?.toLowerCase() ?? "soroswap";
-    const allowedVenues = new Set(["soroswap", "aquarius", "phoenix", "sdex_pool", "astrogate_curve"]);
+    const allowedVenues = new Set(["soroswap", "aquarius", "phoenix", "sdex_pool"]);
     const ammVenue = allowedVenues.has(rawVenue) ? rawVenue : "soroswap";
 
     try {
@@ -360,7 +363,22 @@ export function createAstroDexBot(
       slippageBps: 50,
       accountKind: "classic",
     });
-    await ctx.reply(formatQuoteCard(quote), { parse_mode: "HTML" });
+    const tradeDeepLink = buildAstroDexDeepLink({
+      tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
+      tgMiniAppShortName: config.tgMiniAppShortName,
+      startParam: `${botCfg.network}_token_${toTarget.resolvedKey}`,
+    });
+    await ctx.reply(formatQuoteCard(quote), {
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "⚡ Trade in AstroDex", url: tradeDeepLink },
+            { text: "🛡️ Sign in AstroWallet", url: astroWalletUrl },
+          ],
+        ],
+      },
+    });
   });
 
   bot.command("whales", async (ctx) => {
@@ -427,23 +445,93 @@ export function createAstroDexBot(
     await ctx.reply(whales.map(formatWhaleAlertCard).join("\n\n"), { parse_mode: "HTML" });
   });
 
-  bot.command("jackpot", async (ctx) => {
-    await ctx.reply(
-      "Track live AstroGate v4.5 250 / 500 / 1,000 XLM checkpoints and 2% keeper buyback bounties inside AstroDex.",
-      {
+  bot.command("usde", async (ctx) => {
+    const mainnetCfg = resolveReadFeedConfig(config, "mainnet");
+    try {
+      const snapshot = await buildUnifiedCatalog(mainnetCfg, repo, fetchFn, {
+        includeRepoTokens: false,
+      });
+      const routerEngine = createSmartLiquidityRouter({
+        horizonUrls: mainnetCfg.horizonUrls,
+        xoxnoApiBase: mainnetCfg.xoxnoSwapApiBase,
+        verifiedAssets: snapshot.sep42Assets,
+        curveStateLoader: createConfiguredCurveStateLoader(mainnetCfg, fetchFn),
+        directPairReservesLoader: createConfiguredPairReservesLoader(mainnetCfg, snapshot, fetchFn),
+        fetchFn,
+      });
+      const USDE_KEY = "USDE:GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47";
+      const SUSDE_KEY = "SUSDE:GDJ5BNU5NN6NQ54D7OX6NQTUYNBZ42CAT33QGM5BIQ2QIYADAC5ICH47";
+      const USDC_KEY = "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+
+      const [qXlmUsde, qXlmSusde, qUsdcUsde] = await Promise.all([
+        routerEngine
+          .quoteBestRoutes({
+            fromAsset: "XLM",
+            toAsset: USDE_KEY,
+            amount: "10",
+            slippageBps: 100,
+            accountKind: "classic",
+          })
+          .catch(() => null),
+        routerEngine
+          .quoteBestRoutes({
+            fromAsset: "XLM",
+            toAsset: SUSDE_KEY,
+            amount: "10",
+            slippageBps: 100,
+            accountKind: "classic",
+          })
+          .catch(() => null),
+        routerEngine
+          .quoteBestRoutes({
+            fromAsset: USDC_KEY,
+            toAsset: USDE_KEY,
+            amount: "100",
+            slippageBps: 100,
+            accountKind: "classic",
+          })
+          .catch(() => null),
+      ]);
+
+      const lines = [
+        `⚡ <b>Ethena USDe &amp; sUSDe on Stellar</b> · <code>MAINNET</code>`,
+        "Live 5-Way Aggregator routing (XOXNO + Aquarius + Soroswap + SDEX):",
+        "",
+        qXlmUsde?.bestRoute
+          ? `• <b>10 XLM → USDe:</b> <code>${qXlmUsde.bestRoute.expectedOutputAmount} USDe</code> (${qXlmUsde.bestRoute.venue})`
+          : `• <b>10 XLM → USDe:</b> <i>Quote unavailable</i>`,
+        qXlmSusde?.bestRoute
+          ? `• <b>10 XLM → sUSDe:</b> <code>${qXlmSusde.bestRoute.expectedOutputAmount} sUSDe</code> (${qXlmSusde.bestRoute.venue})`
+          : `• <b>10 XLM → sUSDe:</b> <i>Quote unavailable</i>`,
+        qUsdcUsde?.bestRoute
+          ? `• <b>100 USDC → USDe:</b> <code>${qUsdcUsde.bestRoute.expectedOutputAmount} USDe</code> (${qUsdcUsde.bestRoute.venue})`
+          : `• <b>100 USDC → USDe:</b> <i>Quote unavailable</i>`,
+        "",
+        "<i>Buy directly in chat with /buy 10 USDE in @AstroWalletAppBot</i>",
+      ];
+
+      const usdeDeepLink = buildAstroDexDeepLink({
+        tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
+        tgMiniAppShortName: config.tgMiniAppShortName,
+        startParam: `mainnet_token_${USDE_KEY}`,
+      });
+
+      await ctx.reply(lines.join("\n"), {
+        parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "Open Jackpot Radar", url: openAppUrl },
-              {
-                text: "Open AstroGate Market",
-                url: `https://t.me/${config.astroGateBotUsername ?? "AstroGateSorobanBot"}/app?startapp=market`,
-              },
+              { text: "⚡ Trade USDe in AstroDex", url: usdeDeepLink },
+              { text: "🛡️ Buy in AstroWallet", url: astroWalletUrl },
             ],
           ],
         },
-      },
-    );
+      });
+    } catch (err) {
+      await ctx.reply(
+        `Could not load live USDe pulse: ${err instanceof Error ? err.message : "Network error"}`,
+      );
+    }
   });
 
   bot.command("alerts", async (ctx) => {
@@ -499,12 +587,8 @@ export function createAstroDexBot(
             inline_keyboard: [
               [
                 { text: "📊 Inspect in AstroDex", url: dexDeepLink },
-                {
-                  text: "🚀 AstroGate Curve",
-                  url: `https://t.me/${astroGateBot}/app?startapp=${encodeURIComponent(assetKey)}`,
-                },
+                { text: "🛡️ Sign in AstroWallet", url: astroWalletUrl },
               ],
-              [{ text: "🛡️ Sign in AstroWallet", url: astroWalletUrl }],
             ],
           },
         },

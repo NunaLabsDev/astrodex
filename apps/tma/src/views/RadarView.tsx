@@ -185,7 +185,6 @@ const FILTER_CHIPS: Array<{ id: MarketFilter; label: string }> = [
   { id: "ethena", label: "⚡ Ethena & Yield" },
   { id: "stables", label: "💵 Stables / OFT" },
   { id: "community", label: "🌐 Community Hub" },
-  { id: "launchpad", label: "🚀 Launchpad" },
   { id: "gainers", label: "🟢 Gainers" },
   { id: "losers", label: "🔴 Losers" },
   { id: "volume", label: "🔥 Volume" },
@@ -353,13 +352,6 @@ export function RadarView() {
           activeFilter === "community" &&
           item.category !== "community_hub" &&
           !COMMUNITY_HUB_CODES.has(codeUp)
-        ) {
-          return false;
-        }
-        if (
-          activeFilter === "launchpad" &&
-          item.category !== "launchpad" &&
-          item.ammVenue !== "astrogate_curve"
         ) {
           return false;
         }
@@ -569,7 +561,6 @@ export function RadarView() {
                 <option value="aquarius">Aquarius Pool</option>
                 <option value="phoenix">Phoenix DEX</option>
                 <option value="sdex_pool">Classic SDEX / CAP-38</option>
-                <option value="astrogate_curve">AstroGate Curve</option>
               </select>
               <input
                 type="text"
@@ -641,7 +632,7 @@ export function RadarView() {
         </div>
 
         {catalogLoading && catalog.length === 0 ? (
-          <div className="ad-banner">Syncing live Stellar &amp; AstroGate markets...</div>
+          <div className="ad-banner">Syncing live Stellar markets...</div>
         ) : filteredCatalog.length === 0 ? (
           <div className="ad-banner">
             No matching tokens found. Try another filter or paste a token ID in Search.

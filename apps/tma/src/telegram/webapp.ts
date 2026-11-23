@@ -109,6 +109,53 @@ export function openTelegramDeepLink(url: string): void {
   }
 }
 
+export function openExpressSignFlow(opts: {
+  deepLink: string;
+  expressWebUrl?: string | undefined;
+  onComplete?: (detail: { txHash?: string | undefined; intentId?: string | undefined }) => void;
+}): void {
+  if (isInsideTelegramMiniApp()) {
+    openTelegramDeepLink(opts.deepLink);
+    return;
+  }
+  if (typeof window === "undefined") return;
+  const targetUrl = opts.expressWebUrl || opts.deepLink;
+  let expectedOrigin = "";
+  try {
+    expectedOrigin = new URL(targetUrl).origin;
+  } catch {
+    expectedOrigin = "";
+  }
+  const width = 420;
+  const height = 640;
+  const left = Math.max(0, Math.round((window.screen.width - width) / 2));
+  const top = Math.max(0, Math.round((window.screen.height - height) / 2));
+  const popup = window.open(
+    targetUrl,
+    "AstroWalletExpressSign",
+    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
+  );
+  if (!popup) {
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
+    return;
+  }
+  const handleMessage = (event: MessageEvent) => {
+    if (expectedOrigin && event.origin !== expectedOrigin) return;
+    const data = event.data as { type?: string; status?: string; txHash?: string; intentId?: string } | null;
+    if (data?.type === "ASTRO_SIGN_COMPLETE" && data.status === "approved") {
+      window.removeEventListener("message", handleMessage);
+      opts.onComplete?.({ txHash: data.txHash, intentId: data.intentId });
+    }
+  };
+  window.addEventListener("message", handleMessage);
+  const cleanupTimer = window.setInterval(() => {
+    if (popup.closed) {
+      window.clearInterval(cleanupTimer);
+      window.removeEventListener("message", handleMessage);
+    }
+  }, 500);
+}
+
 export function useTelegramBackButton(visible: boolean, onBack: () => void): void {
   useEffect(() => {
     const bb = getTelegramWebApp()?.BackButton;

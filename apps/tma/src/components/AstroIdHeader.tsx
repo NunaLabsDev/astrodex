@@ -1,5 +1,4 @@
 import {
-  buildAstroGateDeepLink,
   buildAstroWalletOnboardingLink,
 } from "@astrodex/tg-protocol";
 import { useState, type FormEvent } from "react";
@@ -34,13 +33,6 @@ export function AstroIdHeader() {
     astroWalletMiniAppShortName: config.astroWalletMiniAppShortName,
   });
 
-  const astroGateUrl = config.astroGateBotUsername
-    ? buildAstroGateDeepLink({
-        astroGateBotUsername: config.astroGateBotUsername,
-        startParam: "launch",
-      })
-    : null;
-
   const handleResolveSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!lookupInput.trim()) return;
@@ -66,17 +58,9 @@ export function AstroIdHeader() {
     <header className="glass-card ad-header-bar ad-stack-10">
       <div className="ad-row">
         <div className="ad-flex-8 ad-min-w-0">
-          {astroId.sorobitSvg ? (
-            <img
-              alt="Sorobit Avatar"
-              src={`data:image/svg+xml;utf8,${encodeURIComponent(astroId.sorobitSvg)}`}
-              className="ad-avatar"
-            />
-          ) : (
-            <div aria-hidden="true" className="ad-avatar-fallback">
-              AD
-            </div>
-          )}
+          <div aria-hidden="true" className="ad-avatar-fallback">
+            AD
+          </div>
           <div className="ad-flex-6 ad-min-w-0">
             <span className="ad-font-extrabold ad-text-base">AstroDex</span>
             <span
@@ -174,15 +158,6 @@ export function AstroIdHeader() {
             >
               Open AstroWallet
             </button>
-            {astroGateUrl && (
-              <button
-                type="button"
-                className="ad-btn-secondary ad-btn-sm"
-                onClick={() => openTelegramDeepLink(astroGateUrl)}
-              >
-                Open AstroGate
-              </button>
-            )}
             {astroId.found && (
               <button
                 type="button"

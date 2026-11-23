@@ -589,6 +589,11 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       }
     }
 
+    const astroWalletBase = (
+      config.astroWalletApiBaseUrl ?? "https://astrowallet-soroban.pages.dev"
+    ).replace(/\/+$/, "");
+    const expressWebUrl = `${astroWalletBase}/intent/${encodeURIComponent(intent.intentId)}?sig=${encodeURIComponent(intent.hmacSig)}&express=1`;
+
     return c.json({
       ok: true,
       intentId: intent.intentId,
@@ -596,6 +601,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       sig: intent.hmacSig,
       expiresAt: intent.expiresAt,
       deepLink,
+      expressWebUrl,
       federatedToAstroWallet,
       scanReport,
     });

@@ -10,7 +10,7 @@ import { ChartCanvas } from "../components/ChartCanvas.js";
 import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import {
-  openTelegramDeepLink,
+  openExpressSignFlow,
   setTelegramClosingConfirmation,
   triggerTelegramHaptic,
 } from "../telegram/webapp.js";
@@ -518,13 +518,23 @@ export function TradeChartView() {
           priceImpactPct: activeRoute.priceImpactPct,
         }),
       });
-      const json = (await res.json()) as { deepLink?: string; error?: string };
+      const json = (await res.json()) as { deepLink?: string; expressWebUrl?: string; error?: string };
       if (!res.ok || !json.deepLink) {
         throw new Error(json.error ?? "Failed to create Swap Signed Intent");
       }
       triggerTelegramHaptic("success");
-      setStatusMsg("Swap pre-scanned cleanly. Opening AstroWallet for Clear-Sign...");
-      openTelegramDeepLink(json.deepLink);
+      setStatusMsg("Swap pre-scanned cleanly. Opening Express Sign...");
+      openExpressSignFlow({
+        deepLink: json.deepLink,
+        expressWebUrl: json.expressWebUrl,
+        onComplete: (detail) => {
+          setStatusMsg(
+            detail.txHash
+              ? `Swap confirmed on Stellar (${detail.txHash.slice(0, 8)}…${detail.txHash.slice(-6)}).`
+              : "Swap approved in AstroWallet Express Sign!",
+          );
+        },
+      });
     } catch (err) {
       triggerTelegramHaptic("error");
       setErrorMsg(err instanceof Error ? err.message : "Failed to hand off swap intent");
@@ -578,13 +588,19 @@ export function TradeChartView() {
           returnStartAppParam: `${feedNetwork}_token_${toAsset}`,
         }),
       });
-      const json = (await res.json()) as { deepLink?: string; error?: string };
+      const json = (await res.json()) as { deepLink?: string; expressWebUrl?: string; error?: string };
       if (!res.ok || !json.deepLink) {
         throw new Error(json.error ?? "Failed to create Signed Intent");
       }
       triggerTelegramHaptic("success");
-      setStatusMsg("Intent pre-scanned cleanly. Opening AstroWallet for PIN/Biometric Clear-Sign...");
-      openTelegramDeepLink(json.deepLink);
+      setStatusMsg("Intent pre-scanned cleanly. Opening Express Sign...");
+      openExpressSignFlow({
+        deepLink: json.deepLink,
+        expressWebUrl: json.expressWebUrl,
+        onComplete: () => {
+          setStatusMsg("Limit order signed in AstroWallet Express Sign!");
+        },
+      });
     } catch (err) {
       triggerTelegramHaptic("error");
       setErrorMsg(err instanceof Error ? err.message : "Failed to hand off intent");
@@ -625,13 +641,19 @@ export function TradeChartView() {
           returnStartAppParam: `${feedNetwork}_t-orders`,
         }),
       });
-      const json = (await res.json()) as { deepLink?: string; error?: string };
+      const json = (await res.json()) as { deepLink?: string; expressWebUrl?: string; error?: string };
       if (!res.ok || !json.deepLink) {
         throw new Error(json.error ?? "Failed to create cancel intent");
       }
       triggerTelegramHaptic("success");
-      setStatusMsg(`Opening AstroWallet to cancel offer #${offer.offerId}...`);
-      openTelegramDeepLink(json.deepLink);
+      setStatusMsg(`Opening Express Sign to cancel offer #${offer.offerId}...`);
+      openExpressSignFlow({
+        deepLink: json.deepLink,
+        expressWebUrl: json.expressWebUrl,
+        onComplete: () => {
+          setStatusMsg(`Offer #${offer.offerId} cancellation signed!`);
+        },
+      });
     } catch (err) {
       triggerTelegramHaptic("error");
       setErrorMsg(err instanceof Error ? err.message : "Cancel failed");

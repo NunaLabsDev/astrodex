@@ -224,15 +224,6 @@ export function ScannerView() {
               </div>
             ))}
 
-            {audit.sorobanAudit?.astroGate?.isLaunchpadToken && (
-              <div className="ad-banner">
-                <strong>AstroGate v4.5 Verified:</strong>{" "}
-                LP {audit.sorobanAudit.astroGate.lpProtection} ({audit.sorobanAudit.astroGate.lpLockedPercent}%) ·
-                48h Timelock: {audit.sorobanAudit.astroGate.has48hTimelock ? "Yes" : "No"} ·
-                Progress: {audit.sorobanAudit.astroGate.graduationProgressPct}%
-              </div>
-            )}
-
             {audit.classicAudit && (
               <div className="ad-banner tabular-nums">
                 <strong>Classic Issuer Lock Matrix:</strong> Locked={String(audit.classicAudit.locked)} ·

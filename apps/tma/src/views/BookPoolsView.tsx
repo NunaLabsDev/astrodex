@@ -92,13 +92,11 @@ export function BookPoolsView() {
         fee: "0.00%–0.30%",
       },
       {
-        name: "AstroGate Curve / Community AMMs",
+        name: "Community AMMs",
         status:
-          ammPair?.venue === "astrogate_curve"
-            ? `Live Curve Vault: ${ammPair.reserveQuote} XLM`
-            : selectedToken?.ammVenue === "aquarius" || selectedToken?.ammVenue === "phoenix"
-              ? "Listed Community Venue"
-              : "Aggregated",
+          selectedToken?.ammVenue === "aquarius" || selectedToken?.ammVenue === "phoenix"
+            ? "Listed Community Venue"
+            : "Aggregated",
         fee: "Dynamic",
       },
     ],
