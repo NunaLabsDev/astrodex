@@ -3,8 +3,9 @@ import type {
   MultiVenueQuoteResult,
   OhlcvCandle,
   OhlcvTimeframe,
+  OpenLimitOffer,
 } from "@astrodex/domain";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChartCanvas } from "../components/ChartCanvas.js";
 import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
@@ -15,6 +16,12 @@ import {
 } from "../telegram/webapp.js";
 
 const QUICK_AMOUNTS = ["10", "50", "100", "500"] as const;
+const PERCENT_PRESETS = [
+  { label: "25%", pct: 0.25 },
+  { label: "50%", pct: 0.5 },
+  { label: "75%", pct: 0.75 },
+  { label: "MAX", pct: 1 },
+] as const;
 const TIMEFRAMES: readonly OhlcvTimeframe[] = ["5m", "15m", "1h", "4h", "1d"];
 const SLIPPAGE_PRESETS = [
   { label: "0.1%", bps: 10 },
@@ -90,6 +97,12 @@ interface AmmPairMeta {
   spotPriceQuotePerBase: number;
 }
 
+interface WalletBalanceItem {
+  assetKey: string;
+  code: string;
+  balance: string;
+}
+
 function formatSelectLabel(
   code: string,
   name: string | undefined,
@@ -101,6 +114,20 @@ function formatSelectLabel(
   const shortName =
     name && name.toUpperCase() !== code.toUpperCase() ? ` · ${name.slice(0, 12)}` : "";
   return `${icon} ${code}${shortName}`;
+}
+
+function sanitizeDecimalInput(raw: string): string {
+  const normalized = raw.replace(/,/g, ".").replace(/[^0-9.]/g, "");
+  const dotIdx = normalized.indexOf(".");
+  if (dotIdx === -1) return normalized;
+  const intPart = normalized.slice(0, dotIdx) || "0";
+  const fracPart = normalized.slice(dotIdx + 1).replace(/\./g, "").slice(0, 7);
+  return `${intPart}.${fracPart}`;
+}
+
+function formatStroops7(val: number): string {
+  if (!Number.isFinite(val) || val <= 0) return "0";
+  return val.toFixed(7).replace(/\.?0+$/, "");
 }
 
 export function TradeChartView() {
@@ -116,6 +143,8 @@ export function TradeChartView() {
     setTradeScrollTarget,
     tradePairOverride,
     defaultPairAsset,
+    favorites,
+    toggleFavorite,
     catalog,
     xlmUsd,
   } = useAppState();
@@ -130,6 +159,8 @@ export function TradeChartView() {
   const [slippageBps, setSlippageBps] = useState(50);
   const [timeframe, setTimeframe] = useState<OhlcvTimeframe>("1h");
   const [quote, setQuote] = useState<MultiVenueQuoteResult | null>(null);
+  const [selectedRouteVenue, setSelectedRouteVenue] = useState<string | null>(null);
+  const [quoteNonce, setQuoteNonce] = useState(0);
   const [candles, setCandles] = useState<OhlcvCandle[]>([]);
   const [depth, setDepth] = useState<DepthPoint[]>([]);
   const [ammPair, setAmmPair] = useState<AmmPairMeta | null>(null);
@@ -137,14 +168,56 @@ export function TradeChartView() {
   const [tokenHub, setTokenHub] = useState<TokenHubData | null>(null);
   const [hubLoading, setHubLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState(false);
+
+  // Live account balances & open SDEX offers
+  const [balances, setBalances] = useState<WalletBalanceItem[]>([]);
+  const [balancesLoaded, setBalancesLoaded] = useState(false);
+  const [offers, setOffers] = useState<OpenLimitOffer[]>([]);
+  const [accountFunded, setAccountFunded] = useState<boolean>(true);
 
   // Classic SDEX Limit Order fields
   const [limitSide, setLimitSide] = useState<"buy" | "sell">("buy");
   const [limitPrice, setLimitPrice] = useState("1.0");
   const [limitAmount, setLimitAmount] = useState("10");
+
+  const loadAccountState = useCallback(async () => {
+    if (!activeAccount || activeAccount.kind !== "classic") {
+      setBalances([]);
+      setBalancesLoaded(false);
+      setOffers([]);
+      setAccountFunded(true);
+      return;
+    }
+    const base = config.apiBaseUrl.replace(/\/+$/, "");
+    const addr = encodeURIComponent(activeAccount.address);
+    const net = encodeURIComponent(feedNetwork);
+    await Promise.all([
+      fetch(`${base}/v1/portfolio/${addr}?net=${net}`)
+        .then(async (r) => {
+          if (!r.ok) return;
+          const json = (await r.json()) as { balances?: WalletBalanceItem[] };
+          setBalances(json.balances ?? []);
+          setBalancesLoaded(true);
+        })
+        .catch(() => {}),
+      fetch(`${base}/v1/orders/${addr}?net=${net}`)
+        .then(async (r) => {
+          if (!r.ok) return;
+          const json = (await r.json()) as { offers?: OpenLimitOffer[]; accountFunded?: boolean };
+          if (json.offers) setOffers(json.offers);
+          if (typeof json.accountFunded === "boolean") setAccountFunded(json.accountFunded);
+        })
+        .catch(() => {}),
+    ]);
+  }, [activeAccount, config.apiBaseUrl, feedNetwork]);
+
+  useEffect(() => {
+    void loadAccountState();
+  }, [loadAccountState]);
 
   useEffect(() => {
     if (!tradeScrollTarget || tradeScrollTarget === "swap") {
@@ -204,6 +277,7 @@ export function TradeChartView() {
     () => catalog.find((item) => item.assetKey === focusAsset),
     [catalog, focusAsset],
   );
+  const isFocusFavorite = favorites.includes(focusAsset);
 
   useEffect(() => {
     let cancelled = false;
@@ -248,9 +322,17 @@ export function TradeChartView() {
     };
   }, [config.apiBaseUrl, feedNetwork, focusAsset, timeframe]);
 
+  const cleanAmount = useMemo(() => amount.trim().replace(/\.$/, ""), [amount]);
+  const isAmountValid = useMemo(
+    () => /^\d+(\.\d{1,7})?$/.test(cleanAmount) && Number(cleanAmount) > 0,
+    [cleanAmount],
+  );
+
   useEffect(() => {
-    if (!toAsset.trim() || !amount.trim() || fromAsset.trim() === toAsset.trim()) {
+    setSelectedRouteVenue(null);
+    if (!toAsset.trim() || !isAmountValid || fromAsset.trim() === toAsset.trim()) {
       setQuote(null);
+      setQuoting(false);
       return undefined;
     }
     let cancelled = false;
@@ -267,7 +349,7 @@ export function TradeChartView() {
           body: JSON.stringify({
             fromAsset: fromAsset.trim(),
             toAsset: toAsset.trim(),
-            amount: amount.trim(),
+            amount: cleanAmount,
             slippageBps,
             sourceAddress: activeAccount?.address,
             accountKind: activeAccount?.kind ?? "classic",
@@ -291,7 +373,59 @@ export function TradeChartView() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [config.apiBaseUrl, feedNetwork, fromAsset, toAsset, amount, slippageBps, activeAccount]);
+  }, [
+    config.apiBaseUrl,
+    feedNetwork,
+    fromAsset,
+    toAsset,
+    cleanAmount,
+    isAmountValid,
+    slippageBps,
+    activeAccount,
+    quoteNonce,
+  ]);
+
+  const activeRoute = useMemo(() => {
+    if (!quote) return null;
+    if (selectedRouteVenue) {
+      const match = quote.routes.find((r) => r.venue === selectedRouteVenue);
+      if (match) return match;
+    }
+    return quote.bestRoute ?? null;
+  }, [quote, selectedRouteVenue]);
+
+  const fromBalanceNum = useMemo(() => {
+    const found = balances.find((b) => b.assetKey.toUpperCase() === fromAsset.toUpperCase());
+    const n = found ? Number(found.balance) : 0;
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [balances, fromAsset]);
+
+  const toBalanceNum = useMemo(() => {
+    const found = balances.find((b) => b.assetKey.toUpperCase() === toAsset.toUpperCase());
+    const n = found ? Number(found.balance) : 0;
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [balances, toAsset]);
+
+  // Keep 1.5 XLM reserve when paying with native XLM so fee/base-reserve tx never fails
+  const maxSpendableFrom = useMemo(() => {
+    if (fromBalanceNum <= 0) return 0;
+    if (fromAsset === "XLM") {
+      return Math.max(0, fromBalanceNum - 1.5);
+    }
+    return fromBalanceNum;
+  }, [fromAsset, fromBalanceNum]);
+
+  const insufficientBalance = useMemo(() => {
+    if (!balancesLoaded || !accountFunded || activeAccount?.kind !== "classic") return false;
+    if (!isAmountValid) return false;
+    return Number(cleanAmount) > fromBalanceNum;
+  }, [accountFunded, activeAccount?.kind, balancesLoaded, cleanAmount, fromBalanceNum, isAmountValid]);
+
+  const priceImpactNum = useMemo(() => {
+    if (!activeRoute) return 0;
+    const n = Number(activeRoute.priceImpactPct);
+    return Number.isFinite(n) ? n : 0;
+  }, [activeRoute]);
 
   const spotXlmPerToken = useMemo(() => {
     if (ammPair?.spotPriceQuotePerBase && ammPair.spotPriceQuotePerBase > 0) {
@@ -302,9 +436,9 @@ export function TradeChartView() {
   }, [ammPair, candles]);
 
   const effectiveRateLabel = useMemo(() => {
-    if (!quote?.bestRoute) return null;
-    const inNum = Number(quote.bestRoute.inputAmount);
-    const outNum = Number(quote.bestRoute.expectedOutputAmount);
+    if (!activeRoute) return null;
+    const inNum = Number(activeRoute.inputAmount);
+    const outNum = Number(activeRoute.expectedOutputAmount);
     if (!Number.isFinite(inNum) || !Number.isFinite(outNum) || inNum <= 0 || outNum <= 0) {
       return null;
     }
@@ -312,7 +446,7 @@ export function TradeChartView() {
     const fromCode = activeFromToken?.code ?? "FROM";
     const toCode = activeToToken?.code ?? "TO";
     return `1 ${fromCode} ≈ ${ratio < 0.01 ? ratio.toFixed(6) : ratio.toFixed(4)} ${toCode}`;
-  }, [activeFromToken, activeToToken, quote]);
+  }, [activeFromToken, activeToToken, activeRoute]);
 
   const handleFlipPair = () => {
     if (!toAsset) return;
@@ -335,7 +469,11 @@ export function TradeChartView() {
   };
 
   const handleHandoffSwap = async () => {
-    if (!quote?.bestRoute) return;
+    if (!activeRoute) return;
+    if (insufficientBalance) {
+      setErrorMsg(`Insufficient ${activeFromToken?.code ?? fromAsset} balance.`);
+      return;
+    }
     if (!activeAccount || !sessionToken) {
       setErrorMsg(
         "Connect AstroWallet inside Telegram to clear-sign swaps. (Read-only preview accounts can inspect quotes, but signing stays 100% inside AstroWallet.)",
@@ -358,26 +496,26 @@ export function TradeChartView() {
           subAction: "dex_swap",
           network: feedNetwork,
           sourceAddress: activeAccount.address,
-          unsignedXdr: quote.bestRoute.unsignedXdr,
-          swapSpec: quote.bestRoute.unsignedXdr
+          unsignedXdr: activeRoute.unsignedXdr,
+          swapSpec: activeRoute.unsignedXdr
             ? undefined
             : {
-                venue: quote.bestRoute.venue,
-                fromAsset: quote.bestRoute.fromAsset,
-                toAsset: quote.bestRoute.toAsset,
-                amount: quote.bestRoute.inputAmount,
-                minOutputAmount: quote.bestRoute.minOutputAmount,
-                pathAssets: [...quote.bestRoute.pathAssets],
-                includeTrustlineIfMissing: quote.bestRoute.requiresTrustline,
+                venue: activeRoute.venue,
+                fromAsset: activeRoute.fromAsset,
+                toAsset: activeRoute.toAsset,
+                amount: activeRoute.inputAmount,
+                minOutputAmount: activeRoute.minOutputAmount,
+                pathAssets: [...activeRoute.pathAssets],
+                includeTrustlineIfMissing: activeRoute.requiresTrustline,
               },
-          humanSummary: `Swap ${quote.bestRoute.inputAmount} ${activeFromToken?.code ?? fromAsset} -> ~${quote.bestRoute.expectedOutputAmount} ${toLabel} via ${quote.bestRoute.venue}`,
+          humanSummary: `Swap ${activeRoute.inputAmount} ${activeFromToken?.code ?? fromAsset} -> ~${activeRoute.expectedOutputAmount} ${toLabel} via ${activeRoute.venue}`,
           returnStartAppParam: `${feedNetwork}_token_${toAsset}`,
-          fromAsset: quote.bestRoute.fromAsset,
-          toAsset: quote.bestRoute.toAsset,
-          amount: quote.bestRoute.inputAmount,
-          expectedOutputAmount: quote.bestRoute.expectedOutputAmount,
-          provider: quote.bestRoute.venue,
-          priceImpactPct: quote.bestRoute.priceImpactPct,
+          fromAsset: activeRoute.fromAsset,
+          toAsset: activeRoute.toAsset,
+          amount: activeRoute.inputAmount,
+          expectedOutputAmount: activeRoute.expectedOutputAmount,
+          provider: activeRoute.venue,
+          priceImpactPct: activeRoute.priceImpactPct,
         }),
       });
       const json = (await res.json()) as { deepLink?: string; error?: string };
@@ -404,6 +542,16 @@ export function TradeChartView() {
       setErrorMsg("Open inside Telegram to sign intents via AstroWallet.");
       return;
     }
+    const cleanLimitAmt = limitAmount.trim().replace(/\.$/, "");
+    const cleanLimitPrice = limitPrice.trim().replace(/\.$/, "");
+    if (!/^\d+(\.\d{1,7})?$/.test(cleanLimitAmt) || Number(cleanLimitAmt) <= 0) {
+      setErrorMsg("Enter a valid positive limit order amount.");
+      return;
+    }
+    if (!/^\d+(\.\d{1,7})?$/.test(cleanLimitPrice) || Number(cleanLimitPrice) <= 0) {
+      setErrorMsg("Enter a valid positive limit order price in XLM.");
+      return;
+    }
     setSubmitting(true);
     setErrorMsg(null);
     setStatusMsg(null);
@@ -423,10 +571,10 @@ export function TradeChartView() {
             side: limitSide,
             baseAsset: toAsset || defaultPairAsset,
             quoteAsset: "XLM",
-            amount: limitAmount,
-            price: limitPrice,
+            amount: cleanLimitAmt,
+            price: cleanLimitPrice,
           },
-          humanSummary: `SDEX ${limitSide.toUpperCase()} ${limitAmount} ${activeToToken?.code ?? toAsset} @ ${limitPrice} XLM`,
+          humanSummary: `SDEX ${limitSide.toUpperCase()} ${cleanLimitAmt} ${activeToToken?.code ?? toAsset} @ ${cleanLimitPrice} XLM`,
           returnStartAppParam: `${feedNetwork}_token_${toAsset}`,
         }),
       });
@@ -445,6 +593,53 @@ export function TradeChartView() {
     }
   };
 
+  const handleCancelOffer = async (offer: OpenLimitOffer) => {
+    if (!activeAccount || activeAccount.kind !== "classic" || !sessionToken) {
+      setErrorMsg("Connect your Classic G... AstroWallet account inside Telegram to cancel offers.");
+      return;
+    }
+    setBusyOfferId(offer.offerId);
+    setErrorMsg(null);
+    setStatusMsg(null);
+    try {
+      const base = config.apiBaseUrl.replace(/\/+$/, "");
+      const res = await fetch(`${base}/v1/intents`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({
+          subAction: "sdex_limit_order_cancel",
+          network: feedNetwork,
+          sourceAddress: activeAccount.address,
+          limitOrder: {
+            side: "sell",
+            baseAsset: offer.sellingAsset,
+            quoteAsset: offer.buyingAsset,
+            amount: "0",
+            price: offer.price,
+            offerId: offer.offerId,
+          },
+          humanSummary: `Cancel SDEX Offer #${offer.offerId} (${offer.sellingAsset} -> ${offer.buyingAsset})`,
+          returnStartAppParam: `${feedNetwork}_t-orders`,
+        }),
+      });
+      const json = (await res.json()) as { deepLink?: string; error?: string };
+      if (!res.ok || !json.deepLink) {
+        throw new Error(json.error ?? "Failed to create cancel intent");
+      }
+      triggerTelegramHaptic("success");
+      setStatusMsg(`Opening AstroWallet to cancel offer #${offer.offerId}...`);
+      openTelegramDeepLink(json.deepLink);
+    } catch (err) {
+      triggerTelegramHaptic("error");
+      setErrorMsg(err instanceof Error ? err.message : "Cancel failed");
+    } finally {
+      setBusyOfferId(null);
+    }
+  };
+
   const shieldScore = tokenHub?.audit?.astroShieldScore ?? focusToken?.shieldScore;
 
   return (
@@ -452,41 +647,64 @@ export function TradeChartView() {
       {/* BLOCK 1 (Top — Novice Friendly): Minimalist Instant Swap Card */}
       <section className="glass-card ad-stack-10">
         <div className="ad-row ad-row-wrap">
-          <div className="ad-min-w-0">
-            <div className="ad-text-lg ad-font-extrabold ad-flex-6">
-              <span>{focusToken ? `${focusToken.code} / XLM` : "Instant Swap"}</span>
-              {typeof shieldScore === "number" && (
-                <span
-                  className={`glass-pill ${
-                    shieldScore >= 75 ? "glass-pill--safe" : "glass-pill--warn"
-                  }`}
-                >
-                  Shield {shieldScore}
-                </span>
-              )}
-            </div>
-            <div className="ad-text-xs ad-text-muted tabular-nums">
-              {spotXlmPerToken
-                ? `1 ${focusToken?.code ?? "TOK"} ≈ ${
-                    spotXlmPerToken < 0.01
-                      ? spotXlmPerToken.toFixed(6)
-                      : spotXlmPerToken.toFixed(4)
-                  } XLM${
-                    xlmUsd && xlmUsd > 0
-                      ? ` ($${(spotXlmPerToken * xlmUsd).toFixed(4)})`
-                      : ""
-                  }`
-                : "5-Way Smart Router"}
+          <div className="ad-flex-8 ad-min-w-0">
+            <button
+              type="button"
+              className={`ad-fav-btn ${isFocusFavorite ? "ad-fav-btn--active" : ""}`}
+              aria-label={isFocusFavorite ? "Remove from favorites" : "Add to favorites"}
+              aria-pressed={isFocusFavorite}
+              onClick={() => void toggleFavorite(focusAsset)}
+            >
+              {isFocusFavorite ? "♥" : "♡"}
+            </button>
+            <div className="ad-min-w-0">
+              <div className="ad-text-lg ad-font-extrabold ad-flex-6">
+                <span>{focusToken ? `${focusToken.code} / XLM` : "Instant Swap"}</span>
+                {typeof shieldScore === "number" && (
+                  <span
+                    className={`glass-pill ${
+                      shieldScore >= 75 ? "glass-pill--safe" : "glass-pill--warn"
+                    }`}
+                  >
+                    Shield {shieldScore}
+                  </span>
+                )}
+              </div>
+              <div className="ad-text-xs ad-text-muted tabular-nums">
+                {spotXlmPerToken
+                  ? `1 ${focusToken?.code ?? "TOK"} ≈ ${
+                      spotXlmPerToken < 0.01
+                        ? spotXlmPerToken.toFixed(6)
+                        : spotXlmPerToken.toFixed(4)
+                    } XLM${
+                      xlmUsd && xlmUsd > 0
+                        ? ` ($${(spotXlmPerToken * xlmUsd).toFixed(4)})`
+                        : ""
+                    }`
+                  : "5-Way Smart Router"}
+              </div>
             </div>
           </div>
 
-          <button
-            type="button"
-            className="glass-pill ad-clickable"
-            onClick={() => setShowTokenFinder((prev) => !prev)}
-          >
-            {showTokenFinder ? "Close Search" : "🔍 Find Token"}
-          </button>
+          <div className="ad-flex-6">
+            <button
+              type="button"
+              className="glass-pill ad-clickable"
+              onClick={() => setQuoteNonce((n) => n + 1)}
+              disabled={quoting || !isAmountValid}
+              aria-label="Refresh Quote"
+              title="Refresh Quote"
+            >
+              {quoting ? "…" : "↻"}
+            </button>
+            <button
+              type="button"
+              className="glass-pill ad-clickable"
+              onClick={() => setShowTokenFinder((prev) => !prev)}
+            >
+              {showTokenFinder ? "Close" : "🔍 Token"}
+            </button>
+          </div>
         </div>
 
         {showTokenFinder && (
@@ -514,7 +732,22 @@ export function TradeChartView() {
           <div className="ad-swap-panel">
             <div className="ad-row ad-text-xs ad-text-muted">
               <span>You Pay</span>
-              <span>{activeAccount?.kind === "smart" ? "Smart C…" : "Classic G…"}</span>
+              {balancesLoaded ? (
+                <button
+                  type="button"
+                  className="ad-link-inline tabular-nums"
+                  onClick={() => {
+                    if (maxSpendableFrom > 0) {
+                      setAmount(formatStroops7(maxSpendableFrom));
+                    }
+                  }}
+                  title="Tap to fill max spendable balance"
+                >
+                  Bal: {fromBalanceNum.toFixed(4)} {activeFromToken?.code ?? ""}
+                </button>
+              ) : (
+                <span>{activeAccount?.kind === "smart" ? "Smart C…" : "Classic G…"}</span>
+              )}
             </div>
             <div className="ad-grid-swap-row">
               <select
@@ -538,28 +771,50 @@ export function TradeChartView() {
                 inputMode="decimal"
                 className="ad-input tabular-nums ad-text-right ad-font-bold"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => setAmount(sanitizeDecimalInput(e.target.value))}
                 placeholder="0.00"
                 aria-label="Swap Amount"
               />
             </div>
             <div className="ad-stack-6">
-              <div className="ad-chip-row">
-                <span className="ad-text-xs ad-text-muted">Quick:</span>
-                {QUICK_AMOUNTS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    className={`glass-pill tabular-nums ad-clickable ${
-                      amount === preset ? "glass-pill--gold" : ""
-                    }`}
-                    style={{ minHeight: 32, padding: "5px 10px" }}
-                    onClick={() => setAmount(preset)}
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
+              {maxSpendableFrom > 0 ? (
+                <div className="ad-chip-row">
+                  <span className="ad-text-xs ad-text-muted">Size:</span>
+                  {PERCENT_PRESETS.map((p) => {
+                    const targetVal = formatStroops7(maxSpendableFrom * p.pct);
+                    return (
+                      <button
+                        key={p.label}
+                        type="button"
+                        className={`glass-pill tabular-nums ad-clickable ${
+                          amount === targetVal ? "glass-pill--gold" : ""
+                        }`}
+                        style={{ minHeight: 32, padding: "5px 10px" }}
+                        onClick={() => setAmount(targetVal)}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="ad-chip-row">
+                  <span className="ad-text-xs ad-text-muted">Quick:</span>
+                  {QUICK_AMOUNTS.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      className={`glass-pill tabular-nums ad-clickable ${
+                        amount === preset ? "glass-pill--gold" : ""
+                      }`}
+                      style={{ minHeight: 32, padding: "5px 10px" }}
+                      onClick={() => setAmount(preset)}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="ad-chip-row" aria-label="Slippage Tolerance">
                 <span className="ad-text-xs ad-text-muted">Slip:</span>
                 {SLIPPAGE_PRESETS.map((s) => (
@@ -594,10 +849,15 @@ export function TradeChartView() {
           {/* You Receive */}
           <div className="ad-swap-panel">
             <div className="ad-row ad-text-xs ad-text-muted">
-              <span>You Receive</span>
-              {quote?.bestRoute && (
+              <span>
+                You Receive
+                {balancesLoaded && toAsset
+                  ? ` · Bal: ${toBalanceNum.toFixed(4)}`
+                  : ""}
+              </span>
+              {activeRoute && (
                 <span className="glass-pill glass-pill--safe" style={{ fontSize: 10, padding: "2px 8px" }}>
-                  Best: {quote.bestRoute.venue}
+                  {activeRoute.venue}
                 </span>
               )}
             </div>
@@ -625,8 +885,8 @@ export function TradeChartView() {
                 <div className="ad-text-lg ad-font-extrabold ad-text-emerald">
                   {quoting
                     ? "Quoting…"
-                    : quote?.bestRoute
-                      ? quote.bestRoute.expectedOutputAmount
+                    : activeRoute
+                      ? activeRoute.expectedOutputAmount
                       : "--"}
                 </div>
                 {effectiveRateLabel && (
@@ -635,32 +895,63 @@ export function TradeChartView() {
               </div>
             </div>
 
-            {quote?.bestRoute && (
+            {activeRoute && (
               <div className="ad-stack-6">
-                <div className="ad-text-xs ad-text-muted tabular-nums">
-                  Min Received ({(slippageBps / 100).toFixed(1)}%): {quote.bestRoute.minOutputAmount} ·
-                  Fee {(quote.bestRoute.feeBps / 100).toFixed(2)}% · Impact{" "}
-                  {quote.bestRoute.priceImpactPct}%
+                <div className="ad-row ad-row-wrap ad-text-xs ad-text-muted tabular-nums">
+                  <span>
+                    Min ({(slippageBps / 100).toFixed(1)}%): {activeRoute.minOutputAmount} · Fee{" "}
+                    {(activeRoute.feeBps / 100).toFixed(2)}%
+                  </span>
+                  <span
+                    className={
+                      priceImpactNum >= 5
+                        ? "ad-text-coral ad-font-bold"
+                        : priceImpactNum >= 2
+                          ? "ad-text-warn ad-font-bold"
+                          : "ad-text-emerald"
+                    }
+                  >
+                    Impact {activeRoute.priceImpactPct}%
+                  </span>
                 </div>
-                {quote.routes.length > 0 && (
+
+                {activeRoute.requiresTrustline && (
+                  <div>
+                    <span className="glass-pill glass-pill--gold" style={{ fontSize: 10 }}>
+                      ✓ Auto-Trustline included
+                    </span>
+                  </div>
+                )}
+
+                {quote && quote.routes.length > 0 && (
                   <details className="ad-details">
                     <summary>
-                      <span>View 5-Venue Route Matrix ({quote.routes.length} routes)</span>
+                      <span>Compare 5-Venue Routes ({quote.routes.length} active)</span>
                       <span>▾</span>
                     </summary>
                     <div className="ad-route-matrix">
-                      {quote.routes.map((r, i) => (
-                        <div key={`${r.venue}-${i}`} className="ad-row tabular-nums ad-text-xs">
-                          <span>
-                            {i === 0 ? "★ " : ""}
-                            {r.venue}
-                          </span>
-                          <span>
-                            {r.expectedOutputAmount} {activeToToken?.code ?? ""} (
-                            {(r.feeBps / 100).toFixed(2)}%)
-                          </span>
-                        </div>
-                      ))}
+                      {quote.routes.map((r, i) => {
+                        const isSelected = activeRoute.venue === r.venue;
+                        return (
+                          <button
+                            key={`${r.venue}-${i}`}
+                            type="button"
+                            className={`ad-row ad-suggest-btn tabular-nums ad-text-xs ${
+                              isSelected ? "glass-pill--safe" : ""
+                            }`}
+                            onClick={() => setSelectedRouteVenue(r.venue)}
+                          >
+                            <span>
+                              {isSelected ? "● " : i === 0 ? "★ " : ""}
+                              {r.venue}
+                            </span>
+                            <span>
+                              {r.expectedOutputAmount} {activeToToken?.code ?? ""} (
+                              {(r.feeBps / 100).toFixed(2)}%)
+                            </span>
+                          </button>
+                        );
+                      })}
                       {quote.skippedVenues.map((s) => (
                         <div key={s.venue} className="ad-row ad-text-xxs ad-text-muted">
                           <span>{s.venue}</span>
@@ -679,6 +970,18 @@ export function TradeChartView() {
           </div>
         </div>
 
+        {insufficientBalance && (
+          <div className="ad-banner ad-banner--danger">
+            Insufficient {activeFromToken?.code ?? fromAsset} balance ({fromBalanceNum.toFixed(4)} available).
+          </div>
+        )}
+
+        {priceImpactNum >= 5 && (
+          <div className="ad-banner ad-banner--danger">
+            ⚠️ High Price Impact ({activeRoute?.priceImpactPct}%): Pool liquidity is thin for this size. Consider a smaller amount.
+          </div>
+        )}
+
         {activeToToken?.reviewStatus === "unreviewed_warning" && (
           <div className="ad-banner ad-banner--warn">
             <strong>⚠️ Unreviewed Community Token:</strong>{" "}
@@ -693,15 +996,22 @@ export function TradeChartView() {
           type="button"
           className="ad-btn-primary ad-btn-block"
           disabled={
-            executionDisabled || submitting || Boolean(quote?.blockedReason) || !quote?.bestRoute
+            executionDisabled ||
+            submitting ||
+            insufficientBalance ||
+            !isAmountValid ||
+            Boolean(quote?.blockedReason) ||
+            !activeRoute
           }
           onClick={() => void handleHandoffSwap()}
         >
           {executionDisabled
             ? `🔒 Trading Disabled (${feedNetwork.toUpperCase()} Visualizer Mode)`
-            : submitting
-              ? "Pre-Scanning Swap XDR..."
-              : "Sign Swap in AstroWallet"}
+            : insufficientBalance
+              ? "Insufficient Balance"
+              : submitting
+                ? "Pre-Scanning Swap XDR..."
+                : "Sign Swap in AstroWallet"}
         </button>
 
         <div className="ad-text-center ad-text-xs ad-text-muted">
@@ -776,7 +1086,7 @@ export function TradeChartView() {
         />
       </section>
 
-      {/* BLOCK 3 (Scroll Down): Live Orderbook & Classic SDEX Limit Order */}
+      {/* BLOCK 3 (Scroll Down): Live Orderbook, Classic SDEX Limit Order & Open Offers */}
       <section id="astro-limit-order" className="glass-card ad-stack-10">
         <div className="ad-row">
           <strong className="ad-text-base">Orderbook &amp; Limit Orders</strong>
@@ -876,7 +1186,7 @@ export function TradeChartView() {
                   inputMode="decimal"
                   className="ad-input tabular-nums"
                   value={limitAmount}
-                  onChange={(e) => setLimitAmount(e.target.value)}
+                  onChange={(e) => setLimitAmount(sanitizeDecimalInput(e.target.value))}
                   placeholder="Amount"
                   aria-label="Limit Order Amount"
                 />
@@ -885,7 +1195,7 @@ export function TradeChartView() {
                   inputMode="decimal"
                   className="ad-input tabular-nums"
                   value={limitPrice}
-                  onChange={(e) => setLimitPrice(e.target.value)}
+                  onChange={(e) => setLimitPrice(sanitizeDecimalInput(e.target.value))}
                   placeholder="Price in XLM"
                   aria-label="Limit Order Price in XLM"
                 />
@@ -903,6 +1213,53 @@ export function TradeChartView() {
                     : "Place Limit Order via AstroWallet"}
               </button>
             </>
+          )}
+        </div>
+
+        <div className="ad-divider" />
+
+        {/* Integrated Open Limit Orders */}
+        <div className="ad-stack-6">
+          <div className="ad-row">
+            <strong className="ad-text-md">My Open Limit Orders ({offers.length})</strong>
+            {activeAccount?.kind === "classic" && (
+              <button
+                type="button"
+                className="glass-pill ad-clickable"
+                onClick={() => void loadAccountState()}
+              >
+                ↻ Refresh
+              </button>
+            )}
+          </div>
+          {offers.length === 0 ? (
+            <div className="ad-text-xs ad-text-muted">
+              {activeAccount?.kind === "classic"
+                ? accountFunded === false
+                  ? `This G... account is not yet activated on ${feedNetwork.toUpperCase()}.`
+                  : "No open Classic SDEX limit orders on this account."
+                : "Connect a Classic G... account to view or cancel active SDEX offers."}
+            </div>
+          ) : (
+            <div className="ad-stack-6">
+              {offers.map((offer) => (
+                <div key={offer.offerId} className="ad-row ad-item-card">
+                  <div className="ad-text-xs tabular-nums">
+                    <strong>#{offer.offerId}</strong> · {offer.amount}{" "}
+                    {offer.sellingAsset.split(":")[0]} @ {offer.price}{" "}
+                    {offer.buyingAsset.split(":")[0]}
+                  </div>
+                  <button
+                    type="button"
+                    className="ad-btn-secondary ad-btn-sm"
+                    disabled={executionDisabled || busyOfferId === offer.offerId}
+                    onClick={() => void handleCancelOffer(offer)}
+                  >
+                    {executionDisabled ? "Read-Only" : "Cancel"}
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </section>

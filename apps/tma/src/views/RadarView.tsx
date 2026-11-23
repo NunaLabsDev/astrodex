@@ -5,7 +5,7 @@ import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
-type MarketFilter = "all" | "gainers" | "losers" | "volume" | "official" | "rwa";
+type MarketFilter = "all" | "favorites" | "gainers" | "losers" | "volume" | "official" | "rwa";
 
 const RWA_CODES = new Set([
   "USDC",
@@ -158,6 +158,8 @@ export function RadarView() {
     feedNetwork,
     executionDisabled,
     catalog,
+    favorites,
+    toggleFavorite,
     xlmUsd,
     catalogLoading,
     refreshCatalog,
@@ -282,12 +284,15 @@ export function RadarView() {
     }
   };
 
+  const favSet = useMemo(() => new Set(favorites), [favorites]);
+
   const filteredCatalog = useMemo(() => {
     const rawQ = query.trim().toLowerCase();
     const q = rawQ.includes("/") ? (rawQ.split("/")[0]?.trim() ?? rawQ) : rawQ;
     return catalog
       .filter((item) => {
         const codeUp = item.code.toUpperCase();
+        if (activeFilter === "favorites" && !favSet.has(item.assetKey)) return false;
         if (activeFilter === "official" && item.reviewStatus !== "official") return false;
         if (activeFilter === "rwa" && !RWA_CODES.has(codeUp)) return false;
         if (activeFilter === "gainers" && !(typeof item.change24hPct === "number" && item.change24hPct > 0)) {
@@ -311,6 +316,10 @@ export function RadarView() {
         return true;
       })
       .sort((a, b) => {
+        const aFav = favSet.has(a.assetKey) ? 1 : 0;
+        const bFav = favSet.has(b.assetKey) ? 1 : 0;
+        if (aFav !== bFav) return bFav - aFav;
+
         if (activeFilter === "gainers") {
           return (b.change24hPct ?? -9999) - (a.change24hPct ?? -9999);
         }
@@ -324,7 +333,7 @@ export function RadarView() {
         if (diff !== 0) return diff;
         return (b.holdersCount ?? b.shieldScore) - (a.holdersCount ?? a.shieldScore);
       });
-  }, [catalog, query, activeFilter]);
+  }, [catalog, favSet, query, activeFilter]);
 
   return (
     <div className="ad-stack-12">
@@ -414,6 +423,16 @@ export function RadarView() {
         {searchHint && <div className="ad-banner ad-banner--warn">{searchHint}</div>}
 
         <div className="ad-chip-row" role="tablist" aria-label="Market Filters">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeFilter === "favorites"}
+            className={`glass-pill ad-clickable ${activeFilter === "favorites" ? "glass-pill--gold" : ""}`}
+            style={{ padding: "6px 12px", fontSize: 12 }}
+            onClick={() => setActiveFilter("favorites")}
+          >
+            ♥ Favorites{favorites.length > 0 ? ` (${favorites.length})` : ""}
+          </button>
           {FILTER_CHIPS.map((chip) => (
             <button
               key={chip.id}
@@ -612,7 +631,24 @@ export function RadarView() {
                   }}
                   className={`ad-item-card ad-clickable ${item.reviewStatus === "unreviewed_warning" ? "ad-item-card--warn" : ""}`}
                 >
-                  <div className="ad-row" style={{ gap: 10, alignItems: "center" }}>
+                  <div className="ad-row" style={{ gap: 8, alignItems: "center" }}>
+                    <button
+                      type="button"
+                      className={`ad-fav-btn ${favSet.has(item.assetKey) ? "ad-fav-btn--active" : ""}`}
+                      aria-label={
+                        favSet.has(item.assetKey)
+                          ? `Remove ${item.code} from favorites`
+                          : `Add ${item.code} to favorites`
+                      }
+                      aria-pressed={favSet.has(item.assetKey)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void toggleFavorite(item.assetKey);
+                      }}
+                    >
+                      {favSet.has(item.assetKey) ? "♥" : "♡"}
+                    </button>
+
                     <div className="ad-min-w-0 ad-stack-3" style={{ flex: 1 }}>
                       <div className="ad-font-bold ad-text-base ad-flex-6" style={{ alignItems: "center" }}>
                         <span className="ad-text-xs ad-text-muted tabular-nums">#{idx + 1}</span>

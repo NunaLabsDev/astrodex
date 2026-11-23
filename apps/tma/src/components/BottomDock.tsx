@@ -3,7 +3,6 @@ import { useAppState, type DockTab } from "../state/app-context.js";
 const TABS: Array<{ id: DockTab; icon: string; label: string; ariaLabel: string }> = [
   { id: "radar", icon: "◎", label: "Markets", ariaLabel: "Stellar Markets" },
   { id: "trade", icon: "⇄", label: "Swap", ariaLabel: "Swap & Token Analysis" },
-  { id: "orders", icon: "◈", label: "Portfolio", ariaLabel: "Portfolio, Orders & Alerts" },
 ];
 
 export function BottomDock() {
@@ -13,7 +12,7 @@ export function BottomDock() {
       {TABS.map((tab) => {
         const isActive =
           activeTab === tab.id ||
-          (tab.id === "trade" && (activeTab === "book" || activeTab === "scanner"));
+          (tab.id === "trade" && activeTab !== "radar");
         return (
           <button
             key={tab.id}

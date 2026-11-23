@@ -28,6 +28,27 @@ import {
 export type DockTab = "radar" | "trade" | "scanner" | "book" | "orders";
 export type TradeScrollTarget = "swap" | "pools" | "safety" | "limit" | null;
 
+const LOCAL_FAVORITES_KEY = "astrodex_local_watchlist_v1";
+
+function readLocalFavorites(): string[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_FAVORITES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalFavorites(items: string[]): void {
+  try {
+    localStorage.setItem(LOCAL_FAVORITES_KEY, JSON.stringify(items));
+  } catch {
+    // Ignore restricted storage environments
+  }
+}
+
 interface AppContextValue {
   config: TmaConfig;
   feedNetwork: StellarNetwork;
@@ -50,6 +71,8 @@ interface AppContextValue {
   selectedAsset: string;
   setSelectedAsset: (assetId: string) => void;
   defaultPairAsset: string;
+  favorites: string[];
+  toggleFavorite: (assetKey: string) => Promise<void>;
   catalog: CatalogTokenItem[];
   xlmUsd: number | null;
   launchpadTokens: Array<{
@@ -94,6 +117,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedAsset, setSelectedAsset] = useState<string>("XLM");
   const [authAttempt, setAuthAttempt] = useState(0);
   const [catalog, setCatalog] = useState<CatalogTokenItem[]>([]);
+  const [favorites, setFavorites] = useState<string[]>(() => readLocalFavorites());
   const [xlmUsd, setXlmUsd] = useState<number | null>(null);
   const [launchpadTokens, setLaunchpadTokens] = useState<AppContextValue["launchpadTokens"]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -169,6 +193,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActiveTabState("trade");
       } else if (parsed.tab === "book") {
         setTradeScrollTarget("pools");
+        setActiveTabState("trade");
+      } else if (parsed.tab === "orders") {
+        setTradeScrollTarget("limit");
         setActiveTabState("trade");
       } else {
         const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
@@ -268,8 +295,72 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveTabState("trade");
       return;
     }
+    if (next === "orders") {
+      setTradeScrollTarget("limit");
+      setActiveTabState("trade");
+      return;
+    }
     setActiveTabState(next);
   }, []);
+
+  useEffect(() => {
+    if (!sessionToken) return;
+    let cancelled = false;
+    const base = config.apiBaseUrl.replace(/\/+$/, "");
+    void fetch(`${base}/v1/watchlists`, {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = (await res.json()) as { items?: string[] };
+        if (!cancelled && Array.isArray(json.items)) {
+          setFavorites((prev) => {
+            const merged = Array.from(new Set([...json.items!, ...prev]));
+            writeLocalFavorites(merged);
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [config.apiBaseUrl, sessionToken]);
+
+  const toggleFavorite = useCallback(
+    async (assetKey: string) => {
+      const cleanKey = assetKey.trim();
+      if (!cleanKey) return;
+      triggerTelegramHaptic("selection");
+      const exists = favorites.includes(cleanKey);
+      const next = exists
+        ? favorites.filter((x) => x !== cleanKey)
+        : [cleanKey, ...favorites];
+      setFavorites(next);
+      writeLocalFavorites(next);
+
+      if (!sessionToken) return;
+      const base = config.apiBaseUrl.replace(/\/+$/, "");
+      try {
+        await fetch(
+          exists
+            ? `${base}/v1/watchlists/${encodeURIComponent(cleanKey)}`
+            : `${base}/v1/watchlists`,
+          {
+            method: exists ? "DELETE" : "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${sessionToken}`,
+            },
+            ...(exists ? {} : { body: JSON.stringify({ assetKey: cleanKey }) }),
+          },
+        );
+      } catch {
+        // Keep optimistic local favorite cleanly
+      }
+    },
+    [config.apiBaseUrl, favorites, sessionToken],
+  );
 
   const openTradePair = useCallback((fromAsset: string, toAsset: string) => {
     triggerTelegramHaptic("selection");
@@ -379,6 +470,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         selectedAsset,
         setSelectedAsset,
         defaultPairAsset,
+        favorites,
+        toggleFavorite,
         catalog,
         xlmUsd,
         launchpadTokens,
