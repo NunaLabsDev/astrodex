@@ -14,10 +14,26 @@ import {
   buildUnifiedCatalog,
   createConfiguredCurveStateLoader,
   createConfiguredPairReservesLoader,
+  fetchTokenAmmPools,
   loadLiveAmmOrderbookAndSpot,
   resolveAssetTarget,
+  resolveReadFeedConfig,
 } from "./services/catalog.js";
 import { adaptFetch, type FetchLike } from "./stellar-verifier.js";
+
+function resolveBotFeedConfig(baseConfig: ServerConfig, rawText: string) {
+  const tokens = rawText.trim().split(/\s+/).filter(Boolean);
+  const hasTestnet = tokens.some((t) => t.toLowerCase() === "testnet");
+  const hasMainnet = tokens.some((t) => t.toLowerCase() === "mainnet");
+  const cleanTokens = tokens.filter(
+    (t) => t.toLowerCase() !== "testnet" && t.toLowerCase() !== "mainnet",
+  );
+  const targetNet = hasTestnet ? "testnet" : hasMainnet ? "mainnet" : "mainnet";
+  return {
+    botCfg: resolveReadFeedConfig(baseConfig, targetNet),
+    tokens: cleanTokens,
+  };
+}
 
 export function createAstroDexBot(
   config: ServerConfig,
@@ -35,16 +51,18 @@ export function createAstroDexBot(
     console.error("[AstroDexBot] Handler error:", err.error);
   });
 
-  const scanner = createStellarForensicScanner({
-    network: config.network,
-    networkPassphrase: config.networkPassphrase,
-    rpcUrls: config.rpcUrls,
-    horizonUrls: config.horizonUrls,
-    sep42AssetListUrls: config.sep42AssetListUrls,
-    stellarExpertApiBase: config.stellarExpertApiBase,
-    astroGateApiBaseUrl: config.astroGateApiBaseUrl,
-    fetchFn,
-  });
+  const createScannerFor = (cfg: ServerConfig) =>
+    createStellarForensicScanner({
+      network: cfg.network,
+      networkPassphrase: cfg.networkPassphrase,
+      rpcUrls: cfg.rpcUrls,
+      horizonUrls: cfg.horizonUrls,
+      sep42AssetListUrls: cfg.sep42AssetListUrls,
+      stellarExpertApiBase: cfg.stellarExpertApiBase,
+      astroGateApiBaseUrl: cfg.astroGateApiBaseUrl,
+      fetchFn,
+    });
+  const scanner = createScannerFor(config);
 
   const openAppUrl = buildAstroDexDeepLink({
     tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
@@ -132,22 +150,24 @@ export function createAstroDexBot(
   });
 
   bot.command("scan", async (ctx) => {
-    const arg = ctx.match.trim();
+    const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
+    const arg = tokens.join(" ");
     if (!arg) {
-      await ctx.reply("Usage: <code>/scan XLM</code>, <code>/scan ASTRO</code>, <code>/scan CODE:G...</code> or <code>/scan C...</code>", {
+      await ctx.reply("Usage: <code>/scan XLM</code>, <code>/scan AQUA</code>, <code>/scan XLM testnet</code>, or <code>/scan CODE:G...</code>", {
         parse_mode: "HTML",
       });
       return;
     }
     try {
-      const { target } = await resolveAssetTarget({ config, repo, fetchFn, rawAsset: arg });
-      const audit = await scanner.auditToken(target.resolvedKey);
+      const botScanner = createScannerFor(botCfg);
+      const { target } = await resolveAssetTarget({ config: botCfg, repo, fetchFn, rawAsset: arg });
+      const audit = await botScanner.auditToken(target.resolvedKey);
       const deepLink = buildAstroDexDeepLink({
         tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
         tgMiniAppShortName: config.tgMiniAppShortName,
-        startParam: `scan_${audit.assetKey}`,
+        startParam: `${botCfg.network}_scan_${audit.assetKey}`,
       });
-      await ctx.reply(formatScanCard(audit), {
+      await ctx.reply(`<code>[${botCfg.network.toUpperCase()}]</code>\n${formatScanCard(audit)}`, {
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
@@ -160,7 +180,7 @@ export function createAstroDexBot(
       });
     } catch (err) {
       await ctx.reply(
-        `Could not scan asset: ${err instanceof Error ? err.message : "Asset not found"}`,
+        `Could not scan asset (${botCfg.network}): ${err instanceof Error ? err.message : "Asset not found"}`,
       );
     }
   });
@@ -243,13 +263,14 @@ export function createAstroDexBot(
   });
 
   bot.command("chart", async (ctx) => {
-    const arg = ctx.match.trim() || "XLM";
+    const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
+    const arg = tokens[0] ?? "XLM";
     const deepLink = buildAstroDexDeepLink({
       tgBotUsername: config.tgBotUsername ?? "AstroDexBot",
       tgMiniAppShortName: config.tgMiniAppShortName,
-      startParam: `token_${arg}`,
+      startParam: `${botCfg.network}_token_${arg}`,
     });
-    await ctx.reply(`Open live chart for <code>${arg}</code>:`, {
+    await ctx.reply(`Open live <code>${botCfg.network.toUpperCase()}</code> chart for <code>${arg}</code>:`, {
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [
@@ -263,48 +284,72 @@ export function createAstroDexBot(
   });
 
   bot.command("book", async (ctx) => {
-    const parts = ctx.match.trim().split(/\s+/).filter(Boolean);
-    const rawBase = parts[0] ?? "XLM";
-    const rawQuote = parts[1] ?? "XLM";
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
+    const rawBase = tokens[0] ?? "XLM";
+    const defaultQuote =
+      rawBase.toUpperCase() === "XLM"
+        ? botCfg.network === "mainnet"
+          ? "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+          : "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+        : "XLM";
+    const rawQuote = tokens[1] ?? defaultQuote;
+    const snapshot = await buildUnifiedCatalog(botCfg, repo, fetchFn, {
+      includeRepoTokens: botCfg.network === config.network,
+    });
     const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
-      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawBase, snapshot }),
-      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawQuote, snapshot }),
+      resolveAssetTarget({ config: botCfg, repo, fetchFn, rawAsset: rawBase, snapshot }),
+      resolveAssetTarget({ config: botCfg, repo, fetchFn, rawAsset: rawQuote, snapshot }),
     ]);
-    const horizonBook = await fetchHorizonOrderbook(
-      config.horizonUrls,
-      baseTarget.classicAsset ?? baseTarget.resolvedKey,
-      quoteTarget.classicAsset ?? quoteTarget.resolvedKey,
-      10,
-      fetchFn,
-    );
+    const [horizonBook, ammPools] = await Promise.all([
+      fetchHorizonOrderbook(
+        botCfg.horizonUrls,
+        baseTarget.classicAsset ?? baseTarget.resolvedKey,
+        quoteTarget.classicAsset ?? quoteTarget.resolvedKey,
+        10,
+        fetchFn,
+      ),
+      fetchTokenAmmPools({ config: botCfg, target: baseTarget, snapshot, fetchFn, limit: 3 }).catch(() => []),
+    ]);
     const book =
       horizonBook.bids.length === 0 && horizonBook.asks.length === 0
-        ? (await loadLiveAmmOrderbookAndSpot({ config, snapshot, baseTarget, quoteTarget, fetchFn })
+        ? (await loadLiveAmmOrderbookAndSpot({ config: botCfg, snapshot, baseTarget, quoteTarget, fetchFn })
             .then((r) => r.syntheticSnapshot)
             .catch(() => null)) ?? horizonBook
         : horizonBook;
-    await ctx.reply(formatOrderbookCard(book), { parse_mode: "HTML" });
+    const poolLines = ammPools.length > 0
+      ? `\n\n<b>Top AMM Pools (${ammPools.length}):</b>\n` +
+        ammPools
+          .map(
+            (p) =>
+              `• <code>${p.venue}</code> vs <b>${p.counterCode}</b> · Fee ${(p.feeBps / 100).toFixed(2)}%${p.totalTrustlines > 0 ? ` · ${p.totalTrustlines} LPs` : ""}`,
+          )
+          .join("\n")
+      : "";
+    await ctx.reply(`<code>[${botCfg.network.toUpperCase()}]</code>\n${formatOrderbookCard(book)}${poolLines}`, {
+      parse_mode: "HTML",
+    });
   });
 
   bot.command("route", async (ctx) => {
-    const parts = ctx.match.trim().split(/\s+/).filter(Boolean);
-    if (parts.length < 3) {
-      await ctx.reply("Usage: <code>/route 100 XLM ASTRO</code>", { parse_mode: "HTML" });
+    const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
+    if (tokens.length < 3) {
+      await ctx.reply("Usage: <code>/route 100 XLM AQUA</code> (or add <code>testnet</code>)", { parse_mode: "HTML" });
       return;
     }
-    const [amount = "10", rawFrom = "XLM", rawTo = ""] = parts;
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+    const [amount = "10", rawFrom = "XLM", rawTo = ""] = tokens;
+    const snapshot = await buildUnifiedCatalog(botCfg, repo, fetchFn, {
+      includeRepoTokens: botCfg.network === config.network,
+    });
     const [{ target: fromTarget }, { target: toTarget }] = await Promise.all([
-      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawFrom, snapshot }),
-      resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawTo, snapshot }),
+      resolveAssetTarget({ config: botCfg, repo, fetchFn, rawAsset: rawFrom, snapshot }),
+      resolveAssetTarget({ config: botCfg, repo, fetchFn, rawAsset: rawTo, snapshot }),
     ]);
     const routerEngine = createSmartLiquidityRouter({
-      horizonUrls: config.horizonUrls,
-      xoxnoApiBase: config.xoxnoSwapApiBase,
+      horizonUrls: botCfg.horizonUrls,
+      xoxnoApiBase: botCfg.xoxnoSwapApiBase,
       verifiedAssets: snapshot.sep42Assets,
-      curveStateLoader: createConfiguredCurveStateLoader(config, fetchFn),
-      directPairReservesLoader: createConfiguredPairReservesLoader(config, snapshot, fetchFn),
+      curveStateLoader: createConfiguredCurveStateLoader(botCfg, fetchFn),
+      directPairReservesLoader: createConfiguredPairReservesLoader(botCfg, snapshot, fetchFn),
       fetchFn,
     });
     const quote = await routerEngine.quoteBestRoutes({

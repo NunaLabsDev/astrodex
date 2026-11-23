@@ -23,6 +23,44 @@ const SLIPPAGE_PRESETS = [
   { label: "2.5%", bps: 250 },
 ] as const;
 
+interface TokenHubData {
+  ammPools: Array<{
+    poolId: string;
+    venue: string;
+    feeBps: number;
+    totalTrustlines: number;
+    reserves: Array<{ assetKey: string; code: string; amount: string }>;
+    counterAssetKey: string;
+    counterCode: string;
+    spotPriceInCounter: number | null;
+  }>;
+  orderbook: {
+    bestBid: string | null;
+    bestAsk: string | null;
+    spreadPct: string | null;
+    bids: Array<{ price: string; amount: string; venue?: string }>;
+    asks: Array<{ price: string; amount: string; venue?: string }>;
+  } | null;
+  recentTrades: Array<{
+    id: string;
+    timestamp: string;
+    side: "buy" | "sell";
+    baseCode: string;
+    counterCode: string;
+    baseAmount: string;
+    price: string;
+  }>;
+  audit: {
+    astroShieldScore?: number;
+    verdict?: string;
+    trustTier?: string;
+    findings?: Array<{ title: string; severity: string }>;
+    holdersCount?: number;
+    circulatingSupply?: string;
+    contractId?: string;
+  } | null;
+}
+
 interface AmmPairMeta {
   venue: "soroswap" | "astrogate_curve";
   pairId?: string;
@@ -54,7 +92,8 @@ export function TradeChartView() {
     sessionToken,
     selectedAsset,
     setSelectedAsset,
-    setActiveTab,
+    tradeSubTab,
+    setTradeSubTab,
     defaultPairAsset,
     catalog,
     xlmUsd,
@@ -74,6 +113,8 @@ export function TradeChartView() {
   const [depth, setDepth] = useState<DepthPoint[]>([]);
   const [ammPair, setAmmPair] = useState<AmmPairMeta | null>(null);
   const [quoting, setQuoting] = useState(false);
+  const [tokenHub, setTokenHub] = useState<TokenHubData | null>(null);
+  const [hubLoading, setHubLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -136,14 +177,17 @@ export function TradeChartView() {
   useEffect(() => {
     let cancelled = false;
     async function loadChartAndDepth() {
-      if (!focusAsset || focusAsset === "XLM") return;
+      const targetAsset = focusAsset || "XLM";
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
-        const pair = `${encodeURIComponent(focusAsset)}-XLM`;
+        const pair =
+          targetAsset === "XLM" ? "XLM-XLM" : `${encodeURIComponent(targetAsset)}-XLM`;
         const netParam = encodeURIComponent(feedNetwork);
-        const [candlesRes, bookRes] = await Promise.all([
+        setHubLoading(true);
+        const [candlesRes, bookRes, hubRes] = await Promise.all([
           fetch(`${base}/v1/candles/${pair}?tf=${timeframe}&net=${netParam}`),
           fetch(`${base}/v1/orderbook/${pair}?net=${netParam}`),
+          fetch(`${base}/v1/token-hub/${encodeURIComponent(targetAsset)}?net=${netParam}`),
         ]);
         if (!cancelled && candlesRes.ok) {
           const json = (await candlesRes.json()) as { candles?: OhlcvCandle[] };
@@ -157,8 +201,14 @@ export function TradeChartView() {
           setDepth(json.depth ?? []);
           setAmmPair(json.ammPair ?? null);
         }
+        if (!cancelled && hubRes.ok) {
+          const hubJson = (await hubRes.json()) as TokenHubData;
+          setTokenHub(hubJson);
+        }
       } catch {
         // Ignore offline chart errors
+      } finally {
+        if (!cancelled) setHubLoading(false);
       }
     }
     void loadChartAndDepth();
@@ -275,6 +325,7 @@ export function TradeChartView() {
         },
         body: JSON.stringify({
           subAction: "dex_swap",
+          network: feedNetwork,
           sourceAddress: activeAccount.address,
           unsignedXdr: quote.bestRoute.unsignedXdr,
           swapSpec: quote.bestRoute.unsignedXdr
@@ -289,7 +340,7 @@ export function TradeChartView() {
                 includeTrustlineIfMissing: quote.bestRoute.requiresTrustline,
               },
           humanSummary: `Swap ${quote.bestRoute.inputAmount} ${activeFromToken?.code ?? fromAsset} -> ~${quote.bestRoute.expectedOutputAmount} ${toLabel} via ${quote.bestRoute.venue}`,
-          returnStartAppParam: `token_${toAsset}`,
+          returnStartAppParam: `${feedNetwork}_token_${toAsset}`,
           fromAsset: quote.bestRoute.fromAsset,
           toAsset: quote.bestRoute.toAsset,
           amount: quote.bestRoute.inputAmount,
@@ -335,6 +386,7 @@ export function TradeChartView() {
         },
         body: JSON.stringify({
           subAction: "sdex_limit_order_create",
+          network: feedNetwork,
           sourceAddress: activeAccount.address,
           limitOrder: {
             side: limitSide,
@@ -344,7 +396,7 @@ export function TradeChartView() {
             price: limitPrice,
           },
           humanSummary: `SDEX ${limitSide.toUpperCase()} ${limitAmount} ${activeToToken?.code ?? toAsset} @ ${limitPrice} XLM`,
-          returnStartAppParam: `token_${toAsset}`,
+          returnStartAppParam: `${feedNetwork}_token_${toAsset}`,
         }),
       });
       const json = (await res.json()) as { deepLink?: string; error?: string };
@@ -429,21 +481,22 @@ export function TradeChartView() {
             <div className="ad-flex-6">
               <button
                 type="button"
-                className="glass-pill ad-clickable"
-                onClick={() => {
-                  setSelectedAsset(focusAsset);
-                  setActiveTab("book");
-                }}
+                className={`glass-pill ad-clickable ${tradeSubTab === "swap" ? "glass-pill--gold" : ""}`}
+                onClick={() => setTradeSubTab("swap")}
               >
-                Book
+                Chart &amp; Swap
               </button>
               <button
                 type="button"
-                className="glass-pill ad-clickable"
-                onClick={() => {
-                  setSelectedAsset(focusAsset);
-                  setActiveTab("scanner");
-                }}
+                className={`glass-pill ad-clickable ${tradeSubTab === "pools" ? "glass-pill--gold" : ""}`}
+                onClick={() => setTradeSubTab("pools")}
+              >
+                Pools ({tokenHub?.ammPools.length ?? 0})
+              </button>
+              <button
+                type="button"
+                className={`glass-pill ad-clickable ${tradeSubTab === "safety" ? "glass-pill--gold" : ""}`}
+                onClick={() => setTradeSubTab("safety")}
               >
                 X-Ray
               </button>
@@ -465,7 +518,143 @@ export function TradeChartView() {
         </section>
       )}
 
-      <ChartCanvas mode={mode} candles={candles} depth={depth} quoteLabel="XLM" timeframe={timeframe} />
+      {tradeSubTab === "pools" && (
+        <section className="glass-card ad-stack-10">
+          <div className="ad-row">
+            <strong className="ad-text-base">
+              AMM Pools &amp; Orderbook · {focusToken?.code ?? focusAsset}
+            </strong>
+            <span className="glass-pill">
+              {hubLoading ? "Syncing..." : `${tokenHub?.ammPools.length ?? 0} pools`}
+            </span>
+          </div>
+
+          {tokenHub && tokenHub.ammPools.length > 0 ? (
+            <div className="ad-stack-6">
+              {tokenHub.ammPools.map((pool) => (
+                <div key={pool.poolId} className="ad-row ad-item-card">
+                  <div className="ad-min-w-0">
+                    <div className="ad-font-bold ad-text-sm">
+                      {pool.venue.toUpperCase()} · {focusToken?.code ?? focusAsset}/{pool.counterCode}
+                    </div>
+                    <div className="ad-text-xs ad-text-muted tabular-nums">
+                      Fee {(pool.feeBps / 100).toFixed(2)}%
+                      {pool.totalTrustlines > 0 ? ` · ${pool.totalTrustlines} LPs` : ""}
+                      {pool.reserves.map((r) => ` · ${Number(r.amount).toFixed(2)} ${r.code}`).join("")}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="ad-btn-secondary ad-btn-sm ad-no-shrink"
+                    onClick={() => {
+                      setFromAsset(pool.counterAssetKey);
+                      setToAsset(focusAsset);
+                      setTradeSubTab("swap");
+                    }}
+                  >
+                    Swap Pair
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="ad-banner">
+              {hubLoading
+                ? "Loading live AMM pools across Horizon & Soroswap..."
+                : "No AMM pools indexed for this token yet; Classic SDEX pathfinding still active."}
+            </div>
+          )}
+
+          {tokenHub?.orderbook && (
+            <div className="ad-grid-2">
+              <div className="ad-stack-4">
+                <div className="ad-text-xs ad-text-muted">Top Bids</div>
+                {tokenHub.orderbook.bids.slice(0, 5).map((b, idx) => (
+                  <div key={`bid-${idx}`} className="ad-book-bid ad-text-xs tabular-nums">
+                    {b.price} · {b.amount}
+                  </div>
+                ))}
+              </div>
+              <div className="ad-stack-4">
+                <div className="ad-text-xs ad-text-muted">Top Asks</div>
+                {tokenHub.orderbook.asks.slice(0, 5).map((a, idx) => (
+                  <div key={`ask-${idx}`} className="ad-book-ask ad-text-xs tabular-nums">
+                    {a.price} · {a.amount}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tokenHub && tokenHub.recentTrades.length > 0 && (
+            <div className="ad-stack-4">
+              <div className="ad-text-xs ad-text-muted">Recent Ledger Trades</div>
+              {tokenHub.recentTrades.slice(0, 6).map((t) => (
+                <div key={t.id} className="ad-row ad-text-xs tabular-nums">
+                  <span className={t.side === "buy" ? "ad-text-safe" : "ad-text-danger"}>
+                    {t.side.toUpperCase()} {t.baseAmount} {t.baseCode}
+                  </span>
+                  <span className="ad-text-muted">@ {t.price} {t.counterCode}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {tradeSubTab === "safety" && (
+        <section className="glass-card ad-stack-10">
+          <div className="ad-row">
+            <strong className="ad-text-base">
+              Astro Shield X-Ray · {focusToken?.code ?? focusAsset}
+            </strong>
+            <span
+              className={`glass-pill ${
+                (tokenHub?.audit?.astroShieldScore ?? 0) >= 75
+                  ? "glass-pill--safe"
+                  : "glass-pill--warn"
+              }`}
+            >
+              Score {tokenHub?.audit?.astroShieldScore ?? "--"}/100
+            </span>
+          </div>
+          <div className="ad-grid-2">
+            <div className="ad-subcard">
+              <div className="ad-text-xs ad-text-muted">Verdict</div>
+              <div className="ad-font-bold">{tokenHub?.audit?.verdict ?? "Scanning..."}</div>
+            </div>
+            <div className="ad-subcard">
+              <div className="ad-text-xs ad-text-muted">Holders / Supply</div>
+              <div className="ad-font-bold tabular-nums">
+                {tokenHub?.audit?.holdersCount ?? "--"} · {tokenHub?.audit?.circulatingSupply ?? "--"}
+              </div>
+            </div>
+          </div>
+          {tokenHub?.audit?.findings && tokenHub.audit.findings.length > 0 ? (
+            <div className="ad-stack-6">
+              {tokenHub.audit.findings.map((f, i) => (
+                <div key={i} className="ad-banner ad-banner--warn ad-text-xs">
+                  <strong>{f.severity.toUpperCase()}:</strong> {f.title}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="ad-banner">
+              No critical risk findings detected on {feedNetwork.toUpperCase()} for {focusToken?.code ?? focusAsset}.
+            </div>
+          )}
+        </section>
+      )}
+
+      {tradeSubTab === "swap" && (
+        <>
+          <ChartCanvas
+            mode={mode}
+            candles={candles}
+            depth={depth}
+            quoteLabel={focusAsset === "XLM" ? "USDC" : "XLM"}
+            timeframe={timeframe}
+          />
 
       <section className="glass-card ad-stack-10">
         <div className="ad-row">
@@ -742,6 +931,8 @@ export function TradeChartView() {
             </>
           )}
         </section>
+      )}
+        </>
       )}
     </div>
   );

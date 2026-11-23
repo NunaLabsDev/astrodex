@@ -11,6 +11,15 @@ interface PriceAlertItem {
   threshold: number;
 }
 
+interface PortfolioData {
+  balances: Array<{ assetKey: string; code: string; balance: string }>;
+  lpPositions: Array<{
+    poolId: string;
+    shares: string;
+    reserves: Array<{ assetKey: string; code: string; amount: string }>;
+  }>;
+}
+
 const LOCAL_WATCHLIST_KEY = "astrodex_local_watchlist_v1";
 const LOCAL_ALERTS_KEY = "astrodex_local_alerts_v1";
 
@@ -52,6 +61,7 @@ export function OrdersAlertsView() {
     readLocalJson<PriceAlertItem[]>(LOCAL_ALERTS_KEY, []),
   );
   const [offers, setOffers] = useState<OpenLimitOffer[]>([]);
+  const [portfolio, setPortfolio] = useState<PortfolioData>({ balances: [], lpPositions: [] });
   const [accountFunded, setAccountFunded] = useState<boolean>(true);
   const [alertQuery, setAlertQuery] = useState("");
   const [alertCondition, setAlertCondition] = useState<"above" | "below">("above");
@@ -103,8 +113,23 @@ export function OrdersAlertsView() {
           })
           .catch(() => {}),
       );
+      tasks.push(
+        fetch(
+          `${base}/v1/portfolio/${encodeURIComponent(activeAccount.address)}?net=${encodeURIComponent(feedNetwork)}`,
+        )
+          .then(async (r) => {
+            if (!r.ok) return;
+            const json = (await r.json()) as PortfolioData;
+            setPortfolio({
+              balances: json.balances ?? [],
+              lpPositions: json.lpPositions ?? [],
+            });
+          })
+          .catch(() => {}),
+      );
     } else {
       setOffers([]);
+      setPortfolio({ balances: [], lpPositions: [] });
       setAccountFunded(true);
     }
 
@@ -237,6 +262,7 @@ export function OrdersAlertsView() {
         },
         body: JSON.stringify({
           subAction: "sdex_limit_order_cancel",
+          network: feedNetwork,
           sourceAddress: activeAccount.address,
           limitOrder: {
             side: "sell",
@@ -247,7 +273,7 @@ export function OrdersAlertsView() {
             offerId: offer.offerId,
           },
           humanSummary: `Cancel SDEX Offer #${offer.offerId} (${offer.sellingAsset} -> ${offer.buyingAsset})`,
-          returnStartAppParam: "t-orders",
+          returnStartAppParam: `${feedNetwork}_t-orders`,
         }),
       });
       const json = (await res.json()) as { deepLink?: string; error?: string };
@@ -283,6 +309,47 @@ export function OrdersAlertsView() {
 
         {errorMsg && <div className="ad-banner ad-banner--danger">{errorMsg}</div>}
         {statusMsg && <div className="ad-banner">{statusMsg}</div>}
+
+        {portfolio.balances.length > 0 && (
+          <div className="ad-stack-6">
+            <strong className="ad-text-md">
+              On-Chain Balances ({portfolio.balances.length})
+            </strong>
+            {portfolio.balances.map((b) => (
+              <div key={b.assetKey} className="ad-row ad-item-card">
+                <div className="ad-text-sm tabular-nums">
+                  <strong>{b.code}</strong> · {Number(b.balance).toFixed(4)}
+                </div>
+                <button
+                  type="button"
+                  className="ad-btn-secondary ad-btn-sm"
+                  onClick={() => {
+                    setSelectedAsset(b.assetKey);
+                    setActiveTab("trade");
+                  }}
+                >
+                  Trade
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {portfolio.lpPositions.length > 0 && (
+          <div className="ad-stack-6">
+            <strong className="ad-text-md">
+              AMM LP Positions ({portfolio.lpPositions.length})
+            </strong>
+            {portfolio.lpPositions.map((lp) => (
+              <div key={lp.poolId} className="ad-row ad-item-card">
+                <div className="ad-text-xs tabular-nums">
+                  <strong>{lp.reserves.map((r) => r.code).join("/") || "LP Pool"}</strong> ·{" "}
+                  {Number(lp.shares).toFixed(4)} shares
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="ad-row">
           <strong className="ad-text-md">Classic SDEX Open Offers ({offers.length})</strong>

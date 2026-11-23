@@ -4,6 +4,7 @@ import {
   listClassicOpenOffers,
 } from "@astrodex/dex-aggregator";
 import {
+  normalizeAssetIdentifier,
   StellarAddressSchema,
   type OhlcvTimeframe,
   type ServerConfig,
@@ -20,6 +21,9 @@ import type { DexServerRepository, DexTokenRecord } from "../db/repository.js";
 import { checkRateLimit, clientKeyFromHeaders } from "../rate-limit.js";
 import {
   buildUnifiedCatalog,
+  fetchTokenAmmPools,
+  fetchTokenRecentTrades,
+  fetchWalletPortfolio,
   loadLiveAmmOrderbookAndSpot,
   resolveAssetTarget,
   resolveReadFeedConfig,
@@ -496,7 +500,13 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const rawPair = decodeURIComponent(c.req.param("pair"));
     const tfParam = (c.req.query("tf") ?? "1h") as OhlcvTimeframe;
     const timeframe: OhlcvTimeframe = TIMEFRAMES.has(tfParam) ? tfParam : "1h";
-    const [rawBase = "XLM", rawQuote = "XLM"] = rawPair.split("-");
+    const [rawBase = "XLM", rawQuoteParam = "XLM"] = rawPair.split("-");
+    const rawQuote =
+      rawBase.toUpperCase() === "XLM" && rawQuoteParam.toUpperCase() === "XLM"
+        ? config.network === "mainnet"
+          ? "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+          : "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+        : rawQuoteParam;
 
     const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
     const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
@@ -531,6 +541,123 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       limit: 120,
     });
     return c.json({ ok: true, network: config.network, pair: rawPair, timeframe, candles });
+  });
+
+  router.get("/token-hub/:assetId", async (c) => {
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const includeRepoTokens = config.network === baseConfig.network;
+    const repo = c.get("repo");
+    const rawAssetId = decodeURIComponent(c.req.param("assetId"));
+    const quoteParam = c.req.query("quote");
+
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
+    const { target } = await resolveAssetTarget({
+      config,
+      repo,
+      fetchFn,
+      rawAsset: rawAssetId,
+      snapshot,
+    });
+
+    const defaultQuote =
+      quoteParam ??
+      (target.resolvedKey === "XLM"
+        ? config.network === "mainnet"
+          ? "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+          : "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+        : "XLM");
+
+    const { target: quoteTarget } = await resolveAssetTarget({
+      config,
+      repo,
+      fetchFn,
+      rawAsset: defaultQuote,
+      snapshot,
+    });
+
+    const scanner = createConfiguredScanner(config, c.env.CACHE, rawFetchFn, fetchFn);
+    const targetNorm = normalizeAssetIdentifier(target.resolvedKey);
+
+    const [ammPools, recentTrades, orderbookRes, ammInfo, audit] = await Promise.all([
+      fetchTokenAmmPools({ config, target, snapshot, fetchFn, limit: 20 }),
+      fetchTokenRecentTrades({
+        config,
+        baseTarget: target,
+        quoteTarget,
+        fetchFn,
+        limit: 15,
+      }),
+      fetchHorizonOrderbook(
+        config.horizonUrls,
+        target.classicAsset ?? target.resolvedKey,
+        quoteTarget.classicAsset ?? quoteTarget.resolvedKey,
+        20,
+        fetchFn,
+      ).catch(() => null),
+      loadLiveAmmOrderbookAndSpot({
+        config,
+        snapshot,
+        baseTarget: target,
+        quoteTarget,
+        fetchFn,
+      }).catch(() => ({ ammPairInfo: null, syntheticSnapshot: null })),
+      scanner
+        .auditToken(target.classicAsset ?? target.sorobanContractId ?? target.resolvedKey)
+        .catch(() => null),
+    ]);
+
+    const orderbook =
+      orderbookRes && (orderbookRes.bids.length > 0 || orderbookRes.asks.length > 0)
+        ? orderbookRes
+        : ammInfo.syntheticSnapshot;
+    const depth = orderbook ? computeDepthChart(orderbook) : null;
+
+    const catalogItem =
+      snapshot.catalog.find(
+        (item) =>
+          item.assetKey.toUpperCase() === target.resolvedKey.toUpperCase() ||
+          item.code.toUpperCase() === targetNorm.code.toUpperCase(),
+      ) ?? null;
+
+    return c.json({
+      ok: true,
+      network: config.network,
+      assetId: target.resolvedKey,
+      quoteAssetId: quoteTarget.resolvedKey,
+      catalogItem,
+      target,
+      ammPools,
+      ammPairInfo: ammInfo.ammPairInfo,
+      orderbook,
+      depth,
+      recentTrades,
+      audit,
+    });
+  });
+
+  router.get("/portfolio/:address", async (c) => {
+    const baseConfig = c.get("config");
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
+    const address = decodeURIComponent(c.req.param("address"));
+    const parsedAddr = StellarAddressSchema.safeParse(address);
+    if (!parsedAddr.success) {
+      return c.json({ error: "Invalid Stellar G... address" }, 400);
+    }
+
+    const [portfolio, openOffers] = await Promise.all([
+      fetchWalletPortfolio({ config, address: parsedAddr.data, fetchFn }),
+      listClassicOpenOffers(config.horizonUrls, parsedAddr.data, fetchFn).catch(() => []),
+    ]);
+
+    return c.json({
+      ok: true,
+      network: config.network,
+      address: parsedAddr.data,
+      balances: portfolio.balances,
+      lpPositions: portfolio.lpPositions,
+      openOffers,
+    });
   });
 
   router.get("/watchlists", async (c) => {

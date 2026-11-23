@@ -74,13 +74,22 @@ export function AstroIdHeader() {
           <div className="ad-min-w-0">
             <div className="ad-font-extrabold ad-flex-wrap ad-text-lg">
               <span>AstroDex</span>
-              <span
-                className={`glass-pill ${
-                  feedNetwork === "mainnet" ? "glass-pill--safe" : "glass-pill--gold"
-                }`}
-              >
-                {feedNetwork.toUpperCase()}
-              </span>
+              <div role="group" aria-label="Stellar Network" className="ad-mode-group">
+                <button
+                  type="button"
+                  className={`glass-pill ad-mode-btn ${feedNetwork === "mainnet" ? "glass-pill--safe" : ""}`}
+                  onClick={() => setFeedNetwork("mainnet")}
+                >
+                  Mainnet
+                </button>
+                <button
+                  type="button"
+                  className={`glass-pill ad-mode-btn ${feedNetwork === "testnet" ? "glass-pill--gold" : ""}`}
+                  onClick={() => setFeedNetwork("testnet")}
+                >
+                  Testnet
+                </button>
+              </div>
             </div>
             <div className="ad-text-xs ad-text-muted">
               {astroId.found && activeAccount

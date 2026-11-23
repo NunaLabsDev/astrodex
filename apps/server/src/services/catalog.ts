@@ -367,16 +367,22 @@ export async function searchCatalogAndNetworkAssets(input: {
     };
   }
 
-  const lowerQ = cleanQuery.toLowerCase();
+  // Support pair syntax like "AQUA/XLM" or "AQUA-USDC" by resolving the primary base term
+  const pairSplit = cleanQuery.includes("/")
+    ? cleanQuery.split("/")[0]?.trim() || cleanQuery
+    : cleanQuery.includes("-") && !cleanQuery.startsWith("C") && !cleanQuery.startsWith("G")
+      ? cleanQuery.split("-")[0]?.trim() || cleanQuery
+      : cleanQuery;
+  const lowerQ = pairSplit.toLowerCase();
   const localMatches = snapshot.catalog
     .map((item) => ({ item, score: rankMatchScore(item, lowerQ) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.item);
 
-  const shouldQueryExternal = localMatches.length < 4 && !isValidAssetKeyFormat(cleanQuery);
+  const shouldQueryExternal = localMatches.length < 4 && !isValidAssetKeyFormat(pairSplit);
   const external = shouldQueryExternal
-    ? await fetchExternalAssetCandidates(input.config, cleanQuery, input.fetchFn)
+    ? await fetchExternalAssetCandidates(input.config, pairSplit, input.fetchFn)
     : [];
 
   const seen = new Set<string>(localMatches.map((m) => m.assetKey.toUpperCase()));
@@ -784,4 +790,359 @@ export async function loadLiveAmmOrderbookAndSpot(input: {
   }
 
   return { ammPairInfo: null, syntheticSnapshot: null };
+}
+
+export interface TokenAmmPoolSummary {
+  poolId: string;
+  venue: "sdex_pool" | "soroswap" | "astrogate_curve";
+  feeBps: number;
+  totalShares: string;
+  totalTrustlines: number;
+  reserves: Array<{
+    assetKey: string;
+    code: string;
+    issuer?: string;
+    amount: string;
+  }>;
+  counterAssetKey: string;
+  counterCode: string;
+  spotPriceInCounter: number | null;
+}
+
+export interface TokenRecentTradeSummary {
+  id: string;
+  timestamp: string;
+  side: "buy" | "sell";
+  baseCode: string;
+  counterCode: string;
+  baseAmount: string;
+  counterAmount: string;
+  price: string;
+}
+
+function parseHorizonReserveAsset(raw: string): { assetKey: string; code: string; issuer?: string } {
+  if (raw === "native") return { assetKey: "XLM", code: "XLM" };
+  const [code, issuer] = raw.split(":");
+  if (code && issuer) {
+    return { assetKey: `${code}:${issuer}`, code, issuer };
+  }
+  return { assetKey: raw, code: raw };
+}
+
+export async function fetchTokenAmmPools(input: {
+  config: ServerConfig;
+  target: ResolvedAssetTarget;
+  snapshot: UnifiedCatalogSnapshot;
+  fetchFn: AdaptedFetch;
+  limit?: number;
+}): Promise<TokenAmmPoolSummary[]> {
+  const pools: TokenAmmPoolSummary[] = [];
+  const limit = input.limit ?? 20;
+  const horizonBase = input.config.horizonUrls[0]?.replace(/\/+$/, "");
+
+  const reserveQuery =
+    input.target.resolvedKey === "XLM"
+      ? "native"
+      : input.target.classicAsset
+        ? input.target.classicAsset
+        : null;
+
+  if (horizonBase && reserveQuery) {
+    try {
+      const res = await input.fetchFn(
+        `${horizonBase}/liquidity_pools?reserves=${encodeURIComponent(reserveQuery)}&limit=${limit}`,
+      );
+      if (res.ok) {
+        const payload = (await res.json()) as {
+          _embedded?: {
+            records?: Array<{
+              id: string;
+              fee_bp?: number;
+              total_shares?: string;
+              total_trustlines?: number;
+              reserves?: Array<{ asset: string; amount: string }>;
+            }>;
+          };
+        };
+        for (const rec of payload._embedded?.records ?? []) {
+          const parsedReserves = (rec.reserves ?? []).map((r) => ({
+            ...parseHorizonReserveAsset(r.asset),
+            amount: r.amount,
+          }));
+          const selfRes = parsedReserves.find(
+            (r) =>
+              r.assetKey.toUpperCase() === input.target.resolvedKey.toUpperCase() ||
+              (input.target.classicAsset &&
+                r.assetKey.toUpperCase() === input.target.classicAsset.toUpperCase()),
+          );
+          const counterRes = parsedReserves.find((r) => r !== selfRes) ?? parsedReserves[0];
+          const selfAmt = Number(selfRes?.amount ?? 0);
+          const counterAmt = Number(counterRes?.amount ?? 0);
+          const spot = selfAmt > 0 && counterAmt > 0 ? counterAmt / selfAmt : null;
+
+          pools.push({
+            poolId: rec.id,
+            venue: "sdex_pool",
+            feeBps: rec.fee_bp ?? 30,
+            totalShares: rec.total_shares ?? "0",
+            totalTrustlines: rec.total_trustlines ?? 0,
+            reserves: parsedReserves,
+            counterAssetKey: counterRes?.assetKey ?? "XLM",
+            counterCode: counterRes?.code ?? "XLM",
+            spotPriceInCounter: spot,
+          });
+        }
+      }
+    } catch {
+      // ignore Horizon pool fetch errors
+    }
+  }
+
+  // Sort SDEX pools by trustlines + self reserve descending so active pools appear first
+  pools.sort((a, b) => b.totalTrustlines - a.totalTrustlines);
+
+  // Also include Soroswap direct XLM / USDC pair if discoverable
+  const xlmSac = input.config.xlmSacContractId;
+  const selfNorm = normalizeAssetIdentifier(input.target.resolvedKey);
+  const selfContract =
+    input.target.sorobanContractId ??
+    (input.target.resolvedKey === "XLM" ? xlmSac : undefined);
+  if (selfContract && input.target.resolvedKey !== "XLM" && xlmSac) {
+    try {
+      const reserves = await fetchSoroswapDirectPairReserves({
+        rpcUrls: input.config.rpcUrls,
+        factoryContractId: input.config.soroswapFactoryContractId,
+        tokenInContractId: selfContract,
+        tokenOutContractId: xlmSac,
+        networkPassphrase: input.config.networkPassphrase,
+        fetchFn: input.fetchFn,
+      });
+      if (reserves && reserves.reserveIn > 0n && reserves.reserveOut > 0n) {
+        const selfAmt = Number(reserves.reserveIn) / 1e7;
+        const xlmAmt = Number(reserves.reserveOut) / 1e7;
+        pools.unshift({
+          poolId: reserves.pairId,
+          venue: "soroswap",
+          feeBps: 30,
+          totalShares: "0",
+          totalTrustlines: 0,
+          reserves: [
+            {
+              assetKey: input.target.resolvedKey,
+              code: selfNorm.code,
+              ...(selfNorm.issuer ? { issuer: selfNorm.issuer } : {}),
+              amount: selfAmt.toFixed(4),
+            },
+            {
+              assetKey: "XLM",
+              code: "XLM",
+              amount: xlmAmt.toFixed(4),
+            },
+          ],
+          counterAssetKey: "XLM",
+          counterCode: "XLM",
+          spotPriceInCounter: selfAmt > 0 ? xlmAmt / selfAmt : null,
+        });
+      }
+    } catch {
+      // ignore Soroswap lookup errors
+    }
+  }
+
+  // Check AstroGate bonding curve if token is in launchpad
+  const launchpadMatch = input.snapshot.launchpadTokens.find(
+    (t) =>
+      t.id?.toUpperCase() === input.target.resolvedKey.toUpperCase() ||
+      t.id?.toUpperCase() === selfContract?.toUpperCase(),
+  );
+  if (launchpadMatch && !launchpadMatch.graduated) {
+    pools.unshift({
+      poolId: launchpadMatch.id ?? input.target.resolvedKey,
+      venue: "astrogate_curve",
+      feeBps: 100,
+      totalShares: "0",
+      totalTrustlines: 0,
+      reserves: [
+        {
+          assetKey: "XLM",
+          code: "XLM",
+          amount: launchpadMatch.reserveXlm ?? "0",
+        },
+      ],
+      counterAssetKey: "XLM",
+      counterCode: "XLM",
+      spotPriceInCounter: null,
+    });
+  }
+
+  return pools.slice(0, limit);
+}
+
+export async function fetchTokenRecentTrades(input: {
+  config: ServerConfig;
+  baseTarget: ResolvedAssetTarget;
+  quoteTarget: ResolvedAssetTarget;
+  fetchFn: AdaptedFetch;
+  limit?: number;
+}): Promise<TokenRecentTradeSummary[]> {
+  const horizonBase = input.config.horizonUrls[0]?.replace(/\/+$/, "");
+  if (!horizonBase) return [];
+
+  const params = new URLSearchParams({
+    limit: String(input.limit ?? 15),
+    order: "desc",
+  });
+
+  const baseNorm = normalizeAssetIdentifier(input.baseTarget.resolvedKey);
+  const quoteNorm = normalizeAssetIdentifier(input.quoteTarget.resolvedKey);
+
+  if (input.baseTarget.resolvedKey === "XLM") {
+    params.set("base_asset_type", "native");
+  } else if (baseNorm.issuer) {
+    params.set("base_asset_type", baseNorm.code.length <= 4 ? "credit_alphanum4" : "credit_alphanum12");
+    params.set("base_asset_code", baseNorm.code);
+    params.set("base_asset_issuer", baseNorm.issuer);
+  } else {
+    return [];
+  }
+
+  if (input.quoteTarget.resolvedKey === "XLM") {
+    params.set("counter_asset_type", "native");
+  } else if (quoteNorm.issuer) {
+    params.set(
+      "counter_asset_type",
+      quoteNorm.code.length <= 4 ? "credit_alphanum4" : "credit_alphanum12",
+    );
+    params.set("counter_asset_code", quoteNorm.code);
+    params.set("counter_asset_issuer", quoteNorm.issuer);
+  } else {
+    return [];
+  }
+
+  try {
+    const res = await input.fetchFn(`${horizonBase}/trades?${params.toString()}`);
+    if (!res.ok) return [];
+    const payload = (await res.json()) as {
+      _embedded?: {
+        records?: Array<{
+          id: string;
+          ledger_close_time: string;
+          base_amount: string;
+          counter_amount: string;
+          base_is_seller?: boolean;
+          price?: { n: number; d: number };
+        }>;
+      };
+    };
+    return (payload._embedded?.records ?? []).map((t) => {
+      const priceNum = t.price && t.price.d > 0 ? t.price.n / t.price.d : 0;
+      return {
+        id: t.id,
+        timestamp: t.ledger_close_time,
+        side: t.base_is_seller ? "sell" : "buy",
+        baseCode: baseNorm.code,
+        counterCode: quoteNorm.code,
+        baseAmount: Number(t.base_amount).toFixed(4),
+        counterAmount: Number(t.counter_amount).toFixed(4),
+        price: priceNum > 0 ? priceNum.toFixed(6) : "0",
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export interface WalletPortfolioSnapshot {
+  address: string;
+  network: "mainnet" | "testnet";
+  balances: Array<{
+    assetKey: string;
+    code: string;
+    issuer?: string;
+    balance: string;
+  }>;
+  lpPositions: Array<{
+    poolId: string;
+    shares: string;
+    reserves: Array<{ assetKey: string; code: string; amount: string }>;
+  }>;
+}
+
+export async function fetchWalletPortfolio(input: {
+  config: ServerConfig;
+  address: string;
+  fetchFn: AdaptedFetch;
+}): Promise<WalletPortfolioSnapshot> {
+  const horizonBase = input.config.horizonUrls[0]?.replace(/\/+$/, "");
+  const balances: WalletPortfolioSnapshot["balances"] = [];
+  const lpPositions: WalletPortfolioSnapshot["lpPositions"] = [];
+  if (!horizonBase) {
+    return { address: input.address, network: input.config.network, balances, lpPositions };
+  }
+
+  try {
+    const res = await input.fetchFn(`${horizonBase}/accounts/${encodeURIComponent(input.address)}`);
+    if (!res.ok) {
+      return { address: input.address, network: input.config.network, balances, lpPositions };
+    }
+    const account = (await res.json()) as {
+      balances?: Array<{
+        asset_type: string;
+        asset_code?: string;
+        asset_issuer?: string;
+        balance: string;
+        liquidity_pool_id?: string;
+      }>;
+    };
+
+    const rawLps: Array<{ poolId: string; shares: string }> = [];
+    for (const b of account.balances ?? []) {
+      if (b.asset_type === "native") {
+        balances.push({ assetKey: "XLM", code: "XLM", balance: b.balance });
+      } else if (b.asset_type === "liquidity_pool_shares" && b.liquidity_pool_id) {
+        rawLps.push({ poolId: b.liquidity_pool_id, shares: b.balance });
+      } else if (b.asset_code && b.asset_issuer) {
+        balances.push({
+          assetKey: `${b.asset_code}:${b.asset_issuer}`,
+          code: b.asset_code,
+          issuer: b.asset_issuer,
+          balance: b.balance,
+        });
+      }
+    }
+
+    await Promise.all(
+      rawLps.slice(0, 12).map(async (lp) => {
+        try {
+          const lpRes = await input.fetchFn(`${horizonBase}/liquidity_pools/${encodeURIComponent(lp.poolId)}`);
+          if (!lpRes.ok) {
+            lpPositions.push({ poolId: lp.poolId, shares: lp.shares, reserves: [] });
+            return;
+          }
+          const lpJson = (await lpRes.json()) as {
+            reserves?: Array<{ asset: string; amount: string }>;
+          };
+          lpPositions.push({
+            poolId: lp.poolId,
+            shares: lp.shares,
+            reserves: (lpJson.reserves ?? []).map((r) => ({
+              ...parseHorizonReserveAsset(r.asset),
+              amount: r.amount,
+            })),
+          });
+        } catch {
+          lpPositions.push({ poolId: lp.poolId, shares: lp.shares, reserves: [] });
+        }
+      }),
+    );
+  } catch {
+    // ignore account lookup errors
+  }
+
+  return {
+    address: input.address,
+    network: input.config.network,
+    balances,
+    lpPositions,
+  };
 }

@@ -9,10 +9,8 @@ import {
   openTelegramDeepLink,
   shouldAllowMiniAppAccess,
 } from "./telegram/webapp.js";
-import { BookPoolsView } from "./views/BookPoolsView.js";
 import { OrdersAlertsView } from "./views/OrdersAlertsView.js";
 import { RadarView } from "./views/RadarView.js";
-import { ScannerView } from "./views/ScannerView.js";
 import { TradeChartView } from "./views/TradeChartView.js";
 
 function AstroWalletLoginGate() {
@@ -115,9 +113,9 @@ function AstroDexShell() {
         ) : (
           <>
             {activeTab === "radar" && <RadarView />}
-            {activeTab === "trade" && <TradeChartView />}
-            {activeTab === "scanner" && <ScannerView />}
-            {activeTab === "book" && <BookPoolsView />}
+            {(activeTab === "trade" || activeTab === "scanner" || activeTab === "book") && (
+              <TradeChartView />
+            )}
             {activeTab === "orders" && <OrdersAlertsView />}
           </>
         )}

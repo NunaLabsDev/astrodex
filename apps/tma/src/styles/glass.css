@@ -653,3 +653,73 @@ body {
     animation: none !important;
   }
 }
+
+/* === Mobile Overflow Fixes, Tabular Nums & 3-Tab Dock === */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.ad-shell {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.glass-card,
+.glass-sheet,
+.ad-banner,
+.ad-swap-box,
+.ad-subcard {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ad-banner {
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.glass-pill {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ad-row,
+.ad-flex-8,
+.ad-flex-6,
+.ad-grid-2,
+.ad-grid-3 {
+  min-width: 0;
+}
+
+.ad-grid-2 > *,
+.ad-grid-3 > * {
+  min-width: 0;
+}
+
+.ad-tabular,
+.ad-swap-input,
+.ad-book-ask,
+.ad-book-bid,
+.ad-font-extrabold {
+  font-variant-numeric: tabular-nums;
+}
+
+input.ad-input,
+input.ad-swap-input,
+select.ad-select,
+textarea.ad-input {
+  font-size: 16px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dock-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}

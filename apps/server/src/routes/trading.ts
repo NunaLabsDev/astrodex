@@ -273,9 +273,9 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       return c.json({ error: session.error }, session.status);
     }
 
-    const config = c.get("config");
+    const baseConfig = c.get("config");
     const repo = c.get("repo");
-    if (!config.executionEnabled) {
+    if (!baseConfig.executionEnabled) {
       return c.json({ error: "Transaction execution is disabled in Read-Only Visualizer mode" }, 403);
     }
     let body: z.infer<typeof CreateIntentBodySchema>;
@@ -287,6 +287,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
         400,
       );
     }
+    const config = body.network ? resolveReadFeedConfig(baseConfig, body.network) : baseConfig;
     if (body.network && body.network !== config.network) {
       return c.json(
         { error: `Network mismatch: requested ${body.network} on ${config.network} signer` },
@@ -350,6 +351,17 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
         const toNorm = normalizeAssetIdentifier(toTarget.resolvedKey);
         const amountInStroops = parseDecimalToStroops7(body.swapSpec.amount);
         const amountOutMinStroops = parseDecimalToStroops7(body.swapSpec.minOutputAmount);
+        if (
+          amountInStroops === null ||
+          amountOutMinStroops === null ||
+          amountInStroops <= 0n ||
+          amountOutMinStroops <= 0n
+        ) {
+          return c.json(
+            { error: "Swap amount and minOutputAmount must be greater than zero" },
+            400,
+          );
+        }
 
         if (
           body.swapSpec.venue === "astrogate_curve" &&
@@ -550,11 +562,13 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
           headers: {
             "Content-Type": "application/json",
             "X-Ecosystem-Secret": config.ecosystemSharedIntentSecret,
+            "X-Astro-Network": config.network,
           },
           body: JSON.stringify({
             intentId,
             telegramUserId: session.claims.telegramUserId,
             actionType,
+            network: config.network,
             envelope,
             expiresAt,
           }),
@@ -665,7 +679,8 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     const verifyFn =
       deps.verifyTxFn ??
       ((cfg, hash, expected) => verifyTransactionConfirmed(cfg, hash, expected, rawFetchFn));
-    const txCheck = await verifyFn(config, body.txHash, {
+    const intentCfg = resolveReadFeedConfig(config, intent.network);
+    const txCheck = await verifyFn(intentCfg, body.txHash, {
       expectedSourceAccount: intent.sourceAddress,
     });
     if (!txCheck.confirmed) {
@@ -676,7 +691,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     await Promise.all([
       repo.recordVerifiedTx({
         txHash: body.txHash.toLowerCase(),
-        network: config.network,
+        network: intentCfg.network,
         actionType: intent.subAction,
       }),
       repo.incrementProductEvent({

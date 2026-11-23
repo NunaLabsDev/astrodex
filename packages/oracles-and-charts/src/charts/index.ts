@@ -217,6 +217,60 @@ export function mergeOhlcvCandles(
   return sanitizeOhlcvCandles(Array.from(map.values())).slice(-Math.max(1, limit));
 }
 
+const MAINNET_USDC_KEY = "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+
+async function fetchKrakenXlmUsdDailyCandles(
+  fetchFn: OracleFetchLike,
+  invert: boolean,
+  limit: number,
+): Promise<OhlcvCandle[] | null> {
+  try {
+    const res = await fetchFn("https://api.kraken.com/0/public/OHLC?pair=XLMUSD&interval=1440", {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      error?: string[];
+      result?: Record<string, Array<[number, string, string, string, string, string, string, number]>>;
+    };
+    if (json.error && json.error.length > 0) return null;
+    const rows = json.result?.XXLMZUSD ?? json.result?.XLMUSD;
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const candles: OhlcvCandle[] = [];
+    for (const row of rows.slice(-limit)) {
+      const time = Number(row[0]);
+      const open = Number(row[1]);
+      const high = Number(row[2]);
+      const low = Number(row[3]);
+      const close = Number(row[4]);
+      const volume = Number(row[6]);
+      if (!Number.isFinite(time) || open <= 0 || high <= 0 || low <= 0 || close <= 0) continue;
+      if (invert) {
+        candles.push({
+          time,
+          open: 1 / open,
+          high: 1 / low,
+          low: 1 / high,
+          close: 1 / close,
+          volume: Number.isFinite(volume) ? volume * close : 0,
+        });
+      } else {
+        candles.push({
+          time,
+          open,
+          high,
+          low,
+          close,
+          volume: Number.isFinite(volume) ? volume : 0,
+        });
+      }
+    }
+    return candles.length > 0 ? candles : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchHorizonOhlcvCandles(input: {
   horizonUrls: readonly string[];
   baseAsset: string;
@@ -225,6 +279,24 @@ export async function fetchHorizonOhlcvCandles(input: {
   limit?: number | undefined;
   fetchFn: OracleFetchLike;
 }): Promise<OhlcvCandle[]> {
+  const baseUpper = input.baseAsset.trim().toUpperCase();
+  const quoteUpper = input.quoteAsset.trim().toUpperCase();
+  const isMainnetHorizon = input.horizonUrls.some(
+    (u) => !u.includes("testnet") && u.includes("horizon.stellar.org"),
+  );
+  if (input.timeframe === "1d" && isMainnetHorizon) {
+    const isXlmUsdc = baseUpper === "XLM" && quoteUpper === MAINNET_USDC_KEY;
+    const isUsdcXlm = baseUpper === MAINNET_USDC_KEY && quoteUpper === "XLM";
+    if (isXlmUsdc || isUsdcXlm) {
+      const krakenCandles = await fetchKrakenXlmUsdDailyCandles(
+        input.fetchFn,
+        isUsdcXlm,
+        Math.max(10, Math.min(200, input.limit ?? 120)),
+      );
+      if (krakenCandles) return krakenCandles;
+    }
+  }
+
   let baseParams: Record<string, string>;
   let counterParams: Record<string, string>;
   try {

@@ -5,7 +5,28 @@ import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
 
-type CatalogFilter = "all" | "official" | "community" | "launchpad";
+type CatalogFilter = "all" | "defi" | "rwa" | "community" | "launchpad";
+
+const DEFI_CODES = new Set(["AQUA", "KALE", "SSLX", "VELO", "XRF", "ASTRO", "YBX", "LSP", "HITZ"]);
+const RWA_CODES = new Set([
+  "USDC",
+  "EURC",
+  "CETES",
+  "USTRY",
+  "USDY",
+  "USDGLO",
+  "USDT0",
+  "SUSDE",
+  "YXLM",
+  "YUSDC",
+  "YBTC",
+  "GBPX",
+  "EURX",
+  "NGNC",
+  "OUSD",
+  "DEJTRSY",
+  "HYB",
+]);
 type AmmVenueChoice = "soroswap" | "aquarius" | "phoenix" | "sdex_pool" | "astrogate_curve";
 
 function reviewBadge(token: CatalogTokenItem) {
@@ -44,8 +65,9 @@ function catalogRank(item: CatalogTokenItem): number {
   const code = item.code.toUpperCase();
   if (code === "USDC" && item.reviewStatus === "official") return 100;
   if (item.assetKey === "XLM") return 96;
-  if (code === "YXLM" || code === "YUSDC" || code === "AQUA" || code === "EURC") return 90;
-  if (code === "XRP" || code === "BTCLN" || code === "SSLX") return 86;
+  if (code === "AQUA" || code === "KALE" || code === "CETES" || code === "USDY" || code === "USTRY") return 92;
+  if (code === "YXLM" || code === "YUSDC" || code === "EURC" || code === "USDT0" || code === "USDGLO") return 90;
+  if (code === "XRP" || code === "BTCLN" || code === "SSLX" || code === "VELO" || code === "XRF" || code === "YBTC") return 86;
   if (code === "ASTRO") return 85;
   if (code === "HEY" || code === "DOGEE" || code === "STELA") return 80;
   if (item.reviewStatus === "verified") return 70;
@@ -208,8 +230,18 @@ export function RadarView() {
     return out;
   }, [catalog]);
 
-  const officialCount = useMemo(
-    () => catalog.filter((item) => item.reviewStatus === "official").length,
+  const defiCount = useMemo(
+    () =>
+      catalog.filter(
+        (item) =>
+          DEFI_CODES.has(item.code.toUpperCase()) ||
+          item.ammVenue === "soroswap" ||
+          item.ammVenue === "aquarius",
+      ).length,
+    [catalog],
+  );
+  const rwaCount = useMemo(
+    () => catalog.filter((item) => RWA_CODES.has(item.code.toUpperCase())).length,
     [catalog],
   );
   const communityCount = useMemo(
@@ -218,10 +250,20 @@ export function RadarView() {
   );
 
   const filteredCatalog = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const rawQ = query.trim().toLowerCase();
+    const q = rawQ.includes("/") ? (rawQ.split("/")[0]?.trim() ?? rawQ) : rawQ;
     return catalog
       .filter((item) => {
-        if (filter === "official" && item.reviewStatus !== "official") return false;
+        const codeUp = item.code.toUpperCase();
+        if (
+          filter === "defi" &&
+          !DEFI_CODES.has(codeUp) &&
+          item.ammVenue !== "soroswap" &&
+          item.ammVenue !== "aquarius"
+        ) {
+          return false;
+        }
+        if (filter === "rwa" && !RWA_CODES.has(codeUp)) return false;
         if (filter === "community" && item.reviewStatus === "official") return false;
         if (
           q &&
@@ -285,8 +327,8 @@ export function RadarView() {
           }}
           placeholder={
             feedNetwork === "mainnet"
-              ? "Search Mainnet token (USDC, AQUA, yXLM, EURC, XRP) or CODE:G... / C..."
-              : "Search Testnet token (ASTRO, USDC, STELA) or CODE:G... / C..."
+              ? "Search Mainnet token or pair (AQUA/XLM, KALE, CETES, USDC) or CODE:G..."
+              : "Search Testnet token or pair (ASTRO/XLM, USDC, STELA) or CODE:G..."
           }
           submitLabel="Scan"
           primaryActionLabel="Quote"
@@ -451,8 +493,9 @@ export function RadarView() {
           {(
             [
               { id: "all", label: `All (${catalog.length})` },
-              { id: "official", label: `Official (${officialCount})` },
-              { id: "community", label: `Community & AMMs (${communityCount})` },
+              { id: "defi", label: `DeFi & AMMs (${defiCount})` },
+              { id: "rwa", label: `Stables & RWA (${rwaCount})` },
+              { id: "community", label: `Community (${communityCount})` },
               { id: "launchpad", label: `Launchpad (${launchpadTokens.length})` },
             ] as const
           ).map((tab) => (

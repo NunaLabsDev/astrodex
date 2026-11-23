@@ -27,6 +27,7 @@ import {
 
 export type AppMode = "basic" | "pro";
 export type DockTab = "radar" | "trade" | "scanner" | "book" | "orders";
+export type TradeSubTab = "swap" | "pools" | "safety";
 
 interface AppContextValue {
   config: TmaConfig;
@@ -45,6 +46,8 @@ interface AppContextValue {
   setMode: (mode: AppMode) => void;
   activeTab: DockTab;
   setActiveTab: (tab: DockTab) => void;
+  tradeSubTab: TradeSubTab;
+  setTradeSubTab: (sub: TradeSubTab) => void;
   selectedAsset: string;
   setSelectedAsset: (assetId: string) => void;
   defaultPairAsset: string;
@@ -72,7 +75,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>(config.defaultFeedNetwork);
-  const executionDisabled = !config.executionEnabled || feedNetwork !== config.network;
+  const executionDisabled = !config.executionEnabled;
 
   const [authStatus, setAuthStatus] = useState<TelegramAuthStatus>("checking");
   const [authError, setAuthError] = useState<string | null>(null);
@@ -85,6 +88,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [mode, setModeState] = useState<AppMode>("basic");
   const [activeTab, setActiveTabState] = useState<DockTab>("radar");
+  const [tradeSubTab, setTradeSubTab] = useState<TradeSubTab>("swap");
   const [selectedAsset, setSelectedAsset] = useState<string>("XLM");
   const [authAttempt, setAuthAttempt] = useState(0);
   const [catalog, setCatalog] = useState<CatalogTokenItem[]>([]);
@@ -154,17 +158,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     if (parsed.kind === "token") {
       setSelectedAsset(parsed.assetId);
+      setTradeSubTab("swap");
       setActiveTabState("trade");
     } else if (parsed.kind === "scan") {
       setSelectedAsset(parsed.assetId);
-      setActiveTabState("scanner");
+      setTradeSubTab("safety");
+      setActiveTabState("trade");
     } else if (parsed.kind === "pair") {
       setSelectedAsset(parsed.pairId);
+      setTradeSubTab("swap");
       setActiveTabState("trade");
     } else if (parsed.kind === "tab") {
-      const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
-      if (tabSet.has(parsed.tab as DockTab)) {
-        setActiveTabState(parsed.tab as DockTab);
+      if (parsed.tab === "scanner") {
+        setTradeSubTab("safety");
+        setActiveTabState("trade");
+      } else if (parsed.tab === "book") {
+        setTradeSubTab("pools");
+        setActiveTabState("trade");
+      } else {
+        const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
+        if (tabSet.has(parsed.tab as DockTab)) {
+          setActiveTabState(parsed.tab as DockTab);
+        }
       }
     }
   }, [config.network]);
@@ -253,6 +268,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setActiveTab = useCallback((next: DockTab) => {
     triggerTelegramHaptic("selection");
+    if (next === "scanner") {
+      setTradeSubTab("safety");
+      setActiveTabState("trade");
+      return;
+    }
+    if (next === "book") {
+      setTradeSubTab("pools");
+      setActiveTabState("trade");
+      return;
+    }
     setActiveTabState(next);
   }, []);
 
@@ -351,6 +376,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setMode,
         activeTab,
         setActiveTab,
+        tradeSubTab,
+        setTradeSubTab,
         selectedAsset,
         setSelectedAsset,
         defaultPairAsset,
