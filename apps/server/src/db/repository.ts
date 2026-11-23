@@ -49,6 +49,26 @@ export interface PriceAlertRecord {
   createdAt: number;
 }
 
+export interface DexMetricsSnapshot {
+  totalPairs: number;
+  totalTokens: number;
+  confirmedIntents: number;
+  verifiedTxCount: number;
+  dau: number;
+  wau: number;
+  mau: number;
+  dailySeries: Array<{ day: string; dau: number; events: number }>;
+  platforms: Record<string, number>;
+  eventBreakdown: Record<string, number>;
+  recentVerifiedTxs: Array<{
+    txHash: string;
+    actionType: string;
+    assetCode?: string | undefined;
+    amountEst?: string | undefined;
+    createdAt: number;
+  }>;
+}
+
 export interface DexServerRepository {
   upsertToken(token: DexTokenRecord): Promise<DexTokenRecord>;
   listTokens(limit?: number): Promise<readonly DexTokenRecord[]>;
@@ -91,6 +111,34 @@ export interface DexServerRepository {
     nowSec?: number | undefined;
   }): Promise<{ allowed: boolean; count: number; retryAfterSeconds: number }>;
   purgeExpiredRecords(nowSec: number): Promise<void>;
+
+  recordDailyUserActivity(input: {
+    dayUtc: string;
+    userHash: string;
+    network: "testnet" | "mainnet";
+    platform?: string | undefined;
+    lang?: string | undefined;
+    nowSec?: number | undefined;
+  }): Promise<void>;
+  incrementProductEvent(input: {
+    dayUtc: string;
+    network: "testnet" | "mainnet";
+    eventType: string;
+    delta?: number | undefined;
+    nowSec?: number | undefined;
+  }): Promise<void>;
+  recordVerifiedTx(input: {
+    txHash: string;
+    network: "testnet" | "mainnet";
+    actionType: string;
+    assetCode?: string | undefined;
+    amountEst?: string | undefined;
+    nowSec?: number | undefined;
+  }): Promise<void>;
+  getPublicMetricsSnapshot(
+    network: "testnet" | "mainnet",
+    nowSec?: number,
+  ): Promise<DexMetricsSnapshot>;
 }
 
 export function createD1Repository(db: D1Database): DexServerRepository {
@@ -539,6 +587,204 @@ export function createD1Repository(db: D1Database): DexServerRepository {
         db.prepare("DELETE FROM rate_limits WHERE window_start < ?1").bind(nowSec - 3_600),
       ]);
     },
+
+    async recordDailyUserActivity(input) {
+      const now = input.nowSec ?? Math.floor(Date.now() / 1000);
+      const platform = (input.platform ?? "unknown").slice(0, 32) || "unknown";
+      const lang = (input.lang ?? "en").slice(0, 16) || "en";
+      try {
+        await db
+          .prepare(
+            `INSERT INTO daily_user_activity (day_utc, user_hash, network, platform, lang, first_seen_at, last_seen_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(day_utc, user_hash, network) DO UPDATE SET
+               platform = CASE WHEN excluded.platform != 'unknown' THEN excluded.platform ELSE daily_user_activity.platform END,
+               lang = excluded.lang,
+               last_seen_at = excluded.last_seen_at`,
+          )
+          .bind(input.dayUtc, input.userHash, input.network, platform, lang, now, now)
+          .run();
+      } catch {
+        // Ignore gracefully before migration 0003
+      }
+    },
+
+    async incrementProductEvent(input) {
+      const now = input.nowSec ?? Math.floor(Date.now() / 1000);
+      const delta = Math.max(1, Math.floor(input.delta ?? 1));
+      try {
+        await db
+          .prepare(
+            `INSERT INTO product_events_daily (day_utc, network, event_type, count, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(day_utc, network, event_type) DO UPDATE SET
+               count = product_events_daily.count + excluded.count,
+               updated_at = excluded.updated_at`,
+          )
+          .bind(input.dayUtc, input.network, input.eventType, delta, now)
+          .run();
+      } catch {
+        // Ignore gracefully before migration 0003
+      }
+    },
+
+    async recordVerifiedTx(input) {
+      const now = input.nowSec ?? Math.floor(Date.now() / 1000);
+      try {
+        await db
+          .prepare(
+            `INSERT OR IGNORE INTO verified_tx_log (tx_hash, network, action_type, asset_code, amount_est, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+          )
+          .bind(
+            input.txHash.toLowerCase(),
+            input.network,
+            input.actionType,
+            input.assetCode ?? null,
+            input.amountEst ?? null,
+            now,
+          )
+          .run();
+      } catch {
+        // Ignore gracefully before migration 0003
+      }
+    },
+
+    async getPublicMetricsSnapshot(network, nowSec) {
+      const nowMs = (nowSec ?? Math.floor(Date.now() / 1000)) * 1000;
+      const dayUtc = new Date(nowMs).toISOString().slice(0, 10);
+      const day7Utc = new Date(nowMs - 6 * 86_400_000).toISOString().slice(0, 10);
+      const day30Utc = new Date(nowMs - 29 * 86_400_000).toISOString().slice(0, 10);
+
+      const safeFirst = async <T>(sql: string, ...binds: unknown[]): Promise<T | null> => {
+        try {
+          return await db.prepare(sql).bind(...binds).first<T>();
+        } catch {
+          return null;
+        }
+      };
+      const safeAll = async <T>(sql: string, ...binds: unknown[]): Promise<T[]> => {
+        try {
+          const res = await db.prepare(sql).bind(...binds).all<T>();
+          return res.results ?? [];
+        } catch {
+          return [];
+        }
+      };
+
+      const [
+        pairsRow,
+        tokensRow,
+        intentsRow,
+        dauRow,
+        wauRow,
+        mauRow,
+        dauSeriesRows,
+        eventSeriesRows,
+        platformRows,
+        eventBreakdownRows,
+        verifiedCountRow,
+        verifiedTxRows,
+      ] = await Promise.all([
+        safeFirst<{ cnt: number }>("SELECT COUNT(*) AS cnt FROM dex_pairs"),
+        safeFirst<{ cnt: number }>("SELECT COUNT(*) AS cnt FROM dex_tokens"),
+        safeFirst<{ cnt: number }>(
+          "SELECT COUNT(*) AS cnt FROM signed_intents WHERE network = ?1 AND status = 'confirmed'",
+          network,
+        ),
+        safeFirst<{ cnt: number }>(
+          "SELECT COUNT(DISTINCT user_hash) AS cnt FROM daily_user_activity WHERE network = ?1 AND day_utc = ?2",
+          network,
+          dayUtc,
+        ),
+        safeFirst<{ cnt: number }>(
+          "SELECT COUNT(DISTINCT user_hash) AS cnt FROM daily_user_activity WHERE network = ?1 AND day_utc >= ?2",
+          network,
+          day7Utc,
+        ),
+        safeFirst<{ cnt: number }>(
+          "SELECT COUNT(DISTINCT user_hash) AS cnt FROM daily_user_activity WHERE network = ?1 AND day_utc >= ?2",
+          network,
+          day30Utc,
+        ),
+        safeAll<{ day: string; dau: number }>(
+          "SELECT day_utc AS day, COUNT(DISTINCT user_hash) AS dau FROM daily_user_activity WHERE network = ?1 AND day_utc >= ?2 GROUP BY day_utc ORDER BY day_utc ASC",
+          network,
+          day30Utc,
+        ),
+        safeAll<{ day: string; events: number }>(
+          "SELECT day_utc AS day, SUM(count) AS events FROM product_events_daily WHERE network = ?1 AND day_utc >= ?2 GROUP BY day_utc ORDER BY day_utc ASC",
+          network,
+          day30Utc,
+        ),
+        safeAll<{ platform: string; cnt: number }>(
+          "SELECT platform, COUNT(DISTINCT user_hash) AS cnt FROM daily_user_activity WHERE network = ?1 AND day_utc >= ?2 GROUP BY platform",
+          network,
+          day30Utc,
+        ),
+        safeAll<{ event_type: string; cnt: number }>(
+          "SELECT event_type, SUM(count) AS cnt FROM product_events_daily WHERE network = ?1 AND day_utc >= ?2 GROUP BY event_type ORDER BY cnt DESC",
+          network,
+          day30Utc,
+        ),
+        safeFirst<{ cnt: number }>(
+          "SELECT COUNT(*) AS cnt FROM verified_tx_log WHERE network = ?1",
+          network,
+        ),
+        safeAll<{
+          tx_hash: string;
+          action_type: string;
+          asset_code: string | null;
+          amount_est: string | null;
+          created_at: number;
+        }>(
+          "SELECT tx_hash, action_type, asset_code, amount_est, created_at FROM verified_tx_log WHERE network = ?1 ORDER BY created_at DESC LIMIT 15",
+          network,
+        ),
+      ]);
+
+      const seriesMap = new Map<string, { day: string; dau: number; events: number }>();
+      for (const r of dauSeriesRows) {
+        seriesMap.set(r.day, { day: r.day, dau: Number(r.dau) || 0, events: 0 });
+      }
+      for (const r of eventSeriesRows) {
+        const prev = seriesMap.get(r.day) ?? { day: r.day, dau: 0, events: 0 };
+        prev.events = Number(r.events) || 0;
+        seriesMap.set(r.day, prev);
+      }
+
+      const platforms: Record<string, number> = {};
+      for (const r of platformRows) {
+        platforms[r.platform || "unknown"] = Number(r.cnt) || 0;
+      }
+      const eventBreakdown: Record<string, number> = {};
+      for (const r of eventBreakdownRows) {
+        eventBreakdown[r.event_type] = Number(r.cnt) || 0;
+      }
+
+      const recentVerifiedTxs = verifiedTxRows.map((r) => ({
+        txHash: r.tx_hash,
+        actionType: r.action_type,
+        ...(r.asset_code ? { assetCode: r.asset_code } : {}),
+        ...(r.amount_est ? { amountEst: r.amount_est } : {}),
+        createdAt: Number(r.created_at) || 0,
+      }));
+      const confirmedIntents = Number(intentsRow?.cnt ?? 0);
+
+      return {
+        totalPairs: Number(pairsRow?.cnt ?? 0),
+        totalTokens: Number(tokensRow?.cnt ?? 0),
+        confirmedIntents,
+        verifiedTxCount: Math.max(Number(verifiedCountRow?.cnt ?? 0), confirmedIntents),
+        dau: Number(dauRow?.cnt ?? 0),
+        wau: Number(wauRow?.cnt ?? 0),
+        mau: Number(mauRow?.cnt ?? 0),
+        dailySeries: Array.from(seriesMap.values()).sort((a, b) => a.day.localeCompare(b.day)),
+        platforms,
+        eventBreakdown,
+        recentVerifiedTxs,
+      };
+    },
   };
 }
 
@@ -552,6 +798,12 @@ export function createInMemoryRepository(): DexServerRepository {
   const intents = new Map<string, SignedIntent>();
   const tgUpdates = new Set<number>();
   const rateLimits = new Map<string, { windowStart: number; count: number }>();
+  const dauSet = new Map<string, { day: string; userHash: string; platform: string }>();
+  const eventCounts = new Map<string, { day: string; eventType: string; count: number }>();
+  const verifiedTxs = new Map<
+    string,
+    { txHash: string; actionType: string; assetCode?: string; amountEst?: string; createdAt: number }
+  >();
 
   return {
     async upsertToken(token) {
@@ -691,6 +943,55 @@ export function createInMemoryRepository(): DexServerRepository {
           intents.delete(id);
         }
       }
+    },
+    async recordDailyUserActivity(input) {
+      dauSet.set(`${input.dayUtc}:${input.userHash}:${input.network}`, {
+        day: input.dayUtc,
+        userHash: input.userHash,
+        platform: input.platform ?? "unknown",
+      });
+    },
+    async incrementProductEvent(input) {
+      const k = `${input.dayUtc}:${input.network}:${input.eventType}`;
+      const prev = eventCounts.get(k);
+      eventCounts.set(k, {
+        day: input.dayUtc,
+        eventType: input.eventType,
+        count: (prev?.count ?? 0) + (input.delta ?? 1),
+      });
+    },
+    async recordVerifiedTx(input) {
+      verifiedTxs.set(input.txHash.toLowerCase(), {
+        txHash: input.txHash.toLowerCase(),
+        actionType: input.actionType,
+        ...(input.assetCode ? { assetCode: input.assetCode } : {}),
+        ...(input.amountEst ? { amountEst: input.amountEst } : {}),
+        createdAt: input.nowSec ?? Math.floor(Date.now() / 1000),
+      });
+    },
+    async getPublicMetricsSnapshot() {
+      const uniqueUsers = new Set(Array.from(dauSet.values()).map((d) => d.userHash));
+      const platforms: Record<string, number> = {};
+      const eventBreakdown: Record<string, number> = {};
+      for (const d of dauSet.values()) {
+        platforms[d.platform] = (platforms[d.platform] ?? 0) + 1;
+      }
+      for (const ev of eventCounts.values()) {
+        eventBreakdown[ev.eventType] = (eventBreakdown[ev.eventType] ?? 0) + ev.count;
+      }
+      return {
+        totalPairs: pairs.size,
+        totalTokens: tokens.size,
+        confirmedIntents: Array.from(intents.values()).filter((i) => i.status === "confirmed").length,
+        verifiedTxCount: verifiedTxs.size,
+        dau: uniqueUsers.size,
+        wau: uniqueUsers.size,
+        mau: uniqueUsers.size,
+        dailySeries: [],
+        platforms,
+        eventBreakdown,
+        recentVerifiedTxs: Array.from(verifiedTxs.values()).slice(0, 15),
+      };
     },
   };
 }

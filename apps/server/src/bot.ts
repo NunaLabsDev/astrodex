@@ -97,6 +97,26 @@ export function createAstroDexBot(
     }
   });
 
+  bot.command("stats", async (ctx) => {
+    const snap = await repo.getPublicMetricsSnapshot(config.network);
+    const walletBase = (config.astroWalletApiBaseUrl ?? "https://astrowallet-soroban.pages.dev").replace(/\/+$/, "");
+    await ctx.reply(
+      [
+        `📊 <b>AstroDex · Live Traction</b> · <code>${config.network.toUpperCase()}</code>`,
+        "",
+        `• <b>Active (DAU / WAU / MAU):</b> <code>${snap.dau} / ${snap.wau} / ${snap.mau}</code>`,
+        `• <b>Indexed Pairs / Tokens:</b> <code>${snap.totalPairs} / ${snap.totalTokens}</code>`,
+        `• <b>Verified Swaps &amp; Orders:</b> <code>${snap.verifiedTxCount}</code>`,
+      ].join("\n"),
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [[{ text: "📊 Open ASTRO Ecosystem Stats", url: `${walletBase}/stats` }]],
+        },
+      },
+    );
+  });
+
   bot.command("help", async (ctx) => {
     if (!isExplicitMentionInGroup(ctx)) return;
     await ctx.reply(
@@ -104,7 +124,7 @@ export function createAstroDexBot(
         `<b>AstroDex</b> · <code>${config.network.toUpperCase()}</code>`,
         "Non-custodial trading terminal powered by AstroWallet (AstroID).",
         "",
-        "<b>Commands:</b> /scan · /route · /book · /chart · /list · /whales · /jackpot · /alerts",
+        "<b>Commands:</b> /scan · /route · /book · /chart · /list · /whales · /jackpot · /alerts · /stats",
         `<i>Inline:</i> <code>@${botHandle} XLM</code>`,
       ].join("\n"),
       { parse_mode: "HTML" },

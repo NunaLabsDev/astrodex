@@ -721,4 +721,30 @@ describe("@astrodex/server", () => {
     expect(res2.headers.get("X-AstroDex-Cache")).toBe("HIT");
     expect(fetchCalls).toBe(callsAfterFirst);
   });
+
+  it("serves open-CORS /v1/metrics/public and /v1/metrics/badge.svg", async () => {
+    const repo = createInMemoryRepository();
+    const app = createApp({ createRepo: () => repo });
+
+    const pubRes = await app.request(
+      "/v1/metrics/public",
+      { method: "GET", headers: { Origin: "https://astrowallet-soroban.pages.dev" } },
+      makeBaseEnv(),
+    );
+    expect(pubRes.status).toBe(200);
+    expect(pubRes.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    const body = (await pubRes.json()) as {
+      ok: boolean;
+      service: string;
+      privacy: { cookies: boolean; piiExposed: boolean };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.service).toBe("astrodex");
+    expect(body.privacy.cookies).toBe(false);
+    expect(body.privacy.piiExposed).toBe(false);
+
+    const badgeRes = await app.request("/v1/metrics/badge.svg", { method: "GET" }, makeBaseEnv());
+    expect(badgeRes.status).toBe(200);
+    expect(badgeRes.headers.get("Content-Type")).toContain("image/svg+xml");
+  });
 });

@@ -10,9 +10,12 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { DexServerRepository } from "../db/repository.js";
 import { adaptFetch, type FetchLike } from "../stellar-verifier.js";
+import { computeMonthlyUserHash, utcDayString } from "./metrics.js";
 
 const TgAuthBodySchema = z.object({
   initData: z.string().trim().min(1).max(8192),
+  platform: z.string().trim().max(32).optional(),
+  lang: z.string().trim().max(16).optional(),
 });
 
 const MINI_APP_SESSION_TTL_SECONDS = 15 * 60;
@@ -82,6 +85,27 @@ export function createTgAuthRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     }
 
     const tgUser = verified.data.user;
+    const repo = c.get("repo");
+    const dayUtc = utcDayString();
+    const userHash = await computeMonthlyUserHash(
+      tgUser.id,
+      config.intentHmacSecret,
+      dayUtc,
+    );
+    await Promise.all([
+      repo.recordDailyUserActivity({
+        dayUtc,
+        userHash,
+        network: config.network,
+        platform: body.platform,
+        lang: body.lang,
+      }),
+      repo.incrementProductEvent({
+        dayUtc,
+        network: config.network,
+        eventType: "dex_open",
+      }),
+    ]);
     const now = Math.floor(Date.now() / 1000);
     const expiresAt = now + MINI_APP_SESSION_TTL_SECONDS;
     const sessionToken = await signMiniAppSessionToken(

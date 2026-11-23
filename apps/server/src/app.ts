@@ -11,6 +11,7 @@ import { createAstroDexBot } from "./bot.js";
 import { createD1Repository, type DexServerRepository } from "./db/repository.js";
 import { createMarketRoutes } from "./routes/markets.js";
 import { createMcpRoutes } from "./routes/mcp.js";
+import { createMetricsRoutes } from "./routes/metrics.js";
 import { createProxyRoutes } from "./routes/proxy.js";
 import { createTgAuthRoutes } from "./routes/tg-auth.js";
 import { createTradingRoutes, type TradingRoutesDeps } from "./routes/trading.js";
@@ -123,14 +124,21 @@ export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
     c.set("config", config);
 
     const origin = c.req.header("Origin");
+    const isOpenMetrics = c.req.path.startsWith("/v1/metrics/");
     if (origin) {
-      if (!config.allowedOrigins.includes(origin)) {
-        return c.json({ error: "Origin not allowed" }, 403);
+      if (isOpenMetrics) {
+        c.header("Access-Control-Allow-Origin", "*");
+        c.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+        c.header("Access-Control-Allow-Headers", "Content-Type");
+      } else {
+        if (!config.allowedOrigins.includes(origin)) {
+          return c.json({ error: "Origin not allowed" }, 403);
+        }
+        c.header("Access-Control-Allow-Origin", origin);
+        c.header("Vary", "Origin");
+        c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        c.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
       }
-      c.header("Access-Control-Allow-Origin", origin);
-      c.header("Vary", "Origin");
-      c.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-      c.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
       if (c.req.method === "OPTIONS") {
         return c.body(null, 204);
       }
@@ -238,6 +246,7 @@ export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
   });
 
   app.route("/v1", createTgAuthRoutes({ fetchFn: effectiveFetch }));
+  app.route("/v1", createMetricsRoutes());
   app.route("/v1", createMarketRoutes({ fetchFn: effectiveFetch }));
   app.route(
     "/v1",

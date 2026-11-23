@@ -258,6 +258,12 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
       accountKind: body.accountKind,
     });
 
+    await repo.incrementProductEvent({
+      dayUtc: new Date().toISOString().slice(0, 10),
+      network: config.network,
+      eventType: "quote_requested",
+    });
+
     return c.json({ ok: true, network: config.network, quote });
   });
 
@@ -667,6 +673,18 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     }
 
     await repo.markIntentConfirmed(intent.intentId, body.txHash);
+    await Promise.all([
+      repo.recordVerifiedTx({
+        txHash: body.txHash.toLowerCase(),
+        network: config.network,
+        actionType: intent.subAction,
+      }),
+      repo.incrementProductEvent({
+        dayUtc: new Date().toISOString().slice(0, 10),
+        network: config.network,
+        eventType: "dex_intent_confirmed",
+      }),
+    ]);
     return c.json({
       ok: true,
       status: "confirmed",
