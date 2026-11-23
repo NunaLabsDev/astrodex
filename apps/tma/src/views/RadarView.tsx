@@ -1,5 +1,5 @@
 import type { CatalogTokenItem } from "@astrodex/domain";
-import { buildAstroDexDeepLink, buildAstroGateDeepLink } from "@astrodex/tg-protocol";
+import { buildAstroDexDeepLink } from "@astrodex/tg-protocol";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
@@ -241,13 +241,6 @@ export function RadarView() {
       });
   }, [catalog, filter, query]);
 
-  const launchUrl = config.astroGateBotUsername
-    ? buildAstroGateDeepLink({
-        astroGateBotUsername: config.astroGateBotUsername,
-        startParam: "launch",
-      })
-    : null;
-
   return (
     <div className="ad-stack-12">
       <section className="glass-card ad-stack-10">
@@ -279,15 +272,6 @@ export function RadarView() {
                 onClick={() => setShowListForm((prev) => !prev)}
               >
                 {showListForm ? "Close" : "+ List"}
-              </button>
-            )}
-            {launchUrl && (
-              <button
-                type="button"
-                className="ad-btn-secondary"
-                onClick={() => openTelegramDeepLink(launchUrl)}
-              >
-                Launchpad
               </button>
             )}
           </div>
@@ -339,12 +323,6 @@ export function RadarView() {
                 {chip.reviewStatus === "unreviewed_warning" && <span>⚠️</span>}
               </button>
             ))}
-          </div>
-        )}
-
-        {mode === "basic" && (
-          <div className="ad-text-xs ad-text-muted">
-            Tip: Tap <strong>Quote</strong> for live charts &amp; 5-venue routing, <strong>Book</strong> for live liquidity depth, or <strong>Scan</strong> for an instant safety audit. (Execution is paused in Read-Only Visualizer mode.)
           </div>
         )}
       </section>

@@ -78,107 +78,88 @@ export function AstroIdHeader() {
                   feedNetwork === "mainnet" ? "glass-pill--safe" : "glass-pill--gold"
                 }`}
               >
-                {feedNetwork.toUpperCase()} LIVE
+                {feedNetwork.toUpperCase()}
               </span>
-              {executionDisabled && (
-                <span className="glass-pill glass-pill--warn">READ-ONLY</span>
-              )}
             </div>
             <div className="ad-text-xs ad-text-muted">
               {astroId.found && activeAccount
                 ? `@${astroId.usernameLower ?? "astroid"} · ${shortAddr(activeAccount.address)}`
-                : "Live Market Visualizer · Trading Paused"}
+                : executionDisabled
+                  ? "Read-only · Live market"
+                  : "Live Stellar & Soroban DEX"}
             </div>
           </div>
         </div>
 
-        <div role="group" aria-label="UI Disclosure Mode" className="ad-mode-group">
-          <button
-            type="button"
-            className={`glass-pill ad-mode-btn ${mode === "basic" ? "ad-mode-btn--basic-active" : ""}`}
-            onClick={() => setMode("basic")}
-          >
-            Basic
-          </button>
-          <button
-            type="button"
-            className={`glass-pill ad-mode-btn ${mode === "pro" ? "ad-mode-btn--pro-active" : ""}`}
-            onClick={() => setMode("pro")}
-          >
-            Pro Scanner
-          </button>
-        </div>
-      </div>
-
-      <div className="ad-row ad-row-wrap">
-        <div className="ad-flex-wrap">
-          <button
-            type="button"
-            className={`glass-pill ad-clickable ${feedNetwork === "mainnet" ? "glass-pill--safe" : ""}`}
-            onClick={() => setFeedNetwork("mainnet")}
-          >
-            Mainnet
-          </button>
-          <button
-            type="button"
-            className={`glass-pill ad-clickable ${feedNetwork === "testnet" ? "glass-pill--gold" : ""}`}
-            onClick={() => setFeedNetwork("testnet")}
-          >
-            Testnet
-          </button>
-          {astroId.accounts.length > 0 ? (
-            astroId.accounts.map((acc) => (
-              <button
-                key={acc.address}
-                type="button"
-                className={`glass-pill ad-clickable ${activeAccount?.address === acc.address ? "glass-pill--gold" : ""}`}
-                onClick={() => setActiveAccountAddress(acc.address)}
-              >
-                {acc.kind === "smart" ? "C..." : "G..."} {shortAddr(acc.address)}
-              </button>
-            ))
-          ) : (
+        <div className="ad-flex-6">
+          <div role="group" aria-label="UI Disclosure Mode" className="ad-mode-group">
             <button
               type="button"
-              className="glass-pill ad-clickable"
-              onClick={() => setShowConnectSheet((prev) => !prev)}
+              className={`glass-pill ad-mode-btn ${mode === "basic" ? "ad-mode-btn--basic-active" : ""}`}
+              onClick={() => setMode("basic")}
             >
-              ⚡ Lookup Address / AstroID
+              Basic
             </button>
-          )}
-        </div>
-
-        <div className="ad-flex-6">
+            <button
+              type="button"
+              className={`glass-pill ad-mode-btn ${mode === "pro" ? "ad-mode-btn--pro-active" : ""}`}
+              onClick={() => setMode("pro")}
+            >
+              Pro
+            </button>
+          </div>
           <button
             type="button"
             className="glass-pill ad-clickable"
             onClick={() => setShowConnectSheet((prev) => !prev)}
           >
-            {showConnectSheet ? "Close" : astroId.found ? "Switch" : "Account"}
+            {showConnectSheet
+              ? "Close"
+              : astroId.found
+                ? activeAccount
+                  ? shortAddr(activeAccount.address)
+                  : "Account"
+                : "Menu"}
           </button>
-          <button
-            type="button"
-            className="glass-pill ad-clickable"
-            onClick={() => openTelegramDeepLink(walletConnectUrl)}
-          >
-            Wallet
-          </button>
-          {astroGateUrl && (
-            <button
-              type="button"
-              className="glass-pill ad-clickable"
-              onClick={() => openTelegramDeepLink(astroGateUrl)}
-            >
-              Launchpad
-            </button>
-          )}
         </div>
       </div>
 
       {showConnectSheet && (
         <div className="ad-sub-panel">
+          <div className="ad-row ad-row-wrap">
+            <div className="ad-flex-wrap">
+              <button
+                type="button"
+                className={`glass-pill ad-clickable ${feedNetwork === "mainnet" ? "glass-pill--safe" : ""}`}
+                onClick={() => setFeedNetwork("mainnet")}
+              >
+                Mainnet
+              </button>
+              <button
+                type="button"
+                className={`glass-pill ad-clickable ${feedNetwork === "testnet" ? "glass-pill--gold" : ""}`}
+                onClick={() => setFeedNetwork("testnet")}
+              >
+                Testnet
+              </button>
+              {astroId.accounts.map((acc) => (
+                <button
+                  key={acc.address}
+                  type="button"
+                  className={`glass-pill ad-clickable ${activeAccount?.address === acc.address ? "glass-pill--gold" : ""}`}
+                  onClick={() => setActiveAccountAddress(acc.address)}
+                >
+                  {acc.kind === "smart" ? "C..." : "G..."} {shortAddr(acc.address)}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="ad-text-sm ad-text-muted">
-            <strong>Visualizer Mode:</strong> Live {feedNetwork.toUpperCase()} quotes, charts, orderbooks, and X-Ray scans are active. On-chain transaction signing is paused. Load any public <code>@AstroID</code> or <code>G...</code>/<code>C...</code> address to inspect orders.
+            {executionDisabled
+              ? `Read-only ${feedNetwork.toUpperCase()} quotes, charts, orderbooks, and X-Ray scans are active.`
+              : `Live ${feedNetwork.toUpperCase()} routing and X-Ray scans active.`}{" "}
+            Load any public <code>@AstroID</code> or <code>G...</code>/<code>C...</code> address to inspect orders.
           </div>
 
           <div className="ad-flex-wrap">
@@ -189,6 +170,15 @@ export function AstroIdHeader() {
             >
               Open AstroWallet
             </button>
+            {astroGateUrl && (
+              <button
+                type="button"
+                className="ad-btn-secondary ad-btn-md"
+                onClick={() => openTelegramDeepLink(astroGateUrl)}
+              >
+                Open AstroGate
+              </button>
+            )}
             {astroId.found && (
               <button
                 type="button"
