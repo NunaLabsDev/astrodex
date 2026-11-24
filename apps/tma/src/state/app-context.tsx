@@ -14,6 +14,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -25,7 +26,7 @@ import {
   type TelegramAuthStatus,
 } from "../telegram/webapp.js";
 
-export type DockTab = "radar" | "trade" | "scanner" | "book" | "orders";
+export type DockTab = "radar" | "watchlist" | "token" | "trade" | "scanner" | "book" | "orders";
 export type TradeScrollTarget = "swap" | "pools" | "safety" | "limit" | null;
 
 export interface AppOpenOfferItem {
@@ -36,22 +37,50 @@ export interface AppOpenOfferItem {
   price: string;
 }
 
-const LOCAL_FAVORITES_KEY = "astrodex_local_watchlist_v1";
+const LOCAL_FAVORITES_PREFIX = "astrodex_local_watchlist_v2_";
+const LEGACY_FAVORITES_KEY = "astrodex_local_watchlist_v1";
+const STARRED_META_KEY = "astrodex_starred_meta_v1";
 
-function readLocalFavorites(): string[] {
+function readLocalFavorites(net: StellarNetwork): string[] {
   try {
-    const raw = localStorage.getItem(LOCAL_FAVORITES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    const raw = localStorage.getItem(`${LOCAL_FAVORITES_PREFIX}${net}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    }
+    const legacy = localStorage.getItem(LEGACY_FAVORITES_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    }
+    return [];
   } catch {
     return [];
   }
 }
 
-function writeLocalFavorites(items: string[]): void {
+function writeLocalFavorites(net: StellarNetwork, items: string[]): void {
   try {
-    localStorage.setItem(LOCAL_FAVORITES_KEY, JSON.stringify(items));
+    localStorage.setItem(`${LOCAL_FAVORITES_PREFIX}${net}`, JSON.stringify(items));
+  } catch {
+    // Ignore restricted storage environments
+  }
+}
+
+function readStarredMeta(): Record<string, CatalogTokenItem> {
+  try {
+    const raw = localStorage.getItem(STARRED_META_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, CatalogTokenItem>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStarredMeta(meta: Record<string, CatalogTokenItem>): void {
+  try {
+    localStorage.setItem(STARRED_META_KEY, JSON.stringify(meta));
   } catch {
     // Ignore restricted storage environments
   }
@@ -72,6 +101,8 @@ interface AppContextValue {
   disconnectPublicIdentity: () => void;
   activeTab: DockTab;
   setActiveTab: (tab: DockTab) => void;
+  previousTab: "radar" | "watchlist";
+  goBackFromToken: () => void;
   tradeScrollTarget: TradeScrollTarget;
   setTradeScrollTarget: (target: TradeScrollTarget) => void;
   tradePairOverride: { fromAsset: string; toAsset: string } | null;
@@ -80,8 +111,10 @@ interface AppContextValue {
   setSelectedAsset: (assetId: string) => void;
   defaultPairAsset: string;
   favorites: string[];
-  toggleFavorite: (assetKey: string) => Promise<void>;
+  starredMeta: Record<string, CatalogTokenItem>;
+  toggleFavorite: (assetKey: string, meta?: CatalogTokenItem) => Promise<void>;
   catalog: CatalogTokenItem[];
+  catalogError: string | null;
   xlmUsd: number | null;
   launchpadTokens: Array<{
     id?: string;
@@ -116,6 +149,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [authStatus, setAuthStatus] = useState<TelegramAuthStatus>("checking");
   const [authError, setAuthError] = useState<string | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
   const [astroId, setAstroId] = useState<AstroIdProfile>({
     found: false,
     source: "none",
@@ -123,6 +157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
   const [activeTab, setActiveTabState] = useState<DockTab>("radar");
+  const [previousTab, setPreviousTab] = useState<"radar" | "watchlist">("radar");
   const [tradeScrollTarget, setTradeScrollTarget] = useState<TradeScrollTarget>(null);
   const [tradePairOverride, setTradePairOverride] = useState<{
     fromAsset: string;
@@ -132,41 +167,69 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [authAttempt, setAuthAttempt] = useState(0);
   const [openOffers, setOpenOffers] = useState<AppOpenOfferItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogTokenItem[]>([]);
-  const [favorites, setFavorites] = useState<string[]>(() => readLocalFavorites());
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<string[]>(() =>
+    readLocalFavorites(config.defaultFeedNetwork ?? config.network),
+  );
+  const [starredMeta, setStarredMeta] = useState<Record<string, CatalogTokenItem>>(() =>
+    readStarredMeta(),
+  );
   const [xlmUsd, setXlmUsd] = useState<number | null>(null);
   const [launchpadTokens, setLaunchpadTokens] = useState<AppContextValue["launchpadTokens"]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const catalogSeqRef = useRef(0);
+  const catalogAbortRef = useRef<AbortController | null>(null);
 
   const refreshCatalog = useCallback(
     async (overrideNet?: StellarNetwork) => {
       const targetNet = overrideNet ?? feedNetwork;
+      const seq = ++catalogSeqRef.current;
+      catalogAbortRef.current?.abort();
+      const controller = new AbortController();
+      catalogAbortRef.current = controller;
       setCatalogLoading(true);
+      setCatalogError(null);
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
         const res = await fetch(
           `${base}/v1/markets/overview?net=${encodeURIComponent(targetNet)}`,
+          { signal: controller.signal },
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (seq === catalogSeqRef.current) {
+            setCatalogError(`Markets temporarily unavailable (HTTP ${res.status})`);
+          }
+          return;
+        }
         const json = (await res.json()) as {
           xlmUsd?: { priceUsd?: number } | null;
           launchpadTokens?: AppContextValue["launchpadTokens"];
           catalog?: CatalogTokenItem[];
         };
+        if (seq !== catalogSeqRef.current) return;
         setXlmUsd(json.xlmUsd?.priceUsd ?? null);
         setLaunchpadTokens(json.launchpadTokens ?? []);
         if (Array.isArray(json.catalog)) {
           setCatalog(json.catalog);
         }
-      } catch {
-        // Keep graceful offline fallback
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (seq === catalogSeqRef.current) {
+          setCatalogError("Unable to reach AstroDex markets. Check connection and retry.");
+        }
       } finally {
-        setCatalogLoading(false);
+        if (seq === catalogSeqRef.current) {
+          setCatalogLoading(false);
+        }
       }
     },
     [config.apiBaseUrl, feedNetwork],
   );
 
   useEffect(() => {
+    setCatalog([]);
+    setXlmUsd(null);
+    setFavorites(readLocalFavorites(feedNetwork));
     void refreshCatalog(feedNetwork);
   }, [feedNetwork, refreshCatalog]);
 
@@ -177,14 +240,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applyStartParam = useCallback((rawParam: string) => {
-    const cleanNetPrefix = rawParam.startsWith("mainnet_")
-      ? "mainnet"
+    const cleanNetPrefix =
+      rawParam.startsWith("mainnet_") || rawParam.startsWith("m_t_") || rawParam.startsWith("m_s_")
+        ? "mainnet"
+        : rawParam.startsWith("testnet_") || rawParam.startsWith("t_t_") || rawParam.startsWith("t_s_")
+          ? "testnet"
+          : null;
+    const strippedParam = rawParam.startsWith("mainnet_")
+      ? rawParam.slice("mainnet_".length)
       : rawParam.startsWith("testnet_")
-        ? "testnet"
-        : null;
-    const strippedParam = cleanNetPrefix
-      ? rawParam.slice(cleanNetPrefix.length + 1)
-      : rawParam;
+        ? rawParam.slice("testnet_".length)
+        : rawParam;
     if (cleanNetPrefix) {
       setFeedNetworkState(cleanNetPrefix);
     }
@@ -193,32 +259,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (parsed.kind === "token") {
       setSelectedAsset(parsed.assetId);
       setTradeScrollTarget("swap");
-      setActiveTabState("trade");
+      setActiveTabState("token");
     } else if (parsed.kind === "scan") {
       setSelectedAsset(parsed.assetId);
       setTradeScrollTarget("safety");
-      setActiveTabState("trade");
+      setActiveTabState("token");
     } else if (parsed.kind === "pair") {
       setSelectedAsset(parsed.pairId);
       setTradeScrollTarget("swap");
-      setActiveTabState("trade");
+      setActiveTabState("token");
     } else if (parsed.kind === "tab") {
       if (parsed.tab === "scanner") {
         setTradeScrollTarget("safety");
-        setActiveTabState("trade");
+        setActiveTabState("token");
       } else if (parsed.tab === "book") {
         setTradeScrollTarget("pools");
-        setActiveTabState("trade");
-      } else if (parsed.tab === "orders") {
-        setActiveTabState("orders");
+        setActiveTabState("token");
+      } else if (parsed.tab === "orders" || parsed.tab === "watchlist" || parsed.tab === "alerts") {
+        setActiveTabState("watchlist");
+      } else if (parsed.tab === "trade") {
+        setTradeScrollTarget("swap");
+        setActiveTabState("token");
       } else {
-        const tabSet = new Set<DockTab>(["radar", "trade", "scanner", "book", "orders"]);
+        const tabSet = new Set<DockTab>(["radar", "watchlist", "token"]);
         if (tabSet.has(parsed.tab as DockTab)) {
           setActiveTabState(parsed.tab as DockTab);
         }
       }
-    } else if (strippedParam === "orders" || strippedParam === "alerts") {
-      setActiveTabState("orders");
+    } else if (strippedParam === "orders" || strippedParam === "alerts" || strippedParam === "watchlist") {
+      setActiveTabState("watchlist");
     }
   }, []);
 
@@ -251,6 +320,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       const json = (await res.json()) as {
         sessionToken?: string;
+        expiresAt?: number;
         startParam?: string;
         astroId?: AstroIdProfile;
         error?: string;
@@ -262,6 +332,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         applyStartParam(json.startParam);
       }
       setSessionToken(json.sessionToken);
+      setSessionExpiresAt(typeof json.expiresAt === "number" ? json.expiresAt : null);
       if (json.astroId) {
         setAstroId(json.astroId);
         const explicitNetInParam =
@@ -304,24 +375,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, [astroId.accounts, selectedAddress]);
 
-  const setActiveTab = useCallback((next: DockTab) => {
+  useEffect(() => {
+    if (!sessionToken || !sessionExpiresAt) return undefined;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const delayMs = Math.max(15_000, (sessionExpiresAt - nowSec - 120) * 1000);
+    const timer = window.setTimeout(async () => {
+      try {
+        const base = config.apiBaseUrl.replace(/\/+$/, "");
+        const res = await fetch(`${base}/v1/tg/refresh`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${sessionToken}` },
+        });
+        if (!res.ok) return;
+        const json = (await res.json()) as { sessionToken?: string; expiresAt?: number };
+        if (json.sessionToken) {
+          setSessionToken(json.sessionToken);
+          setSessionExpiresAt(typeof json.expiresAt === "number" ? json.expiresAt : null);
+        }
+      } catch {
+        // Ignore transient refresh failure
+      }
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [config.apiBaseUrl, sessionToken, sessionExpiresAt]);
+
+  const setActiveTab = useCallback(
+    (next: DockTab) => {
+      triggerTelegramHaptic("selection");
+      if (next === "radar" || next === "watchlist") {
+        setPreviousTab(next);
+        setActiveTabState(next);
+        return;
+      }
+      if (activeTab === "radar" || activeTab === "watchlist") {
+        setPreviousTab(activeTab);
+      }
+      if (next === "trade") {
+        setTradeScrollTarget("swap");
+        setActiveTabState("token");
+        return;
+      }
+      if (next === "scanner") {
+        setTradeScrollTarget("safety");
+        setActiveTabState("token");
+        return;
+      }
+      if (next === "book") {
+        setTradeScrollTarget("pools");
+        setActiveTabState("token");
+        return;
+      }
+      if (next === "orders") {
+        setPreviousTab("watchlist");
+        setActiveTabState("watchlist");
+        return;
+      }
+      setActiveTabState(next);
+    },
+    [activeTab],
+  );
+
+  const goBackFromToken = useCallback(() => {
     triggerTelegramHaptic("selection");
-    if (next === "scanner") {
-      setTradeScrollTarget("safety");
-      setActiveTabState("trade");
-      return;
-    }
-    if (next === "book") {
-      setTradeScrollTarget("pools");
-      setActiveTabState("trade");
-      return;
-    }
-    if (next === "orders") {
-      setActiveTabState("orders");
-      return;
-    }
-    setActiveTabState(next);
-  }, []);
+    setActiveTabState(previousTab);
+  }, [previousTab]);
 
   useEffect(() => {
     if (!sessionToken) return;
@@ -334,21 +451,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!res.ok) return;
         const json = (await res.json()) as { items?: string[] };
         if (!cancelled && Array.isArray(json.items)) {
-          setFavorites((prev) => {
-            const merged = Array.from(new Set([...json.items!, ...prev]));
-            writeLocalFavorites(merged);
-            return merged;
-          });
+          setFavorites(json.items);
+          writeLocalFavorites(feedNetwork, json.items);
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [config.apiBaseUrl, sessionToken]);
+  }, [config.apiBaseUrl, feedNetwork, sessionToken]);
 
   const toggleFavorite = useCallback(
-    async (assetKey: string) => {
+    async (assetKey: string, meta?: CatalogTokenItem) => {
       const cleanKey = assetKey.trim();
       if (!cleanKey) return;
       triggerTelegramHaptic("selection");
@@ -357,7 +471,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? favorites.filter((x) => x !== cleanKey)
         : [cleanKey, ...favorites];
       setFavorites(next);
-      writeLocalFavorites(next);
+      writeLocalFavorites(feedNetwork, next);
+
+      if (!exists) {
+        const resolvedMeta =
+          meta ??
+          catalog.find((c) => c.assetKey.toUpperCase() === cleanKey.toUpperCase());
+        if (resolvedMeta) {
+          setStarredMeta((prev) => {
+            const updated = { ...prev, [cleanKey]: resolvedMeta };
+            writeStarredMeta(updated);
+            return updated;
+          });
+        }
+      }
 
       if (!sessionToken) return;
       const base = config.apiBaseUrl.replace(/\/+$/, "");
@@ -379,7 +506,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Keep optimistic local favorite cleanly
       }
     },
-    [config.apiBaseUrl, favorites, sessionToken],
+    [catalog, config.apiBaseUrl, favorites, feedNetwork, sessionToken],
   );
 
   const openTradePair = useCallback((fromAsset: string, toAsset: string) => {
@@ -387,7 +514,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTradePairOverride({ fromAsset, toAsset });
     setSelectedAsset(toAsset === "XLM" ? fromAsset : toAsset);
     setTradeScrollTarget("swap");
-    setActiveTabState("trade");
+    setActiveTabState("token");
   }, []);
 
   const resolvePublicIdentity = useCallback(
@@ -518,6 +645,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         disconnectPublicIdentity,
         activeTab,
         setActiveTab,
+        previousTab,
+        goBackFromToken,
         tradeScrollTarget,
         setTradeScrollTarget,
         tradePairOverride,
@@ -526,8 +655,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSelectedAsset,
         defaultPairAsset,
         favorites,
+        starredMeta,
         toggleFavorite,
         catalog,
+        catalogError,
         xlmUsd,
         launchpadTokens,
         catalogLoading,

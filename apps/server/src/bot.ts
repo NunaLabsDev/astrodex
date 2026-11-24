@@ -82,7 +82,8 @@ export function createAstroDexBot(
   }
 
   function safeStartParam(raw: string): string {
-    return raw.slice(0, 64);
+    const clean = raw.replace(/[^A-Za-z0-9_-]/g, "_");
+    return clean.slice(0, 64);
   }
 
   function miniAppBtn(
@@ -578,7 +579,11 @@ export function createAstroDexBot(
         reply_markup: {
           inline_keyboard: [
             [
-              miniAppBtn(isPrivate, "⚡ Trade USDe in AstroDex", `mainnet_token_${USDE_KEY}`),
+              miniAppBtn(
+                isPrivate,
+                "📊 Inspect USDe in AstroDex",
+                "m_t_CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN",
+              ),
               { text: "🛡️ Buy in AstroWallet", url: astroWalletUrl },
             ],
           ],

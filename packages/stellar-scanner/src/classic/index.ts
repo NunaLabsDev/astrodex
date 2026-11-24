@@ -271,8 +271,7 @@ export async function fetchSep42VerifiedAssets(
   urls: readonly string[],
   fetchFn: ScannerFetchLike,
 ): Promise<Sep42VerifiedAsset[]> {
-  const out: Sep42VerifiedAsset[] = [];
-  const seen = new Set<string>();
+  const byKey = new Map<string, Sep42VerifiedAsset>();
 
   for (const url of urls) {
     try {
@@ -291,23 +290,33 @@ export async function fetchSep42VerifiedAssets(
       for (const item of body.assets ?? []) {
         if (!item.code) continue;
         const key = `${item.code.toUpperCase()}:${item.issuer ?? item.contract ?? ""}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({
-          code: item.code,
-          issuer: item.issuer,
-          contract: item.contract,
-          name: item.name,
-          icon: item.icon,
-          domain: item.domain,
-        });
+        const existing = byKey.get(key);
+        if (!existing) {
+          byKey.set(key, {
+            code: item.code,
+            issuer: item.issuer,
+            contract: item.contract,
+            name: item.name,
+            icon: item.icon,
+            domain: item.domain,
+          });
+        } else {
+          byKey.set(key, {
+            code: existing.code,
+            issuer: existing.issuer ?? item.issuer,
+            contract: existing.contract ?? item.contract,
+            name: existing.name ?? item.name,
+            icon: existing.icon ?? item.icon,
+            domain: existing.domain ?? item.domain,
+          });
+        }
       }
     } catch {
       // Continue to next registry
     }
   }
 
-  return out;
+  return Array.from(byKey.values());
 }
 
 export async function fetchDirectoryTags(
@@ -379,7 +388,21 @@ export function parseStellarTomlForAsset(
     const eqIdx = line.indexOf("=");
     if (eqIdx <= 0) continue;
     const key = line.slice(0, eqIdx).trim();
-    const rawVal = line.slice(eqIdx + 1).trim();
+    const rawValAfterEq = line.slice(eqIdx + 1).trim();
+    // Strip inline TOML comments outside quotes
+    let rawVal = rawValAfterEq;
+    if (rawValAfterEq.startsWith('"') || rawValAfterEq.startsWith("'")) {
+      const quoteChar = rawValAfterEq[0]!;
+      const closeIdx = rawValAfterEq.indexOf(quoteChar, 1);
+      if (closeIdx > 0) {
+        rawVal = rawValAfterEq.slice(0, closeIdx + 1);
+      }
+    } else {
+      const hashIdx = rawValAfterEq.indexOf("#");
+      if (hashIdx >= 0) {
+        rawVal = rawValAfterEq.slice(0, hashIdx).trim();
+      }
+    }
     let parsedVal: string | boolean = rawVal;
     if (
       (rawVal.startsWith('"') && rawVal.endsWith('"')) ||

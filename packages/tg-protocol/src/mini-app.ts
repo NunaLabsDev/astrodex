@@ -385,13 +385,25 @@ export function parseAstroDexStartAppParam(raw: string): ParsedAstroDexStartAppP
   if (trimmed.startsWith("token_") && trimmed.length > 6) {
     return { kind: "token", assetId: trimmed.slice(6) };
   }
+  if (trimmed.startsWith("m_t_") && trimmed.length > 4) {
+    return { kind: "token", assetId: trimmed.slice(4) };
+  }
+  if (trimmed.startsWith("t_t_") && trimmed.length > 4) {
+    return { kind: "token", assetId: trimmed.slice(4) };
+  }
   if (trimmed.startsWith("scan_") && trimmed.length > 5) {
     return { kind: "scan", assetId: trimmed.slice(5) };
+  }
+  if (trimmed.startsWith("m_s_") && trimmed.length > 4) {
+    return { kind: "scan", assetId: trimmed.slice(4) };
+  }
+  if (trimmed.startsWith("t_s_") && trimmed.length > 4) {
+    return { kind: "scan", assetId: trimmed.slice(4) };
   }
   if (trimmed.startsWith("pair_") && trimmed.length > 5) {
     return { kind: "pair", pairId: trimmed.slice(5) };
   }
-  const tabMatch = trimmed.match(/^t-([a-z0-9_-]{1,32})$/i);
+  const tabMatch = trimmed.match(/^(?:t-|tab_)([a-z0-9_-]{1,32})$/i);
   if (tabMatch?.[1]) {
     return { kind: "tab", tab: tabMatch[1].toLowerCase() };
   }

@@ -9,6 +9,31 @@ export interface TokenAvatarProps {
   scamRisk?: boolean | undefined;
 }
 
+const FALLBACK_GRADIENTS = [
+  "linear-gradient(135deg, rgba(99, 102, 241, 0.42), rgba(16, 185, 129, 0.28))",
+  "linear-gradient(135deg, rgba(128, 80, 200, 0.44), rgba(245, 201, 40, 0.24))",
+  "linear-gradient(135deg, rgba(14, 165, 233, 0.40), rgba(99, 102, 241, 0.30))",
+  "linear-gradient(135deg, rgba(241, 90, 36, 0.38), rgba(245, 201, 40, 0.24))",
+] as const;
+
+function normalizeAvatarUrl(raw?: string): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return null;
+  if (trimmed.startsWith("ipfs://")) {
+    const cid = trimmed.slice(7).replace(/^ipfs\//, "");
+    return cid ? `https://ipfs.io/ipfs/${cid}` : null;
+  }
+  return trimmed.startsWith("https://") ? trimmed : null;
+}
+
+function pickGradient(code: string): string {
+  let hash = 0;
+  for (let i = 0; i < code.length; i += 1) {
+    hash = (hash * 31 + code.charCodeAt(i)) | 0;
+  }
+  return FALLBACK_GRADIENTS[Math.abs(hash) % FALLBACK_GRADIENTS.length]!;
+}
+
 export function TokenAvatar({
   code,
   icon,
@@ -17,11 +42,7 @@ export function TokenAvatar({
   verified,
   scamRisk,
 }: TokenAvatarProps) {
-  const cleanUrl = useMemo(() => {
-    const trimmed = icon?.trim() ?? "";
-    return trimmed.startsWith("https://") ? trimmed : null;
-  }, [icon]);
-
+  const cleanUrl = useMemo(() => normalizeAvatarUrl(icon), [icon]);
   const [imgFailed, setImgFailed] = useState(false);
 
   useEffect(() => {
@@ -43,13 +64,15 @@ export function TokenAvatar({
         border: "1px solid rgba(255, 255, 255, 0.14)",
         background: nativeXlm
           ? "radial-gradient(circle at 30% 25%, #172C69 0%, #060E24 100%)"
-          : "rgba(248, 250, 255, 0.08)",
+          : cleanUrl && !imgFailed
+            ? "rgba(248, 250, 255, 0.08)"
+            : pickGradient(code),
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
         fontSize: Math.max(11, Math.round(size * 0.36)),
-        fontWeight: 700,
+        fontWeight: 800,
         color: "#F8FAFF",
       }}
     >

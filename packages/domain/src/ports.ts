@@ -55,6 +55,13 @@ export interface OraclePort {
     timeframe: OhlcvTimeframe;
     limit?: number | undefined;
   }): Promise<readonly OhlcvCandle[]>;
+  getOhlcvCandlesWithMeta?(input: {
+    pairId: string;
+    baseAsset: string;
+    quoteAsset: string;
+    timeframe: OhlcvTimeframe;
+    limit?: number | undefined;
+  }): Promise<{ candles: readonly OhlcvCandle[]; quoteCurrency: "USD" | "USDC" | "XLM" }>;
 }
 
 export interface IdentityResolverPort {

@@ -87,11 +87,13 @@ function formatCompactCount(val?: number): string {
 }
 
 function Sparkline({ points, positive }: { points?: number[] | undefined; positive: boolean }) {
-  if (!points || points.length < 2) return null;
+  if (!points || points.length < 2) {
+    return <span style={{ width: 52, height: 22, flexShrink: 0, opacity: 0.25 }} aria-hidden="true" />;
+  }
   const min = Math.min(...points);
   const max = Math.max(...points);
   const span = max - min || 1;
-  const w = 56;
+  const w = 52;
   const h = 22;
   const coords = points
     .map((p, i) => {
@@ -100,11 +102,12 @@ function Sparkline({ points, positive }: { points?: number[] | undefined; positi
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
+  const color = positive ? "#10B981" : "#F15A24";
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true" style={{ flexShrink: 0 }}>
       <polyline
         fill="none"
-        stroke={positive ? "#10B981" : "#F15A24"}
+        stroke={color}
         strokeWidth="1.7"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -192,14 +195,15 @@ const FILTER_CHIPS: Array<{ id: MarketFilter; label: string }> = [
   { id: "rwa", label: "🏦 RWA" },
 ];
 
-export function RadarView() {
+export function RadarView({ mode = "markets" }: { mode?: "markets" | "watchlist" }) {
   const {
     config,
     feedNetwork,
-    executionDisabled,
     sessionToken,
     catalog,
+    catalogError,
     favorites,
+    starredMeta,
     toggleFavorite,
     xlmUsd,
     catalogLoading,
@@ -211,13 +215,21 @@ export function RadarView() {
 
   const [query, setQuery] = useState("");
   const [searchHint, setSearchHint] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<MarketFilter>("all");
+  const [activeFilter, setActiveFilter] = useState<MarketFilter>(
+    mode === "watchlist" ? "favorites" : "all",
+  );
+  const [sortBy, setSortBy] = useState<"rank" | "price" | "change24h">("rank");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [quoteUnit, setQuoteUnit] = useState<"usd" | "xlm">("usd");
-  const [showListForm, setShowListForm] = useState(false);
+  const showListForm = false;
   const [visibleLimit, setVisibleLimit] = useState(35);
 
+  useEffect(() => {
+    setActiveFilter(mode === "watchlist" ? "favorites" : "all");
+  }, [mode]);
+
   const xlmItem = useMemo(() => catalog.find((c) => c.assetKey === "XLM"), [catalog]);
-  const liveXlmUsd = xlmUsd && xlmUsd > 0 ? xlmUsd : (xlmItem?.priceUsd ?? 0.135);
+  const liveXlmUsd = xlmUsd && xlmUsd > 0 ? xlmUsd : (xlmItem?.priceUsd ?? null);
   const xlmChange24h = xlmItem?.change24hPct ?? 0;
   const xlmSpark = xlmItem?.sparkline7d;
 
@@ -239,7 +251,7 @@ export function RadarView() {
     setSearchHint(null);
     setSelectedAsset(assetId.trim());
     setTradeScrollTarget(scrollTo);
-    setActiveTab("trade");
+    setActiveTab("token");
   };
 
   useEffect(() => {
@@ -333,10 +345,50 @@ export function RadarView() {
 
   const favSet = useMemo(() => new Set(favorites), [favorites]);
 
+  const rankByAssetKey = useMemo(() => {
+    const sorted = [...catalog].sort((a, b) => catalogRank(b) - catalogRank(a));
+    const map = new Map<string, number>();
+    sorted.forEach((item, idx) => map.set(item.assetKey, idx + 1));
+    return map;
+  }, [catalog]);
+
+  const total7dVolUsd = useMemo(
+    () => catalog.reduce((sum, item) => sum + (item.volume7dUsd ?? 0), 0),
+    [catalog],
+  );
+
   const filteredCatalog = useMemo(() => {
     const rawQ = query.trim().toLowerCase();
     const q = rawQ.includes("/") ? (rawQ.split("/")[0]?.trim() ?? rawQ) : rawQ;
-    return catalog
+    const basePool: CatalogTokenItem[] =
+      activeFilter === "favorites"
+        ? (() => {
+            const byKey = new Map<string, CatalogTokenItem>();
+            for (const item of catalog) {
+              if (favSet.has(item.assetKey)) byKey.set(item.assetKey.toUpperCase(), item);
+            }
+            for (const key of favorites) {
+              if (!byKey.has(key.toUpperCase())) {
+                const cached = starredMeta[key];
+                byKey.set(
+                  key.toUpperCase(),
+                  cached ?? {
+                    assetKey: key,
+                    kind: key.startsWith("C") ? "soroban" : "classic",
+                    code: key.includes(":") ? key.split(":")[0]! : key.slice(0, 6),
+                    decimals: 7,
+                    shieldScore: 55,
+                    reviewStatus: "unreviewed_warning",
+                    ammVenue: key.startsWith("C") ? "soroswap" : "sdex_pool",
+                  },
+                );
+              }
+            }
+            return Array.from(byKey.values());
+          })()
+        : catalog;
+
+    return basePool
       .filter((item) => {
         const codeUp = item.code.toUpperCase();
         if (activeFilter === "favorites" && !favSet.has(item.assetKey)) return false;
@@ -387,8 +439,26 @@ export function RadarView() {
       .sort((a, b) => {
         const aFav = favSet.has(a.assetKey) ? 1 : 0;
         const bFav = favSet.has(b.assetKey) ? 1 : 0;
-        if (aFav !== bFav) return bFav - aFav;
+        if (aFav !== bFav && activeFilter !== "favorites") return bFav - aFav;
 
+        if (sortBy === "price") {
+          const ap = typeof a.priceUsd === "number" && a.priceUsd > 0 ? a.priceUsd : null;
+          const bp = typeof b.priceUsd === "number" && b.priceUsd > 0 ? b.priceUsd : null;
+          if (ap === null && bp !== null) return 1;
+          if (bp === null && ap !== null) return -1;
+          if (ap !== null && bp !== null && ap !== bp) {
+            return sortDir === "desc" ? bp - ap : ap - bp;
+          }
+        }
+        if (sortBy === "change24h") {
+          const ac = typeof a.change24hPct === "number" ? a.change24hPct : null;
+          const bc = typeof b.change24hPct === "number" ? b.change24hPct : null;
+          if (ac === null && bc !== null) return 1;
+          if (bc === null && ac !== null) return -1;
+          if (ac !== null && bc !== null && ac !== bc) {
+            return sortDir === "desc" ? bc - ac : ac - bc;
+          }
+        }
         if (activeFilter === "gainers") {
           return (b.change24hPct ?? -9999) - (a.change24hPct ?? -9999);
         }
@@ -399,10 +469,10 @@ export function RadarView() {
           return (b.volume7dUsd ?? 0) - (a.volume7dUsd ?? 0);
         }
         const diff = catalogRank(b) - catalogRank(a);
-        if (diff !== 0) return diff;
+        if (diff !== 0) return sortDir === "asc" && sortBy === "rank" ? -diff : diff;
         return (b.holdersCount ?? b.shieldScore) - (a.holdersCount ?? a.shieldScore);
       });
-  }, [catalog, favSet, query, activeFilter]);
+  }, [catalog, favSet, favorites, starredMeta, query, activeFilter, sortBy, sortDir]);
 
   return (
     <div className="ad-stack-12">
@@ -410,7 +480,7 @@ export function RadarView() {
         <div className="ad-row ad-row-wrap">
           <div className="ad-flex-8 ad-min-w-0">
             <h2 className="ad-heading-sm" style={{ margin: 0 }}>
-              Stellar Markets
+              {mode === "watchlist" ? "★ Starred Watchlist" : "Stellar Markets"}
             </h2>
             <span className="glass-pill tabular-nums">
               XLM {xlmUsd && xlmUsd > 0 ? `$${xlmUsd.toFixed(4)}` : "Live"}
@@ -445,16 +515,6 @@ export function RadarView() {
             >
               {catalogLoading ? "Sync…" : "↻ Sync"}
             </button>
-            {!executionDisabled && (
-              <button
-                type="button"
-                className="glass-pill ad-clickable ad-no-shrink"
-                style={{ padding: "5px 10px" }}
-                onClick={() => setShowListForm((prev) => !prev)}
-              >
-                {showListForm ? "Close" : "+ List"}
-              </button>
-            )}
           </div>
         </div>
 
@@ -466,15 +526,10 @@ export function RadarView() {
           }}
           placeholder={
             feedNetwork === "mainnet"
-              ? "Search token (USDC, AQUA, KALE, CETES) or CODE:G..."
-              : "Search Testnet token (ASTRO, USDC, STELA) or CODE:G..."
+              ? "Search coin, ticker, or paste CODE:G... / C..."
+              : "Search Testnet coin, ticker, or paste CODE:G... / C..."
           }
-          submitLabel="Swap"
-          primaryActionLabel="Swap"
-          secondaryActionLabel="X-Ray"
-          onSelectToken={(item, action) =>
-            handleOpenAsset(item.assetKey, action === "secondary" ? "safety" : "swap")
-          }
+          onSelectToken={(item) => handleOpenAsset(item.assetKey, "swap")}
           onSubmitRaw={(raw, bestMatch) => {
             if (bestMatch) {
               handleOpenAsset(bestMatch.assetKey, "swap");
@@ -485,37 +540,52 @@ export function RadarView() {
               return;
             }
             setSearchHint(
-              `Pick a matching token from the suggestions or paste a full CODE:G... / C... ID in "+ List".`,
+              `Pick a matching coin from the suggestions or paste a full CODE:G... / C... ID.`,
             );
           }}
         />
         {searchHint && <div className="ad-banner ad-banner--warn">{searchHint}</div>}
 
-        <div className="ad-chip-row" role="tablist" aria-label="Market Filters">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeFilter === "favorites"}
-            className={`glass-pill ad-clickable ${activeFilter === "favorites" ? "glass-pill--gold" : ""}`}
-            style={{ padding: "6px 12px", fontSize: 12 }}
-            onClick={() => setActiveFilter("favorites")}
-          >
-            ♥ Favorites{favorites.length > 0 ? ` (${favorites.length})` : ""}
-          </button>
-          {FILTER_CHIPS.map((chip) => (
+        {mode === "markets" && (
+          <div className="ad-chip-row" role="tablist" aria-label="Market Filters">
             <button
-              key={chip.id}
               type="button"
               role="tab"
-              aria-selected={activeFilter === chip.id}
-              className={`glass-pill ad-clickable ${activeFilter === chip.id ? "glass-pill--gold" : ""}`}
+              aria-selected={activeFilter === "favorites"}
+              className={`glass-pill ad-clickable ${activeFilter === "favorites" ? "glass-pill--gold" : ""}`}
               style={{ padding: "6px 12px", fontSize: 12 }}
-              onClick={() => setActiveFilter(chip.id)}
+              onClick={() => setActiveFilter("favorites")}
             >
-              {chip.label}
+              ★ Watchlist{favorites.length > 0 ? ` (${favorites.length})` : ""}
             </button>
-          ))}
-        </div>
+            {FILTER_CHIPS.map((chip) => (
+              <button
+                key={chip.id}
+                type="button"
+                role="tab"
+                aria-selected={activeFilter === chip.id}
+                className={`glass-pill ad-clickable ${activeFilter === chip.id ? "glass-pill--gold" : ""}`}
+                style={{ padding: "6px 12px", fontSize: 12 }}
+                onClick={() => setActiveFilter(chip.id)}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {catalog.length > 0 && mode === "markets" && (
+          <div className="ad-row ad-text-xxs ad-text-muted tabular-nums" style={{ paddingTop: 2 }}>
+            <span>Coins: {catalog.length}</span>
+            <span>
+              XLM {liveXlmUsd ? `$${liveXlmUsd.toFixed(4)}` : "—"}
+              {xlmChange24h !== 0
+                ? ` (${xlmChange24h >= 0 ? "+" : ""}${xlmChange24h.toFixed(2)}%)`
+                : ""}
+            </span>
+            <span>7d Vol: {total7dVolUsd > 0 ? formatCompactUsd(total7dVolUsd) : "—"}</span>
+          </div>
+        )}
       </section>
 
       {showListForm && (
@@ -631,27 +701,101 @@ export function RadarView() {
         </section>
       )}
 
+      {query.trim().length === 0 && (
       <section className="glass-card ad-stack-8">
-        <div className="ad-row ad-text-xs ad-text-muted" style={{ padding: "0 4px" }}>
-          <span>Asset ({filteredCatalog.length})</span>
-          <span>7d</span>
-          <span>Price / 24h</span>
-        </div>
-
-        {catalogLoading && catalog.length === 0 ? (
+        {catalogError ? (
+          <div className="ad-banner ad-banner--danger ad-row ad-row-wrap">
+            <span>{catalogError}</span>
+            <button
+              type="button"
+              className="ad-btn-secondary ad-btn-sm"
+              onClick={() => void refreshCatalog()}
+            >
+              Retry
+            </button>
+          </div>
+        ) : catalogLoading && catalog.length === 0 ? (
           <div className="ad-stack-6">
-            <div className="ad-shimmer" style={{ height: 64 }} />
-            <div className="ad-shimmer" style={{ height: 64 }} />
-            <div className="ad-shimmer" style={{ height: 64 }} />
+            {[0, 1, 2, 3].map((k) => (
+              <div key={k} className="ad-row" style={{ gap: 10, padding: "8px 4px" }}>
+                <div className="ad-shimmer" style={{ width: 34, height: 34, borderRadius: "999px" }} />
+                <div style={{ flex: 1, display: "grid", gap: 6 }}>
+                  <div className="ad-shimmer" style={{ height: 14, width: "45%" }} />
+                  <div className="ad-shimmer" style={{ height: 10, width: "65%" }} />
+                </div>
+                <div className="ad-shimmer" style={{ width: 52, height: 22 }} />
+                <div className="ad-shimmer" style={{ width: 64, height: 26 }} />
+              </div>
+            ))}
           </div>
         ) : filteredCatalog.length === 0 ? (
-          <div className="ad-banner">
-            No matching tokens found. Try another filter or paste a token ID in Search.
+          <div className="ad-banner ad-stack-8">
+            <div>
+              {activeFilter === "favorites"
+                ? "Your watchlist is empty. Tap ★ next to any coin to track it here."
+                : "No matching coins found. Try another filter or search above."}
+            </div>
+            {mode === "watchlist" && (
+              <button
+                type="button"
+                className="ad-btn-secondary ad-btn-sm"
+                onClick={() => setActiveTab("radar")}
+              >
+                Explore Markets
+              </button>
+            )}
           </div>
         ) : (
           <div className="ad-stack-6">
-            {filteredCatalog.slice(0, visibleLimit).map((item, idx) => {
+            <div className="ad-table-head">
+              <button
+                type="button"
+                className="ad-table-sort-btn"
+                onClick={() => {
+                  if (sortBy === "rank") setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+                  else {
+                    setSortBy("rank");
+                    setSortDir("desc");
+                  }
+                }}
+              >
+                <span># Coin ({filteredCatalog.length})</span>
+                {sortBy === "rank" && <span>{sortDir === "desc" ? "↓" : "↑"}</span>}
+              </button>
+              <div className="ad-flex-8">
+                <button
+                  type="button"
+                  className="ad-table-sort-btn"
+                  onClick={() => {
+                    if (sortBy === "price") setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+                    else {
+                      setSortBy("price");
+                      setSortDir("desc");
+                    }
+                  }}
+                >
+                  <span>Price</span>
+                  {sortBy === "price" && <span>{sortDir === "desc" ? "↓" : "↑"}</span>}
+                </button>
+                <button
+                  type="button"
+                  className="ad-table-sort-btn"
+                  onClick={() => {
+                    if (sortBy === "change24h") setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+                    else {
+                      setSortBy("change24h");
+                      setSortDir("desc");
+                    }
+                  }}
+                >
+                  <span>24h %</span>
+                  {sortBy === "change24h" && <span>{sortDir === "desc" ? "↓" : "↑"}</span>}
+                </button>
+              </div>
+            </div>
+            {filteredCatalog.slice(0, visibleLimit).map((item) => {
               const isXlm = item.assetKey === "XLM";
+              const stableRank = rankByAssetKey.get(item.assetKey);
               const pct24 =
                 quoteUnit === "usd"
                   ? item.change24hPct
@@ -679,94 +823,102 @@ export function RadarView() {
                   ? formatUsdPrice(item.priceUsd)
                   : isXlm
                     ? "1.0000 XLM"
-                    : formatXlmPrice(item.priceUsd && liveXlmUsd > 0 ? item.priceUsd / liveXlmUsd : undefined);
+                    : formatXlmPrice(
+                        item.priceUsd && liveXlmUsd && liveXlmUsd > 0
+                          ? item.priceUsd / liveXlmUsd
+                          : undefined,
+                      );
               const displayMcap =
                 quoteUnit === "usd"
                   ? formatCompactUsd(item.marketCapUsd)
-                  : formatCompactXlm(item.marketCapUsd && liveXlmUsd > 0 ? item.marketCapUsd / liveXlmUsd : undefined);
+                  : formatCompactXlm(
+                      item.marketCapUsd && liveXlmUsd && liveXlmUsd > 0
+                        ? item.marketCapUsd / liveXlmUsd
+                        : undefined,
+                    );
               const displayVol =
                 quoteUnit === "usd"
                   ? formatCompactUsd(item.volume7dUsd)
-                  : formatCompactXlm(item.volume7dUsd && liveXlmUsd > 0 ? item.volume7dUsd / liveXlmUsd : undefined);
+                  : formatCompactXlm(
+                      item.volume7dUsd && liveXlmUsd && liveXlmUsd > 0
+                        ? item.volume7dUsd / liveXlmUsd
+                        : undefined,
+                    );
 
               return (
                 <div
                   key={item.assetKey}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleOpenAsset(item.assetKey, "swap")}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      handleOpenAsset(item.assetKey, "swap");
-                    }
-                  }}
-                  className={`ad-item-card ad-clickable ${item.reviewStatus === "unreviewed_warning" ? "ad-item-card--warn" : ""}`}
+                  className={`ad-item-card ${item.reviewStatus === "unreviewed_warning" ? "ad-item-card--warn" : ""}`}
                 >
-                  <div className="ad-row" style={{ gap: 8, alignItems: "center" }}>
+                  <div className="ad-row" style={{ gap: 6, alignItems: "center" }}>
                     <button
                       type="button"
-                      className={`ad-fav-btn ${favSet.has(item.assetKey) ? "ad-fav-btn--active" : ""}`}
+                      className={`ad-star-btn ${favSet.has(item.assetKey) ? "ad-star-btn--active" : ""}`}
                       aria-label={
                         favSet.has(item.assetKey)
-                          ? `Remove ${item.code} from favorites`
-                          : `Add ${item.code} to favorites`
+                          ? `Unstar ${item.code}`
+                          : `Star ${item.code}`
                       }
                       aria-pressed={favSet.has(item.assetKey)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void toggleFavorite(item.assetKey);
-                      }}
+                      onClick={() => void toggleFavorite(item.assetKey, item)}
                     >
-                      {favSet.has(item.assetKey) ? "♥" : "♡"}
+                      {favSet.has(item.assetKey) ? "★" : "☆"}
                     </button>
 
-                    <TokenAvatar
-                      code={item.code}
-                      icon={item.logoUrl}
-                      isNative={item.assetKey === "XLM"}
-                      size={32}
-                      verified={item.reviewStatus === "official" || item.reviewStatus === "verified"}
-                    />
+                    <button
+                      type="button"
+                      className="ad-search-row-btn"
+                      onClick={() => handleOpenAsset(item.assetKey, "swap")}
+                    >
+                      <TokenAvatar
+                        code={item.code}
+                        icon={item.logoUrl}
+                        isNative={isXlm}
+                        size={34}
+                        verified={item.reviewStatus === "official" || item.reviewStatus === "verified"}
+                      />
 
-                    <div className="ad-min-w-0 ad-stack-3" style={{ flex: 1 }}>
-                      <div className="ad-font-bold ad-text-base ad-flex-6" style={{ alignItems: "center" }}>
-                        <span className="ad-text-xs ad-text-muted tabular-nums">#{idx + 1}</span>
-                        <span className="ad-ellipsis">{item.code}</span>
-                        {reviewBadge(item)}
+                      <div className="ad-min-w-0 ad-stack-3" style={{ flex: 1 }}>
+                        <div className="ad-font-bold ad-text-base ad-ellipsis">
+                          {item.code}
+                        </div>
+                        <div className="ad-text-xs ad-text-muted ad-ellipsis tabular-nums">
+                          {stableRank ? `#${stableRank} · ` : ""}
+                          {displayMcap !== "--"
+                            ? displayMcap
+                            : (item.name ?? item.domain ?? venueLabel(item.ammVenue))}
+                        </div>
                       </div>
-                      <div className="ad-text-xs ad-text-muted ad-ellipsis">
-                        {item.name ?? item.domain ?? venueLabel(item.ammVenue)}
-                      </div>
-                    </div>
 
-                    <Sparkline points={sparkPts} positive={positive7d} />
+                      <Sparkline points={sparkPts} positive={positive7d} />
 
-                    <div className="ad-text-right ad-no-shrink tabular-nums">
-                      <div className="ad-font-bold ad-text-sm">
-                        {quoteUnit === "usd" ? (
-                          <MicroPrice value={item.priceUsd} fallback={displayPrice} />
+                      <div className="ad-text-right ad-no-shrink tabular-nums">
+                        <div className="ad-font-bold ad-text-sm">
+                          {quoteUnit === "usd" ? (
+                            <MicroPrice value={item.priceUsd} fallback={displayPrice} />
+                          ) : (
+                            displayPrice
+                          )}
+                        </div>
+                        {typeof pct24 === "number" ? (
+                          <span
+                            className={`glass-pill ${pct24 >= 0 ? "glass-pill--safe" : "glass-pill--coral"}`}
+                            style={{ fontSize: 10, padding: "1px 6px" }}
+                          >
+                            {pct24 >= 0 ? "▲ " : "▼ "}
+                            {Math.abs(pct24).toFixed(2)}%
+                          </span>
                         ) : (
-                          displayPrice
+                          <span className="ad-text-xxs ad-text-muted">Shield {item.shieldScore}</span>
                         )}
                       </div>
-                      {typeof pct24 === "number" ? (
-                        <span
-                          className={`glass-pill ${pct24 >= 0 ? "glass-pill--safe" : "glass-pill--coral"}`}
-                          style={{ fontSize: 10, padding: "1px 6px" }}
-                        >
-                          {pct24 >= 0 ? "+" : ""}
-                          {pct24.toFixed(2)}%
-                        </span>
-                      ) : (
-                        <span className="ad-text-xxs ad-text-muted">Shield {item.shieldScore}</span>
-                      )}
-                    </div>
+                    </button>
                   </div>
 
-                  <div className="ad-row ad-text-xxs ad-text-muted tabular-nums" style={{ marginTop: 2 }}>
-                    <span>
-                      MCap {displayMcap} · 7d Vol {displayVol}
+                  <div className="ad-row ad-text-xxs ad-text-muted tabular-nums" style={{ marginTop: 2, paddingLeft: 44 }}>
+                    <span className="ad-flex-6" style={{ alignItems: "center" }}>
+                      {reviewBadge(item)}
+                      <span>7d Vol {displayVol}</span>
                     </span>
                     <span>
                       {item.holdersCount
@@ -789,6 +941,7 @@ export function RadarView() {
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

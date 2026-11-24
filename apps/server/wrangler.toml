@@ -116,6 +116,6 @@ CHAINLINK_PRICE_PROXY_CONTRACT_ID = "CDQBHEUGLDHMSUHG4IH33RJBUTMNCZOT4JIAQR4WZFR
 XOXNO_SWAP_API_BASE = "https://stellar-swap.xoxno.com"
 STELLAR_EXPERT_API_BASE = "https://api.stellar.expert"
 AQUARIUS_AMM_API_BASE = "https://amm-api.aqua.network"
-SEP42_ASSET_LIST_URLS = "https://api.stellar.expert/explorer/public/asset-list/top50"
+SEP42_ASSET_LIST_URLS = "https://raw.githubusercontent.com/soroswap/token-list/main/tokenList.json,https://api.stellar.expert/explorer/public/asset-list/top50"
 PROXY_RATE_LIMIT_PER_MIN = "60"
 QUOTE_RATE_LIMIT_PER_MIN = "40"

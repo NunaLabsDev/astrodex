@@ -27,6 +27,8 @@ import {
   fetchTokenRecentTrades,
   fetchTokenTopHolders,
   fetchWalletPortfolio,
+  invalidateUnifiedCatalogCache,
+  isValidAssetKeyFormat,
   loadLiveAmmOrderbookAndSpot,
   resolveAssetTarget,
   resolveReadFeedConfig,
@@ -176,7 +178,10 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
 
     const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, {
+      includeRepoTokens,
+      useCache: !deps.fetchFn,
+    });
     const usdcIssuer = snapshot.sep42Assets.find(
       (a) => a.code.toUpperCase() === "USDC" && a.issuer,
     )?.issuer;
@@ -233,7 +238,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       launchpadTokens: snapshot.launchpadTokens,
       catalog: snapshot.catalog,
     };
-    if (c.env.CACHE) {
+    if (c.env.CACHE && (snapshot.catalog.length > 1 || Boolean(deps.fetchFn))) {
       await c.env.CACHE.put(
         cacheKey,
         JSON.stringify({ cachedAt: Date.now(), payload }),
@@ -332,7 +337,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       includeRepoTokens,
     });
     const payload = { ok: true, network: config.network, query: q, results };
-    if (cacheKey && c.env.CACHE) {
+    if (cacheKey && c.env.CACHE && results.length > 0) {
       await c.env.CACHE.put(
         cacheKey,
         JSON.stringify({ cachedAt: Date.now(), payload }),
@@ -459,6 +464,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
         updatedAt: now,
       });
     }
+    invalidateUnifiedCatalogCache();
     if (c.env.CACHE) {
       await c.env.CACHE.delete(`markets:overview:${config.network}`).catch(() => undefined);
     }
@@ -511,8 +517,22 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
     const rawPair = decodeURIComponent(c.req.param("pair"));
-    const [rawBase = "XLM", rawQuote = "XLM"] = rawPair.split("-");
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
+    const [rawBaseParam = "XLM", rawQuoteParam = "XLM"] = rawPair.split("-");
+    const isBaseXlm =
+      rawBaseParam.toUpperCase() === "XLM" ||
+      (config.xlmSacContractId &&
+        rawBaseParam.toUpperCase() === config.xlmSacContractId.toUpperCase());
+    const rawBase = isBaseXlm ? "XLM" : rawBaseParam;
+    const rawQuote =
+      isBaseXlm && rawQuoteParam.toUpperCase() === "XLM"
+        ? config.network === "mainnet"
+          ? "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+          : "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+        : rawQuoteParam;
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, {
+      includeRepoTokens,
+      useCache: !deps.fetchFn,
+    });
     const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawBase, snapshot }),
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawQuote, snapshot }),
@@ -554,17 +574,25 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
     const rawPair = decodeURIComponent(c.req.param("pair"));
-    const tfParam = (c.req.query("tf") ?? "1h") as OhlcvTimeframe;
+    const tfParam = (c.req.query("tf") ?? c.req.query("timeframe") ?? "1h") as OhlcvTimeframe;
     const timeframe: OhlcvTimeframe = TIMEFRAMES.has(tfParam) ? tfParam : "1h";
-    const [rawBase = "XLM", rawQuoteParam = "XLM"] = rawPair.split("-");
+    const [rawBaseParam = "XLM", rawQuoteParam = "XLM"] = rawPair.split("-");
+    const isBaseXlm =
+      rawBaseParam.toUpperCase() === "XLM" ||
+      (config.xlmSacContractId &&
+        rawBaseParam.toUpperCase() === config.xlmSacContractId.toUpperCase());
+    const rawBase = isBaseXlm ? "XLM" : rawBaseParam;
     const rawQuote =
-      rawBase.toUpperCase() === "XLM" && rawQuoteParam.toUpperCase() === "XLM"
+      isBaseXlm && rawQuoteParam.toUpperCase() === "XLM"
         ? config.network === "mainnet"
           ? "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
           : "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
         : rawQuoteParam;
 
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, {
+      includeRepoTokens,
+      useCache: !deps.fetchFn,
+    });
     const [{ target: baseTarget }, { target: quoteTarget }] = await Promise.all([
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawBase, snapshot }),
       resolveAssetTarget({ config, repo, fetchFn, rawAsset: rawQuote, snapshot }),
@@ -590,14 +618,34 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       },
       fetchFn,
     });
-    const candles = await oracleEngine.getOhlcvCandles({
-      pairId: rawPair,
-      baseAsset: baseTarget.classicAsset ?? baseTarget.resolvedKey,
-      quoteAsset: quoteTarget.classicAsset ?? quoteTarget.resolvedKey,
+    const baseAsset = baseTarget.classicAsset ?? baseTarget.resolvedKey;
+    const quoteAsset = quoteTarget.classicAsset ?? quoteTarget.resolvedKey;
+    const { candles, quoteCurrency } = oracleEngine.getOhlcvCandlesWithMeta
+      ? await oracleEngine.getOhlcvCandlesWithMeta({
+          pairId: rawPair,
+          baseAsset,
+          quoteAsset,
+          timeframe,
+          limit: 120,
+        })
+      : {
+          candles: await oracleEngine.getOhlcvCandles({
+            pairId: rawPair,
+            baseAsset,
+            quoteAsset,
+            timeframe,
+            limit: 120,
+          }),
+          quoteCurrency: quoteAsset.toUpperCase().startsWith("USDC") ? ("USDC" as const) : ("XLM" as const),
+        };
+    return c.json({
+      ok: true,
+      network: config.network,
+      pair: rawPair,
       timeframe,
-      limit: 120,
+      quoteCurrency,
+      candles,
     });
-    return c.json({ ok: true, network: config.network, pair: rawPair, timeframe, candles });
   });
 
   router.get("/token-hub/:assetId", async (c) => {
@@ -605,10 +653,18 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
     const includeRepoTokens = config.network === baseConfig.network;
     const repo = c.get("repo");
-    const rawAssetId = decodeURIComponent(c.req.param("assetId"));
+    const rawAssetIdParam = decodeURIComponent(c.req.param("assetId"));
+    const rawAssetId =
+      config.xlmSacContractId &&
+      rawAssetIdParam.toUpperCase() === config.xlmSacContractId.toUpperCase()
+        ? "XLM"
+        : rawAssetIdParam;
     const quoteParam = c.req.query("quote");
 
-    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, { includeRepoTokens });
+    const snapshot = await buildUnifiedCatalog(config, repo, fetchFn, {
+      includeRepoTokens,
+      useCache: !deps.fetchFn,
+    });
     const { target } = await resolveAssetTarget({
       config,
       repo,
@@ -616,6 +672,11 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       rawAsset: rawAssetId,
       snapshot,
     });
+
+    const inspectKey = target.classicAsset ?? target.resolvedKey;
+    if (!isValidAssetKeyFormat(inspectKey)) {
+      return c.json({ ok: false, error: `Asset "${rawAssetIdParam}" not found` }, 404);
+    }
 
     const defaultQuote =
       quoteParam ??
@@ -641,7 +702,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
           item.assetKey.toUpperCase() === target.resolvedKey.toUpperCase() ||
           item.sacId?.toUpperCase() === target.resolvedKey.toUpperCase() ||
           (target.classicAsset && item.assetKey.toUpperCase() === target.classicAsset.toUpperCase()) ||
-          item.code.toUpperCase() === targetNorm.code.toUpperCase(),
+          (targetNorm.kind === "native" && item.assetKey === "XLM"),
       ) ?? null;
 
     const [ammPools, recentTrades, orderbookRes, ammInfo, audit, topHolders, seFallback] =
@@ -672,7 +733,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
           .auditToken(target.classicAsset ?? target.sorobanContractId ?? target.resolvedKey)
           .catch(() => null),
         fetchTokenTopHolders({ config, target, fetchFn, limit: 15 }).catch(() => []),
-        catalogItem?.priceUsd == null && config.network === "mainnet"
+        !catalogItem || catalogItem.priceUsd == null || !catalogItem.logoUrl
           ? fetchSingleTokenStellarExpertMetric(
               config,
               targetNorm.code,
@@ -689,17 +750,47 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
     const depth = orderbook ? computeDepthChart(orderbook) : null;
 
     const marketStats = {
+      code: catalogItem?.code ?? audit?.code ?? targetNorm.code,
+      name: catalogItem?.name ?? audit?.name ?? targetNorm.code,
+      issuer: catalogItem?.issuer ?? targetNorm.issuer ?? null,
+      reviewStatus:
+        audit?.verdict === "malicious" || audit?.trustTier === "spoof_blocked"
+          ? "spoof_blocked"
+          : (catalogItem?.reviewStatus ?? "unreviewed_warning"),
+      logoUrl: catalogItem?.logoUrl ?? seFallback?.logoUrl ?? audit?.logoUrl ?? null,
       priceUsd: catalogItem?.priceUsd ?? seFallback?.priceUsd ?? null,
       change24hPct: catalogItem?.change24hPct ?? seFallback?.change24hPct ?? null,
       change7dPct: catalogItem?.change7dPct ?? seFallback?.change7dPct ?? null,
       volume7dUsd: catalogItem?.volume7dUsd ?? seFallback?.volume7dUsd ?? null,
       marketCapUsd: catalogItem?.marketCapUsd ?? seFallback?.marketCapUsd ?? null,
+      circulatingSupply:
+        seFallback?.circulatingSupply ??
+        (catalogItem?.marketCapUsd && catalogItem?.priceUsd && catalogItem.priceUsd > 0
+          ? Number((catalogItem.marketCapUsd / catalogItem.priceUsd).toFixed(2))
+          : null),
       holdersCount: catalogItem?.holdersCount ?? seFallback?.holdersCount ?? null,
       tradesCount: catalogItem?.tradesCount ?? seFallback?.tradesCount ?? null,
       rating: catalogItem?.rating ?? seFallback?.rating ?? null,
       domain: catalogItem?.domain ?? seFallback?.domain ?? null,
       sparkline7d: catalogItem?.sparkline7d ?? seFallback?.sparkline7d ?? null,
     };
+
+    const supplyForShare =
+      marketStats.circulatingSupply ??
+      (marketStats.marketCapUsd && marketStats.priceUsd && marketStats.priceUsd > 0
+        ? marketStats.marketCapUsd / marketStats.priceUsd
+        : null);
+    const enrichedHolders =
+      supplyForShare && supplyForShare > 0
+        ? topHolders.map((h) => ({
+            ...h,
+            sharePct:
+              h.sharePct ??
+              (Number(h.balance) > 0
+                ? Math.min(100, Number(((Number(h.balance) / supplyForShare) * 100).toFixed(2)))
+                : null),
+          }))
+        : topHolders;
 
     return c.json({
       ok: true,
@@ -709,7 +800,7 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       catalogItem,
       target,
       marketStats,
-      topHolders,
+      topHolders: enrichedHolders,
       ammPools,
       ammPairInfo: ammInfo.ammPairInfo,
       orderbook,
@@ -754,7 +845,12 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   router.post("/watchlists", async (c) => {
     const session = await authenticateMiniAppSession(c);
     if (!session.ok) return c.json({ error: session.error }, session.status);
-    const body = WatchlistBodySchema.parse(await c.req.json());
+    let body: z.infer<typeof WatchlistBodySchema>;
+    try {
+      body = WatchlistBodySchema.parse(await c.req.json());
+    } catch {
+      return c.json({ error: "Invalid watchlist assetKey payload" }, 400);
+    }
     const repo = c.get("repo");
     await repo.addWatchlist(session.claims.telegramUserId, body.assetKey);
     return c.json({ ok: true, items: await repo.listWatchlist(session.claims.telegramUserId) });
@@ -782,7 +878,12 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   router.post("/alerts", async (c) => {
     const session = await authenticateMiniAppSession(c);
     if (!session.ok) return c.json({ error: session.error }, session.status);
-    const body = AlertBodySchema.parse(await c.req.json());
+    let body: z.infer<typeof AlertBodySchema>;
+    try {
+      body = AlertBodySchema.parse(await c.req.json());
+    } catch {
+      return c.json({ error: "Invalid price alert payload" }, 400);
+    }
     const repo = c.get("repo");
     const alert = await repo.createPriceAlert({
       id: `al_${crypto.randomUUID().replace(/-/g, "").slice(0, 14)}`,

@@ -173,4 +173,23 @@ describe("@astrodex/tg-protocol", () => {
     });
     expect(card).toContain("AstroDex X-Ray Scan");
   });
+
+  it("parses compact mainnet/testnet token, scan, and legacy tab_ startapp deep-links", () => {
+    expect(parseAstroDexStartAppParam("m_t_CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN")).toEqual({
+      kind: "token",
+      assetId: "CCNOV6XVI2O5BSTA3232GIRUQULDEBV7IWGKM6QKI6II5OIIQTU24JJN",
+    });
+    expect(parseAstroDexStartAppParam("t_s_XLM")).toEqual({
+      kind: "scan",
+      assetId: "XLM",
+    });
+    expect(parseAstroDexStartAppParam("tab_book")).toEqual({
+      kind: "tab",
+      tab: "book",
+    });
+    expect(parseAstroDexStartAppParam("t-watchlist")).toEqual({
+      kind: "tab",
+      tab: "watchlist",
+    });
+  });
 });

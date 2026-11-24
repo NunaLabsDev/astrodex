@@ -52,7 +52,7 @@ export interface ResolvedAssetTarget {
   catalogItem?: CatalogTokenItem | undefined;
 }
 
-function isValidAssetKeyFormat(raw: string): boolean {
+export function isValidAssetKeyFormat(raw: string): boolean {
   try {
     normalizeAssetIdentifier(raw);
     return true;
@@ -111,6 +111,7 @@ export interface StellarExpertMarketMetric {
   change7dPct?: number;
   volume7dUsd?: number;
   marketCapUsd?: number;
+  circulatingSupply?: number;
   holdersCount?: number;
   tradesCount?: number;
   rating?: number;
@@ -118,6 +119,13 @@ export interface StellarExpertMarketMetric {
   logoUrl?: string;
   sparkline7d?: number[];
 }
+
+const FALLBACK_TICKER_LOGOS: Readonly<Record<string, string>> = {
+  USDC: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
+  EURC: "https://coin-images.coingecko.com/coins/images/26045/large/euro-coin.png",
+  AQUA: "https://aqua.network/assets/img/aqua-logo.png",
+  YXLM: "https://meta.stellar.expert/vv2hwikb6v7rzw7cwsgayn25hhgqewucc2mhprqgykh5mwzdmfsq",
+};
 
 const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
   code: string;
@@ -270,6 +278,16 @@ const CURATED_MAINNET_COMMUNITY_ASSETS: ReadonlyArray<{
   },
 ];
 
+function normalizeLogoUrl(raw?: string): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("ipfs://")) {
+    const cid = trimmed.slice(7).replace(/^ipfs\//, "");
+    return cid ? `https://ipfs.io/ipfs/${cid}` : undefined;
+  }
+  return trimmed.startsWith("https://") ? trimmed : undefined;
+}
+
 interface StellarExpertAssetRecord {
   asset?: string;
   price?: number;
@@ -282,7 +300,7 @@ interface StellarExpertAssetRecord {
   trustlines?: { total?: number; funded?: number };
   rating?: { average?: number };
   domain?: string;
-  tomlInfo?: { issuer?: string; image?: string };
+  tomlInfo?: { issuer?: string; image?: string; orgLogo?: string; name?: string };
 }
 
 function parseStellarExpertMetric(rec: StellarExpertAssetRecord): {
@@ -296,22 +314,36 @@ function parseStellarExpertMetric(rec: StellarExpertAssetRecord): {
     rec.tomlInfo?.issuer ??
     (parts[1] && /^G[A-Z2-7]{55}$/.test(parts[1]) ? parts[1] : undefined);
   const contract = rec.contract && /^C[A-Z2-7]{55}$/.test(rec.contract) ? rec.contract : undefined;
-  const priceUsd = typeof rec.price === "number" && Number.isFinite(rec.price) && rec.price > 0
-    ? rec.price
-    : undefined;
+  const timedPoints = (rec.price7d ?? [])
+    .map((pt) => ({ ts: Number(pt[0]), price: Number(pt[1]) }))
+    .filter((pt) => Number.isFinite(pt.ts) && Number.isFinite(pt.price) && pt.price > 0);
+  const sparkline = timedPoints.map((pt) => pt.price);
 
-  const sparkline = (rec.price7d ?? [])
-    .map((pt) => Number(pt[1]))
-    .filter((n) => Number.isFinite(n) && n > 0);
+  const priceUsd =
+    typeof rec.price === "number" && Number.isFinite(rec.price) && rec.price > 0
+      ? rec.price
+      : sparkline[sparkline.length - 1];
 
   let change24hPct: number | undefined;
   let change7dPct: number | undefined;
-  if (sparkline.length >= 2) {
-    const first = sparkline[0]!;
-    const prevDay = sparkline[sparkline.length - 2]!;
-    const latest = priceUsd ?? sparkline[sparkline.length - 1]!;
+  if (timedPoints.length >= 2) {
+    const first = timedPoints[0]!.price;
+    const latestPt = timedPoints[timedPoints.length - 1]!;
+    const latest = priceUsd ?? latestPt.price;
+    const target24hTs = latestPt.ts - 86_400;
+    let closestPrev = timedPoints[timedPoints.length - 2]!;
+    let bestDiff = Math.abs(closestPrev.ts - target24hTs);
+    for (let i = 0; i < timedPoints.length - 1; i += 1) {
+      const diff = Math.abs(timedPoints[i]!.ts - target24hTs);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        closestPrev = timedPoints[i]!;
+      }
+    }
     if (first > 0) change7dPct = Number((((latest - first) / first) * 100).toFixed(2));
-    if (prevDay > 0) change24hPct = Number((((latest - prevDay) / prevDay) * 100).toFixed(2));
+    if (closestPrev.price > 0) {
+      change24hPct = Number((((latest - closestPrev.price) / closestPrev.price) * 100).toFixed(2));
+    }
   }
 
   const volume7dUsd =
@@ -322,6 +354,7 @@ function parseStellarExpertMetric(rec: StellarExpertAssetRecord): {
   const marketCapUsd =
     supplyNum > 0 && priceUsd ? Number((supplyNum * priceUsd).toFixed(2)) : undefined;
 
+  const logoUrl = normalizeLogoUrl(rec.tomlInfo?.image ?? rec.tomlInfo?.orgLogo);
   const metric: StellarExpertMarketMetric = {
     code,
     ...(issuer ? { issuer } : {}),
@@ -331,6 +364,7 @@ function parseStellarExpertMetric(rec: StellarExpertAssetRecord): {
     ...(change7dPct !== undefined ? { change7dPct } : {}),
     ...(volume7dUsd !== undefined ? { volume7dUsd } : {}),
     ...(marketCapUsd !== undefined ? { marketCapUsd } : {}),
+    ...(supplyNum > 0 ? { circulatingSupply: Number(supplyNum.toFixed(2)) } : {}),
     ...(rec.trustlines?.funded !== undefined
       ? { holdersCount: rec.trustlines.funded }
       : rec.trustlines?.total !== undefined
@@ -339,7 +373,7 @@ function parseStellarExpertMetric(rec: StellarExpertAssetRecord): {
     ...(typeof rec.trades === "number" ? { tradesCount: rec.trades } : {}),
     ...(typeof rec.rating?.average === "number" ? { rating: rec.rating.average } : {}),
     ...(rec.domain ? { domain: rec.domain } : {}),
-    ...(rec.tomlInfo?.image ? { logoUrl: rec.tomlInfo.image } : {}),
+    ...(logoUrl ? { logoUrl } : {}),
     ...(sparkline.length >= 2 ? { sparkline7d: sparkline } : {}),
   };
 
@@ -417,11 +451,12 @@ export async function fetchSingleTokenStellarExpertMetric(
   issuer: string | undefined,
   fetchFn: AdaptedFetch,
 ): Promise<StellarExpertMarketMetric | null> {
-  if (config.network !== "mainnet" || !config.stellarExpertApiBase) return null;
+  if (!config.stellarExpertApiBase) return null;
   const seBase = config.stellarExpertApiBase.replace(/\/+$/, "");
+  const netSlug = config.network === "mainnet" ? "public" : "testnet";
   try {
     const r = await fetchFn(
-      `${seBase}/explorer/public/asset?search=${encodeURIComponent(code)}&sort=rating&order=desc&limit=5`,
+      `${seBase}/explorer/${netSlug}/asset?search=${encodeURIComponent(code)}&sort=rating&order=desc&limit=5`,
       { headers: { Accept: "application/json" } },
     );
     if (!r.ok) return null;
@@ -442,16 +477,21 @@ const unifiedCatalogCache = new Map<
   { expiresAt: number; snapshot: UnifiedCatalogSnapshot }
 >();
 
+export function invalidateUnifiedCatalogCache(): void {
+  unifiedCatalogCache.clear();
+}
+
 export async function buildUnifiedCatalog(
   config: ServerConfig,
   repo: DexServerRepository,
   fetchFn: AdaptedFetch,
-  options: { includeRepoTokens?: boolean } = {},
+  options: { includeRepoTokens?: boolean; useCache?: boolean } = {},
 ): Promise<UnifiedCatalogSnapshot> {
   const includeRepo = options.includeRepoTokens ?? true;
+  const canCache = options.useCache ?? fetchFn === fetch;
   const cacheKey = `${config.network}:${includeRepo ? "repo" : "norepo"}:${config.sep42AssetListUrls.join(",")}`;
   const cached = unifiedCatalogCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now() && fetchFn === fetch) {
+  if (cached && cached.expiresAt > Date.now() && canCache) {
     return cached.snapshot;
   }
   const [tokens, pairs, sep42Assets, launchpadTokens, marketMap] = await Promise.all([
@@ -591,18 +631,26 @@ export async function buildUnifiedCatalog(
     if (!metric) continue;
     catalogMap.set(key, {
       ...item,
-      logoUrl: item.logoUrl ?? metric.logoUrl,
-      domain: item.domain ?? metric.domain,
-      priceUsd: metric.priceUsd,
-      change24hPct: metric.change24hPct,
-      change7dPct: metric.change7dPct,
-      volume7dUsd: metric.volume7dUsd,
-      marketCapUsd: metric.marketCapUsd,
-      holdersCount: metric.holdersCount,
-      tradesCount: metric.tradesCount,
-      rating: metric.rating,
-      sparkline7d: metric.sparkline7d,
+      logoUrl: normalizeLogoUrl(item.logoUrl) ?? FALLBACK_TICKER_LOGOS[item.code.toUpperCase()],
+      domain: item.domain ?? metric?.domain,
+      priceUsd: metric?.priceUsd,
+      change24hPct: metric?.change24hPct,
+      change7dPct: metric?.change7dPct,
+      volume7dUsd: metric?.volume7dUsd,
+      marketCapUsd: metric?.marketCapUsd,
+      holdersCount: metric?.holdersCount,
+      tradesCount: metric?.tradesCount,
+      rating: metric?.rating,
+      sparkline7d: metric?.sparkline7d,
     });
+  }
+
+  // Ensure flagship tickers keep clean logos even when StellarExpert omits tomlInfo (e.g., Testnet)
+  for (const [key, item] of catalogMap.entries()) {
+    if (!item.logoUrl) {
+      const fb = FALLBACK_TICKER_LOGOS[item.code.toUpperCase()];
+      if (fb) catalogMap.set(key, { ...item, logoUrl: fb });
+    }
   }
 
   const snapshot: UnifiedCatalogSnapshot = {
@@ -612,7 +660,7 @@ export async function buildUnifiedCatalog(
     launchpadTokens,
     catalog: Array.from(catalogMap.values()),
   };
-  if (fetchFn === fetch) {
+  if (canCache) {
     unifiedCatalogCache.set(cacheKey, {
       expiresAt: Date.now() + 60_000,
       snapshot,
@@ -672,14 +720,7 @@ async function fetchExternalAssetCandidates(
           if (!res.ok) return [];
           const json = (await res.json()) as {
             _embedded?: {
-              records?: Array<{
-                asset?: string;
-                code?: string;
-                contract?: string;
-                domain?: string;
-                supply?: string;
-                trustlines?: { funded?: number };
-              }>;
+              records?: StellarExpertAssetRecord[];
             };
           };
           const out: CatalogTokenItem[] = [];
@@ -692,14 +733,28 @@ async function fetchExternalAssetCandidates(
             if (!code) continue;
             const assetKey = contract ?? (issuer ? `${code}:${issuer}` : "");
             if (!assetKey) continue;
+            const parsedMetric = parseStellarExpertMetric(rec)?.metric;
+            const logoUrl = normalizeLogoUrl(
+              parsedMetric?.logoUrl ?? rec.tomlInfo?.image ?? rec.tomlInfo?.orgLogo,
+            );
             out.push({
               assetKey,
               kind: contract ? "soroban" : "classic",
               code,
-              name: rec.domain ? `${code} (${rec.domain})` : code,
+              name: rec.tomlInfo?.name ?? (rec.domain ? `${code} (${rec.domain})` : code),
               issuer,
               sacId: contract,
               decimals: 7,
+              ...(logoUrl ? { logoUrl } : {}),
+              ...(rec.domain ? { domain: rec.domain } : {}),
+              ...(parsedMetric?.priceUsd !== undefined ? { priceUsd: parsedMetric.priceUsd } : {}),
+              ...(parsedMetric?.change24hPct !== undefined
+                ? { change24hPct: parsedMetric.change24hPct }
+                : {}),
+              ...(parsedMetric?.holdersCount !== undefined
+                ? { holdersCount: parsedMetric.holdersCount }
+                : {}),
+              ...(parsedMetric?.rating !== undefined ? { rating: parsedMetric.rating } : {}),
               shieldScore: 60,
               reviewStatus: "unreviewed_warning",
               reviewNote: "Indexed from StellarExpert directory — inspect before trading.",
@@ -792,10 +847,46 @@ export async function searchCatalogAndNetworkAssets(input: {
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.item);
 
-  const shouldQueryExternal = localMatches.length < 4 && !isValidAssetKeyFormat(pairSplit);
-  const external = shouldQueryExternal
-    ? await fetchExternalAssetCandidates(input.config, pairSplit, input.fetchFn)
-    : [];
+  const isExactKey = isValidAssetKeyFormat(pairSplit);
+  let external: CatalogTokenItem[] = [];
+  if (localMatches.length < 4 && !isExactKey) {
+    external = await fetchExternalAssetCandidates(input.config, pairSplit, input.fetchFn);
+  } else if (localMatches.length === 0 && isExactKey) {
+    try {
+      const norm = normalizeAssetIdentifier(pairSplit);
+      const metric =
+        norm.kind === "classic" || norm.kind === "soroban"
+          ? await fetchSingleTokenStellarExpertMetric(
+              input.config,
+              norm.code,
+              norm.issuer,
+              input.fetchFn,
+            ).catch(() => null)
+          : null;
+      external = [
+        {
+          assetKey: norm.canonicalKey,
+          kind: norm.kind,
+          code: metric?.code ?? norm.code,
+          name: metric?.domain ? `${norm.code} (${metric.domain})` : norm.code,
+          ...(norm.issuer ? { issuer: norm.issuer } : {}),
+          ...(norm.contractId ? { sacId: norm.contractId } : {}),
+          decimals: 7,
+          ...(metric?.logoUrl ? { logoUrl: metric.logoUrl } : {}),
+          ...(metric?.domain ? { domain: metric.domain } : {}),
+          ...(metric?.priceUsd !== undefined ? { priceUsd: metric.priceUsd } : {}),
+          ...(metric?.change24hPct !== undefined ? { change24hPct: metric.change24hPct } : {}),
+          ...(metric?.holdersCount !== undefined ? { holdersCount: metric.holdersCount } : {}),
+          shieldScore: 55,
+          reviewStatus: "unreviewed_warning",
+          reviewNote: "Unlisted ledger asset — inspect Astro Shield before interacting.",
+          ammVenue: norm.kind === "soroban" ? "soroswap" : "sdex_pool",
+        },
+      ];
+    } catch {
+      external = [];
+    }
+  }
 
   const seen = new Set<string>(localMatches.map((m) => m.assetKey.toUpperCase()));
   const merged = [...localMatches];

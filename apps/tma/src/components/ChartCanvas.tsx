@@ -50,6 +50,14 @@ function ChartSurface({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const mainSeriesRef = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Area"> | null>(null);
+  const volSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const bySecLookupRef = useRef<Map<number, OhlcvCandle>>(new Map());
+  const latestCandleRef = useRef<OhlcvCandle | null>(null);
+  const quoteLabelRef = useRef(quoteLabel);
+  const timeframeRef = useRef(timeframe);
+  quoteLabelRef.current = quoteLabel;
+  timeframeRef.current = timeframe;
   const hudPriceRef = useRef<HTMLElement | null>(null);
   const hudRangeRef = useRef<HTMLSpanElement | null>(null);
   const [logScale, setLogScale] = useState(false);
@@ -80,13 +88,12 @@ function ChartSurface({
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || normalized.length === 0) return undefined;
+    if (!el) return undefined;
 
     const chartHeight = expanded
       ? Math.max(300, Math.min(460, Math.floor(window.innerHeight * 0.56)))
       : 210;
 
-    const showTime = timeframe !== "1d";
     const chart = createChart(el, {
       width: Math.max(240, el.clientWidth),
       height: chartHeight,
@@ -114,7 +121,7 @@ function ChartSurface({
       },
       timeScale: {
         borderColor: "rgba(165, 139, 224, 0.18)",
-        timeVisible: showTime,
+        timeVisible: timeframeRef.current !== "1d",
         secondsVisible: false,
         minBarSpacing: 0.2,
       },
@@ -137,48 +144,22 @@ function ChartSurface({
     });
     chartRef.current = chart;
 
-    const priceFormat = resolvePriceFormat(candles);
-    const first = normalized[0]!.candle;
-    const last = normalized[normalized.length - 1]!.candle;
-    const positive = last.close >= first.open;
-    const lineColor = positive ? "#10B981" : "#F15A24";
-
-    let mainSeries: ISeriesApi<"Candlestick"> | ISeriesApi<"Area">;
-    if (chartStyle === "candles") {
-      const candleSeries = chart.addSeries(CandlestickSeries, {
-        upColor: "#10B981",
-        downColor: "#F15A24",
-        borderVisible: false,
-        wickUpColor: "#10B981",
-        wickDownColor: "#F15A24",
-        priceFormat: { type: "price", ...priceFormat },
-      });
-      candleSeries.setData(
-        normalized.map(({ sec, candle }) => ({
-          time: sec,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-        })),
-      );
-      mainSeries = candleSeries;
-    } else {
-      const areaSeries = chart.addSeries(AreaSeries, {
-        lineColor,
-        topColor: positive ? "rgba(16, 185, 129, 0.34)" : "rgba(241, 90, 36, 0.34)",
-        bottomColor: "rgba(11, 20, 51, 0.02)",
-        lineWidth: 2,
-        priceFormat: { type: "price", ...priceFormat },
-      });
-      areaSeries.setData(
-        normalized.map(({ sec, candle }) => ({
-          time: sec,
-          value: candle.close,
-        })),
-      );
-      mainSeries = areaSeries;
-    }
+    const mainSeries =
+      chartStyle === "candles"
+        ? chart.addSeries(CandlestickSeries, {
+            upColor: "#10B981",
+            downColor: "#F15A24",
+            borderVisible: false,
+            wickUpColor: "#10B981",
+            wickDownColor: "#F15A24",
+          })
+        : chart.addSeries(AreaSeries, {
+            lineColor: "#10B981",
+            topColor: "rgba(16, 185, 129, 0.34)",
+            bottomColor: "rgba(11, 20, 51, 0.02)",
+            lineWidth: 2,
+          });
+    mainSeriesRef.current = mainSeries;
 
     const volSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
@@ -189,22 +170,10 @@ function ChartSurface({
     volSeries.priceScale().applyOptions({
       scaleMargins: { top: 0.8, bottom: 0 },
     });
-    volSeries.setData(
-      normalized.map(({ sec, candle }) => ({
-        time: sec,
-        value: candle.volume ?? 0,
-        color:
-          candle.close >= candle.open
-            ? "rgba(16, 185, 129, 0.30)"
-            : "rgba(241, 90, 36, 0.30)",
-      })),
-    );
+    volSeriesRef.current = volSeries;
 
-    chart.timeScale().fitContent();
-
-    const latestCandle = normalized[normalized.length - 1]!.candle;
     const formatHudDate = (sec: number) =>
-      timeframe === "1d"
+      timeframeRef.current === "1d"
         ? new Date(sec * 1000).toLocaleDateString([], {
             year: "numeric",
             month: "short",
@@ -217,17 +186,16 @@ function ChartSurface({
             minute: "2-digit",
           });
 
-    const bySecLookup = new Map<number, OhlcvCandle>(
-      normalized.map(({ sec, candle }) => [Number(sec), candle]),
-    );
     chart.subscribeCrosshairMove((param) => {
+      const latest = latestCandleRef.current;
+      if (!latest) return;
       const key = typeof param.time === "number" ? param.time : null;
       const target =
         param.time && param.point && key !== null && param.seriesData.has(mainSeries)
-          ? (bySecLookup.get(key) ?? latestCandle)
-          : latestCandle;
+          ? (bySecLookupRef.current.get(key) ?? latest)
+          : latest;
       if (hudPriceRef.current) {
-        hudPriceRef.current.textContent = `${formatPrice(target.close)} ${quoteLabel} · ${formatHudDate(target.time)}`;
+        hudPriceRef.current.textContent = `${formatPrice(target.close)} ${quoteLabelRef.current} · ${formatHudDate(target.time)}`;
       }
       if (hudRangeRef.current) {
         hudRangeRef.current.textContent = `H ${formatPrice(target.high)} / L ${formatPrice(target.low)}`;
@@ -251,8 +219,87 @@ function ChartSurface({
       ro.disconnect();
       chart.remove();
       chartRef.current = null;
+      mainSeriesRef.current = null;
+      volSeriesRef.current = null;
     };
-  }, [normalized, candles, chartStyle, timeframe, expanded, quoteLabel]);
+  }, [chartStyle, expanded]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const mainSeries = mainSeriesRef.current;
+    const volSeries = volSeriesRef.current;
+    if (!chart || !mainSeries || !volSeries || normalized.length === 0) return;
+
+    const priceFormat = resolvePriceFormat(candles);
+    const first = normalized[0]!.candle;
+    const last = normalized[normalized.length - 1]!.candle;
+    const positive = last.close >= first.open;
+    const lineColor = positive ? "#10B981" : "#F15A24";
+
+    chart.applyOptions({
+      timeScale: {
+        borderColor: "rgba(165, 139, 224, 0.18)",
+        timeVisible: timeframe !== "1d",
+        secondsVisible: false,
+        minBarSpacing: 0.2,
+      },
+    });
+
+    if (chartStyle === "candles") {
+      (mainSeries as ISeriesApi<"Candlestick">).applyOptions({
+        priceFormat: { type: "price", ...priceFormat },
+      });
+      (mainSeries as ISeriesApi<"Candlestick">).setData(
+        normalized.map(({ sec, candle }) => ({
+          time: sec,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+        })),
+      );
+    } else {
+      (mainSeries as ISeriesApi<"Area">).applyOptions({
+        lineColor,
+        topColor: positive ? "rgba(16, 185, 129, 0.34)" : "rgba(241, 90, 36, 0.34)",
+        bottomColor: "rgba(11, 20, 51, 0.02)",
+        priceFormat: { type: "price", ...priceFormat },
+      });
+      (mainSeries as ISeriesApi<"Area">).setData(
+        normalized.map(({ sec, candle }) => ({
+          time: sec,
+          value: candle.close,
+        })),
+      );
+    }
+
+    volSeries.setData(
+      normalized.map(({ sec, candle }) => ({
+        time: sec,
+        value: candle.volume ?? 0,
+        color:
+          candle.close >= candle.open
+            ? "rgba(16, 185, 129, 0.30)"
+            : "rgba(241, 90, 36, 0.30)",
+      })),
+    );
+
+    bySecLookupRef.current = new Map<number, OhlcvCandle>(
+      normalized.map(({ sec, candle }) => [Number(sec), candle]),
+    );
+    latestCandleRef.current = last;
+    if (hudPriceRef.current) {
+      const pctStr =
+        first.open > 0
+          ? ` (${last.close >= first.open ? "+" : ""}${(((last.close - first.open) / first.open) * 100).toFixed(2)}%)`
+          : "";
+      hudPriceRef.current.textContent = `${formatPrice(last.close)} ${quoteLabel}${pctStr}`;
+    }
+    if (hudRangeRef.current) {
+      hudRangeRef.current.textContent = `H ${formatPrice(last.high)} / L ${formatPrice(last.low)}`;
+    }
+    chart.timeScale().fitContent();
+  }, [normalized, candles, chartStyle, timeframe, quoteLabel]);
 
   if (normalized.length === 0) return null;
 
@@ -286,15 +333,15 @@ function ChartSurface({
           <button
             type="button"
             className="glass-pill ad-clickable"
-            style={{ padding: "4px 10px", fontSize: 12 }}
+            style={{ padding: "4px 10px", fontSize: 12, minHeight: 36 }}
             onClick={() => setChartStyle((s) => (s === "candles" ? "area" : "candles"))}
           >
             {chartStyle === "candles" ? "Line" : "Candles"}
           </button>
           <button
             type="button"
-            className="glass-pill ad-clickable"
-            style={{ padding: "4px 10px", fontSize: 12 }}
+            className={`glass-pill ad-clickable ${logScale ? "glass-pill--gold" : ""}`}
+            style={{ padding: "4px 10px", fontSize: 12, minHeight: 36 }}
             aria-pressed={logScale}
             onClick={() => setLogScale((v) => !v)}
           >
@@ -303,7 +350,7 @@ function ChartSurface({
           <button
             type="button"
             className="glass-pill ad-clickable"
-            style={{ padding: "4px 10px", fontSize: 12 }}
+            style={{ padding: "4px 10px", fontSize: 12, minHeight: 36 }}
             onClick={() => chartRef.current?.timeScale().fitContent()}
           >
             Fit
@@ -311,7 +358,7 @@ function ChartSurface({
           <button
             type="button"
             className="glass-pill ad-clickable"
-            style={{ padding: "4px 10px", fontSize: 12 }}
+            style={{ padding: "4px 10px", fontSize: 12, minHeight: 36 }}
             onClick={onToggleExpand}
           >
             {expanded ? "Close ✕" : "⤢ Expand"}
@@ -340,13 +387,32 @@ export function ChartCanvas({
   depth,
   quoteLabel,
   timeframe,
+  loading = false,
 }: {
   candles: readonly OhlcvCandle[];
   depth: readonly DepthPoint[];
   quoteLabel: string;
   timeframe?: string | undefined;
+  loading?: boolean | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
+
+  if (loading && candles.length === 0) {
+    return (
+      <div className="ad-chart-stage ad-stack-8">
+        <div className="ad-shimmer" style={{ height: 210, width: "100%" }} />
+      </div>
+    );
+  }
 
   if (candles.length === 0) {
     return (
@@ -379,20 +445,11 @@ export function ChartCanvas({
       {expanded && (
         <div
           role="dialog"
+          aria-modal="true"
           aria-label="Expanded Chart"
+          className="ad-chart-modal-scrim"
           onClick={(e) => {
             if (e.target === e.currentTarget) setExpanded(false);
-          }}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 95,
-            background: "rgba(4, 9, 24, 0.94)",
-            backdropFilter: "blur(14px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 12,
           }}
         >
           <div className="glass-card" style={{ width: "100%", maxWidth: 720 }}>

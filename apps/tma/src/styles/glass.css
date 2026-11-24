@@ -36,7 +36,8 @@ body {
   background: var(--ad-space-void);
   color: var(--ad-ink-primary);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-  scrollbar-gutter: stable;
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -48,10 +49,14 @@ body {
   min-height: var(--tg-viewport-stable-height, 100dvh);
   background-color: var(--ad-space-void);
   background-image: var(--ad-grad-orb-glow);
-  padding-top: calc(10px + var(--tg-safe-area-inset-top, 0px));
-  padding-bottom: calc(96px + var(--tg-safe-area-inset-bottom, 0px));
-  padding-left: calc(12px + var(--tg-safe-area-inset-left, 0px));
-  padding-right: calc(12px + var(--tg-safe-area-inset-right, 0px));
+  padding-top: calc(10px + var(--tg-safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  padding-bottom: calc(96px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  padding-left: calc(12px + var(--tg-safe-area-inset-left, env(safe-area-inset-left, 0px)));
+  padding-right: calc(12px + var(--tg-safe-area-inset-right, env(safe-area-inset-right, 0px)));
+}
+
+.glass-canvas--no-dock {
+  padding-bottom: calc(24px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
 }
 
 .ad-shell {
@@ -1045,6 +1050,137 @@ textarea:focus-visible {
 .ad-btn-testnet {
   background: linear-gradient(135deg, #F5C928, #EAB308);
   color: #060E24;
+}
+
+.ad-dock-2 {
+  width: min(260px, calc(100% - 24px));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ad-seg-tabs-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 4px;
+  border-radius: 16px;
+  background: rgba(6, 14, 36, 0.65);
+  border: 1px solid rgba(165, 139, 224, 0.22);
+}
+
+.ad-star-btn {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ad-ink-secondary);
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 120ms ease, color 150ms ease, background-color 150ms ease;
+}
+
+.ad-star-btn--active {
+  color: #F5C928;
+  background: rgba(245, 201, 40, 0.16);
+  border-color: rgba(245, 201, 40, 0.45);
+}
+
+.ad-search-row-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  padding: 4px 2px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.ad-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ad-ink-secondary);
+  border-bottom: 1px solid rgba(165, 139, 224, 0.16);
+}
+
+.ad-table-sort-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  min-height: 38px;
+  padding: 6px 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ad-seg-tabs-4 .ad-seg-btn {
+  min-height: 44px;
+}
+
+.ad-chart-modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(4, 9, 24, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+@media (max-width: 400px) {
+  .ad-account-pill {
+    max-width: 128px;
+  }
+}
+
+.ad-range-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: visible;
+}
+
+.ad-range-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #F15A24, #F5C928, #10B981);
+}
+
+.ad-range-dot {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #FFFFFF;
+  border: 2px solid #10B981;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.ad-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 @media (prefers-reduced-transparency: reduce) {

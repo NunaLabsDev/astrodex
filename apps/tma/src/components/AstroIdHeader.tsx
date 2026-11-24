@@ -63,14 +63,17 @@ export function AstroIdHeader() {
           </div>
           <div className="ad-flex-6 ad-min-w-0">
             <span className="ad-font-extrabold ad-text-base">AstroDex</span>
-            <span
-              className={`glass-pill ad-net-badge ${
+            <button
+              type="button"
+              className={`glass-pill ad-net-badge ad-clickable ${
                 feedNetwork === "mainnet" ? "glass-pill--safe" : "glass-pill--gold"
               }`}
-              title={`Active network: ${feedNetwork}`}
+              style={{ minHeight: 34 }}
+              onClick={() => setFeedNetwork(feedNetwork === "mainnet" ? "testnet" : "mainnet")}
+              title={`Tap to switch network (active: ${feedNetwork})`}
             >
-              ● {feedNetwork === "mainnet" ? "Mainnet" : "Testnet"}
-            </span>
+              ● {feedNetwork === "mainnet" ? "Mainnet" : "Testnet"} ⇄
+            </button>
           </div>
         </div>
 

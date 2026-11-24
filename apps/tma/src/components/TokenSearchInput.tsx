@@ -1,6 +1,7 @@
 import type { CatalogTokenItem } from "@astrodex/domain";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useAppState } from "../state/app-context.js";
+import { MicroPrice } from "./MicroPrice.js";
 import { TokenAvatar } from "./TokenAvatar.js";
 
 function shortKey(key: string): string {
@@ -24,18 +25,18 @@ export interface TokenSearchInputProps {
 export function TokenSearchInput({
   query,
   onQueryChange,
-  placeholder = "Search by name/ticker (USDC, AQUA, yXLM, XLM) or paste CODE:G... / C...",
+  placeholder = "Search coin, ticker, or paste CODE:G... / C...",
   submitLabel,
   onSubmitRaw,
   onSelectToken,
-  primaryActionLabel = "Select",
-  secondaryActionLabel,
   showResultsWhenEmpty = false,
-  maxResults = 6,
+  maxResults = 8,
 }: TokenSearchInputProps) {
-  const { config, feedNetwork, catalog } = useAppState();
+  const { config, feedNetwork, catalog, favorites, toggleFavorite } = useAppState();
   const [remoteResults, setRemoteResults] = useState<CatalogTokenItem[]>([]);
   const [searchingRemote, setSearchingRemote] = useState(false);
+
+  const favSet = useMemo(() => new Set(favorites), [favorites]);
 
   const localResults = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -65,32 +66,36 @@ export function TokenSearchInput({
 
   useEffect(() => {
     const q = query.trim();
+    setRemoteResults([]);
     if (q.length < 2) {
-      setRemoteResults([]);
       setSearchingRemote(false);
       return undefined;
     }
     let cancelled = false;
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       setSearchingRemote(true);
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
         const res = await fetch(
           `${base}/v1/markets/search?q=${encodeURIComponent(q)}&limit=${maxResults}&net=${encodeURIComponent(feedNetwork)}`,
+          { signal: controller.signal },
         );
         if (!res.ok) return;
         const json = (await res.json()) as { results?: CatalogTokenItem[] };
         if (!cancelled && Array.isArray(json.results)) {
           setRemoteResults(json.results);
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         // Keep local catalog fallback cleanly
       } finally {
         if (!cancelled) setSearchingRemote(false);
       }
-    }, 280);
+    }, 260);
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [config.apiBaseUrl, feedNetwork, maxResults, query]);
@@ -121,83 +126,128 @@ export function TokenSearchInput({
   return (
     <div className="ad-stack-6">
       <form onSubmit={handleSubmit} className="ad-flex-8">
-        <input
-          type="text"
-          className="ad-input"
-          placeholder={placeholder}
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          aria-label="Token Search Input"
-        />
+        <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+          <input
+            type="text"
+            className="ad-input"
+            style={{ width: "100%", paddingRight: query.length > 0 ? 36 : undefined }}
+            placeholder={placeholder}
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            aria-label="Token Search Input"
+          />
+          {query.length > 0 && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => onQueryChange("")}
+              style={{
+                position: "absolute",
+                right: 4,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 36,
+                height: 36,
+                borderRadius: "999px",
+                border: "none",
+                background: "rgba(255, 255, 255, 0.12)",
+                color: "var(--ad-ink-secondary)",
+                fontSize: 13,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
         {submitLabel && (
-          <button type="submit" className="ad-btn-primary">
+          <button type="submit" className="ad-btn-secondary ad-btn-md">
             {submitLabel}
           </button>
         )}
       </form>
 
-      {showDropdown && (combinedResults.length > 0 || searchingRemote) && (
+      {showDropdown && (
         <div className="ad-dropdown-list">
           {searchingRemote && combinedResults.length === 0 && (
             <div className="ad-text-xs ad-text-muted">
-              Searching Stellar network...
+              Searching Stellar network &amp; StellarExpert...
             </div>
           )}
-          {combinedResults.map((item) => (
-            <div key={item.assetKey} className="ad-row ad-dropdown-item">
-              <div className="ad-flex-8 ad-min-w-0">
-                <TokenAvatar
-                  code={item.code}
-                  icon={item.logoUrl}
-                  isNative={item.assetKey === "XLM"}
-                  size={30}
-                  verified={item.reviewStatus === "official" || item.reviewStatus === "verified"}
-                />
-                <div className="ad-min-w-0">
-                  <div className="ad-text-md ad-font-bold ad-flex-wrap">
-                    <span>${item.code}</span>
-                    <span
-                      className={`glass-pill ${
-                        item.reviewStatus === "official"
-                          ? "glass-pill--safe"
-                          : item.reviewStatus === "verified"
-                            ? "glass-pill--gold"
-                            : "glass-pill--warn"
-                      }`}
-                    >
-                      {item.reviewStatus === "official"
-                        ? "Official"
-                        : item.reviewStatus === "verified"
-                          ? "Verified"
-                          : "Unreviewed"}
-                    </span>
-                  </div>
-                  <div className="ad-text-xs ad-text-muted">
-                    {item.name ? `${item.name} · ` : ""}
-                    {shortKey(item.assetKey)}
-                  </div>
-                </div>
-              </div>
-              <div className="ad-flex-6 ad-no-shrink">
+          {!searchingRemote && combinedResults.length === 0 && query.trim().length > 0 && (
+            <div className="ad-text-xs ad-text-muted" style={{ padding: "6px 4px" }}>
+              No coins found on {feedNetwork.toUpperCase()} for &ldquo;{query.trim()}&rdquo;. Paste a full{" "}
+              <code>CODE:G...</code> or <code>C...</code> contract ID to inspect directly.
+            </div>
+          )}
+          {combinedResults.map((item) => {
+            const isStarred = favSet.has(item.assetKey);
+            return (
+              <div key={item.assetKey} className="ad-row ad-dropdown-item" style={{ gap: 6 }}>
                 <button
                   type="button"
-                  className="ad-btn-secondary ad-btn-sm"
+                  className="ad-search-row-btn"
                   onClick={() => onSelectToken(item, "primary")}
                 >
-                  {primaryActionLabel}
+                  <TokenAvatar
+                    code={item.code}
+                    icon={item.logoUrl}
+                    isNative={item.assetKey === "XLM"}
+                    size={32}
+                    verified={item.reviewStatus === "official" || item.reviewStatus === "verified"}
+                  />
+                  <div className="ad-min-w-0" style={{ flex: 1 }}>
+                    <div className="ad-text-md ad-font-bold ad-flex-6" style={{ alignItems: "center" }}>
+                      <span>{item.code}</span>
+                      <span
+                        className={`glass-pill ${
+                          item.reviewStatus === "official"
+                            ? "glass-pill--safe"
+                            : item.reviewStatus === "verified"
+                              ? "glass-pill--gold"
+                              : "glass-pill--warn"
+                        }`}
+                        style={{ fontSize: 10, padding: "1px 6px" }}
+                      >
+                        {item.reviewStatus === "official"
+                          ? "Official"
+                          : item.reviewStatus === "verified"
+                            ? "Verified"
+                            : "Unlisted"}
+                      </span>
+                    </div>
+                    <div className="ad-text-xs ad-text-muted ad-ellipsis">
+                      {item.name && item.name !== item.code ? `${item.name} · ` : ""}
+                      {item.domain ?? shortKey(item.assetKey)}
+                    </div>
+                  </div>
+                  <div className="ad-text-right ad-no-shrink tabular-nums" style={{ marginRight: 2 }}>
+                    {typeof item.priceUsd === "number" && item.priceUsd > 0 ? (
+                      <div className="ad-text-xs ad-font-bold">
+                        <MicroPrice value={item.priceUsd} />
+                      </div>
+                    ) : null}
+                    <div className="ad-text-xxs ad-text-muted">Explore ›</div>
+                  </div>
                 </button>
-                {secondaryActionLabel && (
-                  <button
-                    type="button"
-                    className="glass-pill ad-clickable"
-                    onClick={() => onSelectToken(item, "secondary")}
-                  >
-                    {secondaryActionLabel}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className={`ad-star-btn ${isStarred ? "ad-star-btn--active" : ""}`}
+                  aria-label={isStarred ? `Unstar ${item.code}` : `Star ${item.code}`}
+                  aria-pressed={isStarred}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void toggleFavorite(item.assetKey, item);
+                  }}
+                >
+                  {isStarred ? "★" : "☆"}
+                </button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

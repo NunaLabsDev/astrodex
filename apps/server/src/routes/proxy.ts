@@ -80,14 +80,19 @@ export async function fetchStellarTomlSafe(
 
   let currentUrl = `https://${cleanDomain}/.well-known/stellar.toml`;
   for (let hop = 0; hop <= MAX_TOML_REDIRECTS; hop += 1) {
-    const res = await fetchFn(currentUrl, {
-      method: "GET",
-      redirect: "manual",
-      headers: { Accept: "text/plain, application/toml" },
-      ...(typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
-        ? { signal: AbortSignal.timeout(5_000) }
-        : {}),
-    });
+    let res: Response;
+    try {
+      res = await fetchFn(currentUrl, {
+        method: "GET",
+        redirect: "manual",
+        headers: { Accept: "text/plain, application/toml" },
+        ...(typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+          ? { signal: AbortSignal.timeout(5_000) }
+          : {}),
+      });
+    } catch {
+      return { ok: false, status: 502, error: "Upstream stellar.toml unreachable" };
+    }
 
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("Location");

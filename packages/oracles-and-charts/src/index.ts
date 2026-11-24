@@ -214,5 +214,76 @@ export function createOraclesAndChartsEngine(config: OraclesAndChartsConfig): Or
       }
       return [];
     },
+
+    async getOhlcvCandlesWithMeta(input: {
+      pairId: string;
+      baseAsset: string;
+      quoteAsset: string;
+      timeframe: OhlcvTimeframe;
+      limit?: number | undefined;
+    }): Promise<{ candles: readonly OhlcvCandle[]; quoteCurrency: "USD" | "USDC" | "XLM" }> {
+      const limit = input.limit ?? 120;
+      const [d1Candles, horizonCandles, spotPrice] = await Promise.all([
+        config.sorobanCandlesLoader
+          ? config.sorobanCandlesLoader(input.pairId, input.timeframe, limit).catch(() => [])
+          : Promise.resolve([]),
+        fetchHorizonOhlcvCandles({
+          horizonUrls: config.horizonUrls,
+          baseAsset: input.baseAsset,
+          quoteAsset: input.quoteAsset,
+          timeframe: input.timeframe,
+          limit,
+          fetchFn,
+        }),
+        config.spotMidPriceLoader
+          ? config.spotMidPriceLoader().catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      const merged = mergeOhlcvCandles(d1Candles, horizonCandles, limit);
+      const isMainnet = !config.horizonUrls.some((u) => u.includes("testnet"));
+      const defaultQuote: "USDC" | "XLM" = input.quoteAsset.toUpperCase().startsWith("USDC")
+        ? "USDC"
+        : "XLM";
+      if (merged.length >= 6 && !/^C[A-Z2-7]{55}$/.test(input.baseAsset)) {
+        return { candles: merged, quoteCurrency: defaultQuote };
+      }
+      if (isMainnet) {
+        const gtTokenId = config.fallbackContractId ?? input.baseAsset;
+        const gtCandles = await fetchGeckoTerminalStellarOhlcv({
+          baseAsset: gtTokenId,
+          timeframe: input.timeframe,
+          limit,
+          fetchFn,
+        });
+        if (gtCandles.length > 0) return { candles: gtCandles, quoteCurrency: "USD" };
+      }
+      if (merged.length > 0) return { candles: merged, quoteCurrency: defaultQuote };
+      if (spotPrice !== null && Number.isFinite(spotPrice) && spotPrice > 0) {
+        const stepSeconds: Record<OhlcvTimeframe, number> = {
+          "1m": 60,
+          "5m": 300,
+          "15m": 900,
+          "1h": 3600,
+          "4h": 14400,
+          "1d": 86400,
+        };
+        const step = stepSeconds[input.timeframe] ?? 3600;
+        const nowBucket = Math.floor(Date.now() / 1000 / step) * step;
+        const series: OhlcvCandle[] = [];
+        const points = 24;
+        for (let i = points - 1; i >= 0; i -= 1) {
+          series.push({
+            time: nowBucket - i * step,
+            open: spotPrice,
+            high: spotPrice,
+            low: spotPrice,
+            close: spotPrice,
+            volume: 0,
+          });
+        }
+        return { candles: series, quoteCurrency: defaultQuote };
+      }
+      return { candles: [], quoteCurrency: defaultQuote };
+    },
   };
 }
