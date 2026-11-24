@@ -86,7 +86,8 @@ export function createX402PaymentVerifier(
   fetchFn: AdaptedFetch,
   requirements?: X402PaymentRequirements,
   replayStore?: {
-    hasAndClaimNonce?: (nonceKey: string) => Promise<boolean>;
+    isNonceUsed?: (nonceKey: string) => Promise<boolean>;
+    markNonceUsed?: (nonceKey: string) => Promise<void>;
   },
 ): AgenticPaymentPort {
   const usedNonces = new Set<string>();
@@ -103,9 +104,9 @@ export function createX402PaymentVerifier(
       if (nonceKey && usedNonces.has(nonceKey)) {
         return { paid: false };
       }
-      if (nonceKey && replayStore?.hasAndClaimNonce) {
-        const claimed = await replayStore.hasAndClaimNonce(nonceKey).catch(() => false);
-        if (!claimed) {
+      if (nonceKey && replayStore?.isNonceUsed) {
+        const alreadyUsed = await replayStore.isNonceUsed(nonceKey).catch(() => false);
+        if (alreadyUsed) {
           return { paid: false };
         }
       }
@@ -136,7 +137,12 @@ export function createX402PaymentVerifier(
           body: JSON.stringify(reqBody),
         });
         if (!settleRes.ok) return { paid: false };
-        if (nonceKey) usedNonces.add(nonceKey);
+        if (nonceKey) {
+          usedNonces.add(nonceKey);
+          if (replayStore?.markNonceUsed) {
+            await replayStore.markNonceUsed(nonceKey).catch(() => {});
+          }
+        }
         return { paid: true, payer: verifyJson.payer };
       }
 
@@ -194,14 +200,15 @@ export function createAgentX402Routes(deps: {
     const verifier =
       deps.verifyPaymentFn ??
       createX402PaymentVerifier(config, fetchFn, requirements, {
-        hasAndClaimNonce: async (nonceKey) => {
-          const kv = (c.env as { CACHE?: { get(k: string): Promise<string | null>; put(k: string, v: string, opts?: { expirationTtl?: number }): Promise<void> } }).CACHE;
-          if (!kv) return true;
-          const cacheKey = `x402_nonce:${nonceKey}`;
-          const existing = await kv.get(cacheKey);
-          if (existing) return false;
-          await kv.put(cacheKey, "1", { expirationTtl: 86_400 });
-          return true;
+        isNonceUsed: async (nonceKey) => {
+          const kv = (c.env as { CACHE?: { get(k: string): Promise<string | null> } }).CACHE;
+          if (!kv) return false;
+          return Boolean(await kv.get(`x402_nonce:${nonceKey}`));
+        },
+        markNonceUsed: async (nonceKey) => {
+          const kv = (c.env as { CACHE?: { put(k: string, v: string, opts?: { expirationTtl?: number }): Promise<void> } }).CACHE;
+          if (!kv) return;
+          await kv.put(`x402_nonce:${nonceKey}`, "1", { expirationTtl: 86_400 });
         },
       }).verifyPaymentProof!;
     const verification: { paid: boolean; payer?: string | undefined } = await verifier(

@@ -286,14 +286,23 @@ export class DexIndexerDO {
               }
 
               const xlmVal = Number(formatStroops7(xlmStroops, true));
-              if (Number.isFinite(xlmVal) && xlmVal > 0) {
+              const resBase = Number(matchedPair.reserveBase);
+              const resQuote = Number(matchedPair.reserveQuote);
+              const spotPrice =
+                Number.isFinite(resBase) &&
+                Number.isFinite(resQuote) &&
+                resBase > 0 &&
+                resQuote > 0
+                  ? resQuote / resBase
+                  : 0;
+              if (Number.isFinite(xlmVal) && xlmVal > 0 && spotPrice > 0) {
                 const bucket1m = Math.floor(tsSec / 60) * 60;
                 await repo.upsertCandle(matchedPair.pairId, "1m", {
                   time: bucket1m,
-                  open: xlmVal,
-                  high: xlmVal,
-                  low: xlmVal,
-                  close: xlmVal,
+                  open: spotPrice,
+                  high: spotPrice,
+                  low: spotPrice,
+                  close: spotPrice,
                   volume: xlmVal,
                 });
               }

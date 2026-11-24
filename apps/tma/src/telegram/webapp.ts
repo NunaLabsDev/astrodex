@@ -154,8 +154,9 @@ export function openExpressSignFlow(opts: {
   const handleMessage = (event: MessageEvent) => {
     if (event.origin !== expectedOrigin || event.source !== popup) return;
     const data = event.data as { type?: string; status?: string; txHash?: string; intentId?: string } | null;
-    if (opts.intentId && data?.intentId && data.intentId !== opts.intentId) return;
+    if (opts.intentId && data?.intentId !== opts.intentId) return;
     if (data?.type === "ASTRO_SIGN_COMPLETE" && data.status === "approved") {
+      window.clearInterval(cleanupTimer);
       window.removeEventListener("message", handleMessage);
       opts.onComplete?.({ txHash: data.txHash, intentId: data.intentId });
     }
