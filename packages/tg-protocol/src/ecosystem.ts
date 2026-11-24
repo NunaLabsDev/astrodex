@@ -109,6 +109,10 @@ export function createAstroIdResolver(config: AstroIdResolverConfig): IdentityRe
             const primaryAddress =
               accounts.find((a) => a.isDefault)?.address ?? accounts[0]?.address;
             if (primaryAddress) {
+              const validActiveAddress =
+                resolved.activeAddress && /^[GC][A-Z2-7]{55}$/.test(resolved.activeAddress)
+                  ? resolved.activeAddress
+                  : undefined;
               return AstroIdProfileSchema.parse({
                 found: true,
                 source: "astrowallet",
@@ -116,7 +120,7 @@ export function createAstroIdResolver(config: AstroIdResolverConfig): IdentityRe
                 usernameLower: resolved.username?.replace(/^@/, "").toLowerCase(),
                 primaryAddress,
                 ...(resolved.preferredNetwork ? { preferredNetwork: resolved.preferredNetwork } : {}),
-                ...(resolved.activeAddress ? { activeAddress: resolved.activeAddress } : {}),
+                ...(validActiveAddress ? { activeAddress: validActiveAddress } : {}),
                 accounts,
               });
             }

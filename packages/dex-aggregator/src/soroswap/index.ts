@@ -290,3 +290,65 @@ export async function quoteViaSoroswapProxy(input: {
     unsignedXdr: body.unsignedXdr,
   };
 }
+
+/**
+ * Calls the upstream Soroswap Aggregator API directly (avoids Cloudflare Worker self-fetch hairpins).
+ */
+export async function quoteViaSoroswapDirect(input: {
+  apiBase: string;
+  apiKey: string;
+  network: "mainnet" | "testnet";
+  fromAsset: string;
+  toAsset: string;
+  amount: string;
+  slippageBps: number;
+  sourceAddress?: string | undefined;
+  fetchFn: AggregatorFetchLike;
+}): Promise<RouteQuote | null> {
+  const base = input.apiBase.replace(/\/+$/, "");
+  const res = await input.fetchFn(`${base}/quote?network=${input.network}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify({
+      fromAsset: input.fromAsset,
+      toAsset: input.toAsset,
+      amount: input.amount,
+      slippageBps: input.slippageBps,
+      sourceAddress: input.sourceAddress,
+    }),
+  });
+  if (!res.ok) return null;
+  const body = (await res.json()) as {
+    expectedOutputAmount?: string;
+    minOutputAmount?: string;
+    priceImpactPct?: string;
+    feeBps?: number;
+    pathAssets?: string[];
+    unsignedXdr?: string;
+    pairId?: string;
+  };
+  if (!body.expectedOutputAmount) return null;
+  const outStroops = parseDecimalToStroops7(body.expectedOutputAmount);
+  if (outStroops === null || outStroops <= 0n) return null;
+  const minOutStroops =
+    (outStroops * BigInt(10_000 - Math.max(1, Math.min(5000, input.slippageBps)))) / 10_000n;
+
+  return {
+    venue: "soroswap_aggregator",
+    fromAsset: input.fromAsset,
+    toAsset: input.toAsset,
+    inputAmount: input.amount,
+    expectedOutputAmount: body.expectedOutputAmount,
+    minOutputAmount: body.minOutputAmount ?? formatStroops7(minOutStroops),
+    priceImpactPct: body.priceImpactPct ?? "0.30",
+    feeBps: body.feeBps ?? 30,
+    requiresTrustline: false,
+    requiresSacBridgeForSmartAccount: false,
+    pathAssets: body.pathAssets ?? [input.fromAsset, input.toAsset],
+    pairId: body.pairId,
+    unsignedXdr: body.unsignedXdr,
+  };
+}

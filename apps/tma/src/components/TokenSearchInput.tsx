@@ -1,6 +1,7 @@
 import type { CatalogTokenItem } from "@astrodex/domain";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useAppState } from "../state/app-context.js";
+import { TokenAvatar } from "./TokenAvatar.js";
 
 function shortKey(key: string): string {
   if (key.length <= 16) return key;
@@ -54,6 +55,9 @@ export function TokenSearchInput({
         const aExact = a.code.toLowerCase() === q ? 1 : 0;
         const bExact = b.code.toLowerCase() === q ? 1 : 0;
         if (aExact !== bExact) return bExact - aExact;
+        const aVer = a.reviewStatus === "official" || a.reviewStatus === "verified" ? 1 : 0;
+        const bVer = b.reviewStatus === "official" || b.reviewStatus === "verified" ? 1 : 0;
+        if (aVer !== bVer) return bVer - aVer;
         return b.shieldScore - a.shieldScore;
       })
       .slice(0, maxResults);
@@ -141,28 +145,37 @@ export function TokenSearchInput({
           )}
           {combinedResults.map((item) => (
             <div key={item.assetKey} className="ad-row ad-dropdown-item">
-              <div className="ad-min-w-0">
-                <div className="ad-text-md ad-font-bold ad-flex-wrap">
-                  <span>${item.code}</span>
-                  <span
-                    className={`glass-pill ${
-                      item.reviewStatus === "official"
-                        ? "glass-pill--safe"
+              <div className="ad-flex-8 ad-min-w-0">
+                <TokenAvatar
+                  code={item.code}
+                  icon={item.logoUrl}
+                  isNative={item.assetKey === "XLM"}
+                  size={30}
+                  verified={item.reviewStatus === "official" || item.reviewStatus === "verified"}
+                />
+                <div className="ad-min-w-0">
+                  <div className="ad-text-md ad-font-bold ad-flex-wrap">
+                    <span>${item.code}</span>
+                    <span
+                      className={`glass-pill ${
+                        item.reviewStatus === "official"
+                          ? "glass-pill--safe"
+                          : item.reviewStatus === "verified"
+                            ? "glass-pill--gold"
+                            : "glass-pill--warn"
+                      }`}
+                    >
+                      {item.reviewStatus === "official"
+                        ? "Official"
                         : item.reviewStatus === "verified"
-                          ? "glass-pill--gold"
-                          : "glass-pill--warn"
-                    }`}
-                  >
-                    {item.reviewStatus === "official"
-                      ? "Official"
-                      : item.reviewStatus === "verified"
-                        ? "Verified"
-                        : "Unreviewed"}
-                  </span>
-                </div>
-                <div className="ad-text-xs ad-text-muted">
-                  {item.name ? `${item.name} · ` : ""}
-                  {shortKey(item.assetKey)}
+                          ? "Verified"
+                          : "Unreviewed"}
+                    </span>
+                  </div>
+                  <div className="ad-text-xs ad-text-muted">
+                    {item.name ? `${item.name} · ` : ""}
+                    {shortKey(item.assetKey)}
+                  </div>
                 </div>
               </div>
               <div className="ad-flex-6 ad-no-shrink">

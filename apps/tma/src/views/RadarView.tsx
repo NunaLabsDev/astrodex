@@ -1,6 +1,8 @@
 import type { CatalogTokenItem } from "@astrodex/domain";
 import { buildAstroDexDeepLink } from "@astrodex/tg-protocol";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { MicroPrice } from "../components/MicroPrice.js";
+import { TokenAvatar } from "../components/TokenAvatar.js";
 import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
 import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
@@ -250,7 +252,9 @@ export function RadarView() {
     const timer = setTimeout(async () => {
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
-        const res = await fetch(`${base}/v1/markets/search?q=${encodeURIComponent(q)}&limit=5`);
+        const res = await fetch(
+          `${base}/v1/markets/search?q=${encodeURIComponent(q)}&limit=5&net=${encodeURIComponent(feedNetwork)}`,
+        );
         if (!res.ok) return;
         const json = (await res.json()) as { results?: CatalogTokenItem[] };
         if (!cancelled && Array.isArray(json.results)) {
@@ -635,7 +639,11 @@ export function RadarView() {
         </div>
 
         {catalogLoading && catalog.length === 0 ? (
-          <div className="ad-banner">Syncing live Stellar markets...</div>
+          <div className="ad-stack-6">
+            <div className="ad-shimmer" style={{ height: 64 }} />
+            <div className="ad-shimmer" style={{ height: 64 }} />
+            <div className="ad-shimmer" style={{ height: 64 }} />
+          </div>
         ) : filteredCatalog.length === 0 ? (
           <div className="ad-banner">
             No matching tokens found. Try another filter or paste a token ID in Search.
@@ -713,6 +721,14 @@ export function RadarView() {
                       {favSet.has(item.assetKey) ? "♥" : "♡"}
                     </button>
 
+                    <TokenAvatar
+                      code={item.code}
+                      icon={item.logoUrl}
+                      isNative={item.assetKey === "XLM"}
+                      size={32}
+                      verified={item.reviewStatus === "official" || item.reviewStatus === "verified"}
+                    />
+
                     <div className="ad-min-w-0 ad-stack-3" style={{ flex: 1 }}>
                       <div className="ad-font-bold ad-text-base ad-flex-6" style={{ alignItems: "center" }}>
                         <span className="ad-text-xs ad-text-muted tabular-nums">#{idx + 1}</span>
@@ -727,10 +743,16 @@ export function RadarView() {
                     <Sparkline points={sparkPts} positive={positive7d} />
 
                     <div className="ad-text-right ad-no-shrink tabular-nums">
-                      <div className="ad-font-bold ad-text-sm">{displayPrice}</div>
+                      <div className="ad-font-bold ad-text-sm">
+                        {quoteUnit === "usd" ? (
+                          <MicroPrice value={item.priceUsd} fallback={displayPrice} />
+                        ) : (
+                          displayPrice
+                        )}
+                      </div>
                       {typeof pct24 === "number" ? (
                         <span
-                          className={`glass-pill ${pct24 >= 0 ? "glass-pill--safe" : "glass-pill--warn"}`}
+                          className={`glass-pill ${pct24 >= 0 ? "glass-pill--safe" : "glass-pill--coral"}`}
                           style={{ fontSize: 10, padding: "1px 6px" }}
                         >
                           {pct24 >= 0 ? "+" : ""}

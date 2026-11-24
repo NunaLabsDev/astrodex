@@ -20,7 +20,6 @@ interface PortfolioData {
   }>;
 }
 
-const LOCAL_WATCHLIST_KEY = "astrodex_local_watchlist_v1";
 const LOCAL_ALERTS_KEY = "astrodex_local_alerts_v1";
 
 function readLocalJson<T>(key: string, fallback: T): T {
@@ -53,10 +52,10 @@ export function OrdersAlertsView() {
     setSelectedAsset,
     setActiveTab,
     setTradeScrollTarget,
+    favorites,
+    toggleFavorite,
+    refreshOpenOffers,
   } = useAppState();
-  const [watchlist, setWatchlist] = useState<string[]>(() =>
-    readLocalJson<string[]>(LOCAL_WATCHLIST_KEY, []),
-  );
   const [alerts, setAlerts] = useState<PriceAlertItem[]>(() =>
     readLocalJson<PriceAlertItem[]>(LOCAL_ALERTS_KEY, []),
   );
@@ -76,17 +75,6 @@ export function OrdersAlertsView() {
     const tasks: Array<Promise<void>> = [];
 
     if (sessionToken) {
-      tasks.push(
-        fetch(`${base}/v1/watchlists`, {
-          headers: { Authorization: `Bearer ${sessionToken}` },
-        })
-          .then(async (r) => {
-            if (!r.ok) return;
-            const json = (await r.json()) as { items?: string[] };
-            if (json.items) setWatchlist(json.items);
-          })
-          .catch(() => {}),
-      );
       tasks.push(
         fetch(`${base}/v1/alerts`, {
           headers: { Authorization: `Bearer ${sessionToken}` },
@@ -145,36 +133,11 @@ export function OrdersAlertsView() {
     activeToken?.code ?? selectedAsset.split(":")[0]?.slice(0, 8) ?? "Token";
 
   const handleToggleWatchlist = async () => {
-    const exists = watchlist.includes(selectedAsset);
-    if (!sessionToken) {
-      const next = exists
-        ? watchlist.filter((x) => x !== selectedAsset)
-        : [selectedAsset, ...watchlist];
-      setWatchlist(next);
-      writeLocalJson(LOCAL_WATCHLIST_KEY, next);
-      triggerTelegramHaptic("selection");
-      return;
-    }
     setBusyId("watchlist");
     setErrorMsg(null);
     try {
-      const res = await fetch(
-        exists
-          ? `${base}/v1/watchlists/${encodeURIComponent(selectedAsset)}`
-          : `${base}/v1/watchlists`,
-        {
-          method: exists ? "DELETE" : "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${sessionToken}`,
-          },
-          ...(exists ? {} : { body: JSON.stringify({ assetKey: selectedAsset }) }),
-        },
-      );
-      if (res.ok) {
-        triggerTelegramHaptic("selection");
-        await loadData();
-      }
+      await toggleFavorite(selectedAsset);
+      triggerTelegramHaptic("selection");
     } finally {
       setBusyId(null);
     }
@@ -294,6 +257,7 @@ export function OrdersAlertsView() {
         expressWebUrl: json.expressWebUrl,
         intentId: json.intentId,
         onComplete: () => {
+          void refreshOpenOffers();
           void loadData();
         },
       });
@@ -430,7 +394,7 @@ export function OrdersAlertsView() {
       <section className="glass-card ad-stack-10">
         <div className="ad-row">
           <strong className="ad-text-base">
-            Watchlist ({watchlist.length}) &amp; Alerts ({alerts.length})
+            Watchlist ({favorites.length}) &amp; Alerts ({alerts.length})
           </strong>
           <button
             type="button"
@@ -438,15 +402,15 @@ export function OrdersAlertsView() {
             disabled={busyId === "watchlist"}
             onClick={() => void handleToggleWatchlist()}
           >
-            {watchlist.includes(selectedAsset)
+            {favorites.includes(selectedAsset)
               ? `Unwatch ${shortSelectedCode}`
               : `+ Watch ${shortSelectedCode}`}
           </button>
         </div>
 
-        {watchlist.length > 0 && (
+        {favorites.length > 0 && (
           <div className="ad-chip-row">
-            {watchlist.map((item) => {
+            {favorites.map((item) => {
               const tok = catalog.find((c) => c.assetKey === item);
               return (
                 <button

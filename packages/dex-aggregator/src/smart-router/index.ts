@@ -18,6 +18,7 @@ import {
 import { quoteHorizonSdexPath } from "../sdex/index.js";
 import {
   computeSoroswapAmountOut,
+  quoteViaSoroswapDirect,
   quoteViaSoroswapProxy,
   type AggregatorFetchLike,
 } from "../soroswap/index.js";
@@ -33,6 +34,13 @@ export interface SmartRouterConfig {
   horizonUrls: readonly string[];
   networkPassphrase?: string | undefined;
   soroswapProxyQuoteUrl?: string | undefined;
+  soroswapDirect?:
+    | {
+        apiBase: string;
+        apiKey: string;
+        network: "mainnet" | "testnet";
+      }
+    | undefined;
   xoxnoApiBase?: string | undefined;
   verifiedAssets?: readonly VerifiedTickerEntry[] | undefined;
   curveStateLoader?:
@@ -247,16 +255,28 @@ export function createSmartLiquidityRouter(config: SmartRouterConfig): Liquidity
           } satisfies RouteQuote;
         })(),
 
-        // 2. Worker-Proxied Soroswap Aggregator
-        quoteViaSoroswapProxy({
-          proxyQuoteUrl: config.soroswapProxyQuoteUrl,
-          fromAsset: input.fromAsset,
-          toAsset: input.toAsset,
-          amount: input.amount,
-          slippageBps: input.slippageBps,
-          sourceAddress: input.sourceAddress,
-          fetchFn,
-        }),
+        // 2. Direct / Proxied Soroswap Aggregator
+        config.soroswapDirect
+          ? quoteViaSoroswapDirect({
+              apiBase: config.soroswapDirect.apiBase,
+              apiKey: config.soroswapDirect.apiKey,
+              network: config.soroswapDirect.network,
+              fromAsset: input.fromAsset,
+              toAsset: input.toAsset,
+              amount: input.amount,
+              slippageBps: input.slippageBps,
+              sourceAddress: input.sourceAddress,
+              fetchFn,
+            })
+          : quoteViaSoroswapProxy({
+              proxyQuoteUrl: config.soroswapProxyQuoteUrl,
+              fromAsset: input.fromAsset,
+              toAsset: input.toAsset,
+              amount: input.amount,
+              slippageBps: input.slippageBps,
+              sourceAddress: input.sourceAddress,
+              fetchFn,
+            }),
 
         // 3. Optional XOXNO Swap Aggregator
         quoteViaXoxno({

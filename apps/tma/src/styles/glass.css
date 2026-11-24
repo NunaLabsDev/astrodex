@@ -76,8 +76,8 @@ body {
 
 .glass-sheet {
   background: rgba(14, 26, 68, 0.85);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(165%);
+  -webkit-backdrop-filter: blur(16px) saturate(165%);
   border: 1px solid rgba(165, 139, 224, 0.34);
   border-radius: 24px;
   padding: 16px;
@@ -130,6 +130,12 @@ body {
   color: #FDE68A;
 }
 
+.glass-pill--coral {
+  background: rgba(241, 90, 36, 0.16);
+  border-color: rgba(241, 90, 36, 0.45);
+  color: #FDBA74;
+}
+
 .ad-chip-row {
   display: flex;
   align-items: center;
@@ -155,8 +161,8 @@ body {
   transform: translateX(-50%);
   width: min(320px, calc(100% - 24px));
   background: rgba(14, 26, 68, 0.86);
-  backdrop-filter: blur(20px) saturate(175%);
-  -webkit-backdrop-filter: blur(20px) saturate(175%);
+  backdrop-filter: blur(16px) saturate(165%);
+  -webkit-backdrop-filter: blur(16px) saturate(165%);
   border: 1px solid rgba(165, 139, 224, 0.28);
   box-shadow: 0 10px 28px rgba(4, 9, 24, 0.55);
   border-radius: 22px;
@@ -951,10 +957,101 @@ textarea:focus-visible {
   color: #fff;
 }
 
+.ad-seg-tabs {
+  display: grid;
+  grid-template-columns: 0.85fr 0.85fr 1.45fr 0.85fr 0.95fr;
+  gap: 5px;
+  padding: 4px;
+  border-radius: 16px;
+  background: rgba(6, 14, 36, 0.65);
+  border: 1px solid rgba(165, 139, 224, 0.22);
+}
+
+.ad-token-strip {
+  position: sticky;
+  top: 6px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(10, 20, 54, 0.94);
+  border: 1px solid rgba(165, 139, 224, 0.26);
+  box-shadow: 0 8px 24px rgba(4, 9, 24, 0.45);
+}
+
+.ad-quote-slot {
+  min-height: 112px;
+  display: grid;
+  gap: 8px;
+}
+
+.ad-shimmer {
+  border-radius: 14px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: ad-shimmer-anim 1.4s ease-in-out infinite;
+}
+
+@keyframes ad-shimmer-anim {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.ad-depth-row {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.ad-depth-row--bid {
+  background: linear-gradient(90deg, transparent calc(100% - var(--depth-pct, 0%)), rgba(16, 185, 129, 0.16) calc(100% - var(--depth-pct, 0%)));
+}
+
+.ad-depth-row--ask {
+  background: linear-gradient(90deg, transparent calc(100% - var(--depth-pct, 0%)), rgba(241, 90, 36, 0.16) calc(100% - var(--depth-pct, 0%)));
+}
+
+.ad-dock-badge {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ad-stellar-gold);
+  color: var(--ad-ink-on-gold);
+  font-size: 10px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ad-btn-mainnet {
+  background: linear-gradient(135deg, #F15A24, #D9480F);
+  color: #FFFFFF;
+}
+
+.ad-btn-testnet {
+  background: linear-gradient(135deg, #F5C928, #EAB308);
+  color: #060E24;
+}
+
 @media (prefers-reduced-transparency: reduce) {
   .glass-card,
   .glass-sheet,
-  .glass-dock {
+  .glass-dock,
+  .ad-token-strip {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     background: rgba(12, 24, 62, 0.96);

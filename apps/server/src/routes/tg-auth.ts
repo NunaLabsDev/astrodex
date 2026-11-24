@@ -124,7 +124,10 @@ export function createTgAuthRoutes(deps: { fetchFn?: FetchLike | undefined } = {
       astroGateApiBaseUrl: config.astroGateApiBaseUrl,
       fetchFn,
     });
-    const astroId = await resolver.resolveIdentity(tgUser.id);
+    let astroId = await resolver.resolveIdentity(tgUser.id);
+    if (!astroId.found && tgUser.usernameLower) {
+      astroId = await resolver.resolveIdentity(tgUser.usernameLower);
+    }
 
     return c.json({
       sessionToken,

@@ -262,9 +262,14 @@ export function createAgentX402Routes(deps: {
     const liquidityRouter = createSmartLiquidityRouter({
       horizonUrls: config.horizonUrls,
       networkPassphrase: config.networkPassphrase,
-      soroswapProxyQuoteUrl: config.soroswapApiBase
-        ? `${config.tmaOrigin.replace(/\/+$/, "")}/v1/proxy/soroswap/quote`
-        : undefined,
+      soroswapDirect:
+        config.soroswapApiBase && config.soroswapApiKey
+          ? {
+              apiBase: config.soroswapApiBase,
+              apiKey: config.soroswapApiKey,
+              network: config.network,
+            }
+          : undefined,
       xoxnoApiBase: config.xoxnoSwapApiBase,
       verifiedAssets: snapshot.sep42Assets,
       curveStateLoader: createConfiguredCurveStateLoader(config, fetchFn),

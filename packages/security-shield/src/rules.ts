@@ -47,6 +47,9 @@ const PROTECTED_TICKERS = new Set([
   "YXLM",
 ]);
 
+const PHISHING_URL_REGEX =
+  /(https?:\/\/|t\.me\/|bit\.ly\/|tinyurl\.com\/|[a-z0-9-]+\.(xyz|top|click|site|online|vip|claim|airdrop)\b)/i;
+
 const DANGEROUS_SOROBAN_FUNCTIONS = new Set([
   "update_current_contract_wasm",
   "upgrade",
@@ -134,6 +137,16 @@ export function evaluateDecodedTransaction(
   const balanceDiffs: BalanceDiff[] = [...(context.simulatedBalanceDiffs ?? [])];
   let requiresMemoCheck = false;
 
+  if (decoded.memo.value && PHISHING_URL_REGEX.test(decoded.memo.value)) {
+    findings.push({
+      code: "MALICIOUS_MEMO_PHISHING_URL",
+      severity: "warning",
+      title: "Suspicious URL in Transaction Memo",
+      description: `Memo contains a link (${decoded.memo.value.slice(0, 64)}); never visit unsolicited airdrop or claim links.`,
+      blocksSigning: false,
+    });
+  }
+
   for (const op of decoded.operations) {
     if (op.type === "setOptions") {
       if (op.signerKey && (op.signerWeight ?? 0) > 0) {
@@ -152,6 +165,32 @@ export function evaluateDecodedTransaction(
           title: "Master Key Lockout Blocked",
           description: "Sets master key weight to 0.",
           blocksSigning: true,
+        });
+      }
+      const maxThresh = Math.max(
+        op.lowThreshold ?? 0,
+        op.medThreshold ?? 0,
+        op.highThreshold ?? 0,
+      );
+      if (
+        maxThresh > 0 &&
+        ((op.masterWeight !== undefined && maxThresh > op.masterWeight) || op.masterWeight === undefined)
+      ) {
+        findings.push({
+          code: "SUSPICIOUS_SET_OPTIONS_THRESHOLDS",
+          severity: "malicious",
+          title: "Threshold Lockout Blocked (setOptions)",
+          description: `Raises account signature thresholds (max=${maxThresh}) without matching master weight.`,
+          blocksSigning: true,
+        });
+      }
+      if ((op.setFlags ?? 0) > 0 || (op.clearFlags ?? 0) > 0 || op.inflationDest) {
+        findings.push({
+          code: "SUSPICIOUS_SET_OPTIONS_FLAGS",
+          severity: "warning",
+          title: "Account Flags / Inflation Modified",
+          description: "Transaction alters account flags or inflation destination via setOptions.",
+          blocksSigning: false,
         });
       }
     }
@@ -213,18 +252,28 @@ export function evaluateDecodedTransaction(
     const verified = context.verifiedAssets ?? [];
     for (const asset of assetsToCheck) {
       const upper = asset.code.toUpperCase();
-      if (upper !== "XLM" && asset.issuer && PROTECTED_TICKERS.has(upper) && verified.length > 0) {
-        const isOfficial = verified.some(
-          (v) => v.code.toUpperCase() === upper && v.issuer?.toUpperCase() === asset.issuer?.toUpperCase(),
-        );
-        if (!isOfficial && verified.some((v) => v.code.toUpperCase() === upper)) {
+      if (upper !== "XLM" && asset.issuer && PROTECTED_TICKERS.has(upper)) {
+        if (verified.length === 0) {
           findings.push({
-            code: "SPOOFED_PROTECTED_ASSET",
-            severity: "malicious",
-            title: `Spoofed ${asset.code} Issuer Blocked`,
-            description: `Asset ${asset.code} (${asset.issuer}) does not match the SEP-42 official issuer.`,
-            blocksSigning: true,
+            code: "UNVERIFIED_PROTECTED_TICKER_LIST",
+            severity: "warning",
+            title: `Unverified Protected Ticker (${asset.code})`,
+            description: `SEP-42 verified asset registry was unavailable to confirm ${asset.code} (${asset.issuer}).`,
+            blocksSigning: false,
           });
+        } else {
+          const isOfficial = verified.some(
+            (v) => v.code.toUpperCase() === upper && v.issuer?.toUpperCase() === asset.issuer?.toUpperCase(),
+          );
+          if (!isOfficial && verified.some((v) => v.code.toUpperCase() === upper)) {
+            findings.push({
+              code: "SPOOFED_PROTECTED_ASSET",
+              severity: "malicious",
+              title: `Spoofed ${asset.code} Issuer Blocked`,
+              description: `Asset ${asset.code} (${asset.issuer}) does not match the SEP-42 official issuer.`,
+              blocksSigning: true,
+            });
+          }
         }
       }
     }

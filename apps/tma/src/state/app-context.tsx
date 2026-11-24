@@ -28,6 +28,14 @@ import {
 export type DockTab = "radar" | "trade" | "scanner" | "book" | "orders";
 export type TradeScrollTarget = "swap" | "pools" | "safety" | "limit" | null;
 
+export interface AppOpenOfferItem {
+  offerId: string;
+  sellingAsset: string;
+  buyingAsset: string;
+  amount: string;
+  price: string;
+}
+
 const LOCAL_FAVORITES_KEY = "astrodex_local_watchlist_v1";
 
 function readLocalFavorites(): string[] {
@@ -85,6 +93,10 @@ interface AppContextValue {
   }>;
   catalogLoading: boolean;
   refreshCatalog: (overrideNet?: StellarNetwork) => Promise<void>;
+  openOffers: AppOpenOfferItem[];
+  openOffersCount: number;
+  refreshOpenOffers: () => Promise<void>;
+  syncWallet: () => Promise<{ ok: boolean; message: string }>;
   retryAuth: () => void;
 }
 
@@ -118,6 +130,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   } | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<string>("XLM");
   const [authAttempt, setAuthAttempt] = useState(0);
+  const [openOffers, setOpenOffers] = useState<AppOpenOfferItem[]>([]);
   const [catalog, setCatalog] = useState<CatalogTokenItem[]>([]);
   const [favorites, setFavorites] = useState<string[]>(() => readLocalFavorites());
   const [xlmUsd, setXlmUsd] = useState<number | null>(null);
@@ -443,7 +456,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const disconnectPublicIdentity = useCallback(() => {
     setAstroId({ found: false, source: "none", accounts: [] });
     setSelectedAddress(null);
+    setOpenOffers([]);
   }, []);
+
+  const refreshOpenOffers = useCallback(async () => {
+    if (!activeAccount || activeAccount.kind !== "classic") {
+      setOpenOffers([]);
+      return;
+    }
+    try {
+      const base = config.apiBaseUrl.replace(/\/+$/, "");
+      const res = await fetch(
+        `${base}/v1/orders/${encodeURIComponent(activeAccount.address)}?net=${encodeURIComponent(feedNetwork)}`,
+      );
+      if (!res.ok) {
+        setOpenOffers([]);
+        return;
+      }
+      const json = (await res.json()) as { offers?: AppOpenOfferItem[] };
+      setOpenOffers(Array.isArray(json.offers) ? json.offers : []);
+    } catch {
+      setOpenOffers([]);
+    }
+  }, [activeAccount, config.apiBaseUrl, feedNetwork]);
+
+  useEffect(() => {
+    void refreshOpenOffers();
+  }, [refreshOpenOffers]);
+
+  const syncWallet = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+    const q = astroId.telegramUserId ?? astroId.usernameLower ?? activeAccount?.address;
+    if (q) {
+      return resolvePublicIdentity(q);
+    }
+    setAuthAttempt((n) => n + 1);
+    return { ok: true, message: "Re-syncing Telegram session with AstroWallet..." };
+  }, [astroId.telegramUserId, astroId.usernameLower, activeAccount?.address, resolvePublicIdentity]);
 
   const defaultPairAsset = useMemo(() => {
     const usdc = catalog.find((t) => t.code.toUpperCase() === "USDC");
@@ -484,6 +532,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         launchpadTokens,
         catalogLoading,
         refreshCatalog,
+        openOffers,
+        openOffersCount: openOffers.length,
+        refreshOpenOffers,
+        syncWallet,
         retryAuth: () => setAuthAttempt((n) => n + 1),
       }}
     >

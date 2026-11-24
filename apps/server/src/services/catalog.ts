@@ -7,6 +7,7 @@ import {
   localCurveQuoteSell,
 } from "@astrodex/dex-aggregator";
 import {
+  calculateAccountReserveSummary,
   formatStroops7,
   normalizeAssetIdentifier,
   type CatalogTokenItem,
@@ -1658,11 +1659,14 @@ export async function fetchTokenRecentTrades(input: {
 export interface WalletPortfolioSnapshot {
   address: string;
   network: "mainnet" | "testnet";
+  minReserveXlm?: string;
+  spendableXlm?: string;
   balances: Array<{
     assetKey: string;
     code: string;
     issuer?: string;
     balance: string;
+    sellingLiabilities?: string;
   }>;
   lpPositions: Array<{
     poolId: string;
@@ -1679,6 +1683,8 @@ export async function fetchWalletPortfolio(input: {
   const horizonBase = input.config.horizonUrls[0]?.replace(/\/+$/, "");
   const balances: WalletPortfolioSnapshot["balances"] = [];
   const lpPositions: WalletPortfolioSnapshot["lpPositions"] = [];
+  let minReserveXlm: string | undefined;
+  let spendableXlm: string | undefined;
   if (!horizonBase) {
     return { address: input.address, network: input.config.network, balances, lpPositions };
   }
@@ -1689,11 +1695,15 @@ export async function fetchWalletPortfolio(input: {
       return { address: input.address, network: input.config.network, balances, lpPositions };
     }
     const account = (await res.json()) as {
+      subentry_count?: number;
+      num_sponsoring?: number;
+      num_sponsored?: number;
       balances?: Array<{
         asset_type: string;
         asset_code?: string;
         asset_issuer?: string;
         balance: string;
+        selling_liabilities?: string;
         liquidity_pool_id?: string;
       }>;
     };
@@ -1701,7 +1711,21 @@ export async function fetchWalletPortfolio(input: {
     const rawLps: Array<{ poolId: string; shares: string }> = [];
     for (const b of account.balances ?? []) {
       if (b.asset_type === "native") {
-        balances.push({ assetKey: "XLM", code: "XLM", balance: b.balance });
+        balances.push({
+          assetKey: "XLM",
+          code: "XLM",
+          balance: b.balance,
+          ...(b.selling_liabilities ? { sellingLiabilities: b.selling_liabilities } : {}),
+        });
+        const summary = calculateAccountReserveSummary({
+          nativeBalanceXlm: b.balance,
+          sellingLiabilitiesXlm: b.selling_liabilities ?? "0",
+          subentryCount: account.subentry_count ?? 0,
+          numSponsoring: account.num_sponsoring ?? 0,
+          numSponsored: account.num_sponsored ?? 0,
+        });
+        minReserveXlm = summary.minReserveXlm;
+        spendableXlm = summary.spendableXlm;
       } else if (b.asset_type === "liquidity_pool_shares" && b.liquidity_pool_id) {
         rawLps.push({ poolId: b.liquidity_pool_id, shares: b.balance });
       } else if (b.asset_code && b.asset_issuer) {
@@ -1710,6 +1734,7 @@ export async function fetchWalletPortfolio(input: {
           code: b.asset_code,
           issuer: b.asset_issuer,
           balance: b.balance,
+          ...(b.selling_liabilities ? { sellingLiabilities: b.selling_liabilities } : {}),
         });
       }
     }
@@ -1745,6 +1770,8 @@ export async function fetchWalletPortfolio(input: {
   return {
     address: input.address,
     network: input.config.network,
+    ...(minReserveXlm !== undefined ? { minReserveXlm } : {}),
+    ...(spendableXlm !== undefined ? { spendableXlm } : {}),
     balances,
     lpPositions,
   };

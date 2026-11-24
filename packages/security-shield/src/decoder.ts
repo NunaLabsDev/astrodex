@@ -39,6 +39,9 @@ export interface DecodedOperation {
   lowThreshold?: number | undefined;
   medThreshold?: number | undefined;
   highThreshold?: number | undefined;
+  setFlags?: number | undefined;
+  clearFlags?: number | undefined;
+  inflationDest?: string | undefined;
   soroban?: DecodedSorobanInvocation | undefined;
 }
 
@@ -203,9 +206,14 @@ export function decodeTransactionEnvelope(
         ed25519PublicKey?: string;
         sha256Hash?: string;
         preAuthTx?: string;
+        ed25519SignedPayload?: string;
         weight?: number | string;
       };
-      signerKey = s.ed25519PublicKey ?? s.sha256Hash ?? s.preAuthTx;
+      signerKey =
+        s.ed25519PublicKey ??
+        s.ed25519SignedPayload ??
+        s.sha256Hash ??
+        s.preAuthTx;
       signerWeight = numOrUndef(s.weight);
     }
 
@@ -234,6 +242,9 @@ export function decodeTransactionEnvelope(
       lowThreshold: numOrUndef(rec.lowThreshold),
       medThreshold: numOrUndef(rec.medThreshold),
       highThreshold: numOrUndef(rec.highThreshold),
+      setFlags: numOrUndef(rec.setFlags),
+      clearFlags: numOrUndef(rec.clearFlags),
+      inflationDest: typeof rec.inflationDest === "string" ? rec.inflationDest : undefined,
       soroban: type === "invokeHostFunction" ? extractSorobanOp(rec) : undefined,
     };
   });

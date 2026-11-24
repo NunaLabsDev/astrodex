@@ -20,7 +20,7 @@ export function AstroIdHeader() {
     setActiveAccountAddress,
     resolvePublicIdentity,
     disconnectPublicIdentity,
-    retryAuth,
+    syncWallet,
   } = useAppState();
 
   const [showConnectSheet, setShowConnectSheet] = useState(false);
@@ -144,9 +144,10 @@ export function AstroIdHeader() {
             <button
               type="button"
               className="ad-btn-secondary ad-btn-sm"
-              onClick={() => {
-                retryAuth();
+              onClick={async () => {
                 setLookupFeedback({ ok: true, text: "Syncing active network & keys from AstroWallet..." });
+                const res = await syncWallet();
+                setLookupFeedback({ ok: res.ok, text: res.message });
               }}
             >
               🔄 Sync Wallet

@@ -72,17 +72,31 @@ export function createAstroDexBot(
   const astroWalletUrl = `https://t.me/${config.astroWalletBotUsername ?? "AstroWalletAppBot"}/${config.astroWalletMiniAppShortName ?? "wallet"}`;
   const botHandle = config.tgBotUsername ?? "AstroDexBot";
 
+  function escapeHtml(raw: string): string {
+    return raw
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function safeStartParam(raw: string): string {
+    return raw.slice(0, 64);
+  }
+
   function miniAppBtn(
     isPrivate: boolean,
     text: string,
     startParam?: string,
   ): InlineKeyboardButton {
+    const cleanParam = startParam ? safeStartParam(startParam) : undefined;
     if (isPrivate) {
       const base = config.tmaOrigin.replace(/\/+$/, "");
       return {
         text,
         web_app: {
-          url: startParam ? `${base}?startapp=${encodeURIComponent(startParam)}` : base,
+          url: cleanParam ? `${base}?startapp=${encodeURIComponent(cleanParam)}` : base,
         },
       };
     }
@@ -91,7 +105,7 @@ export function createAstroDexBot(
       url: buildAstroDexDeepLink({
         tgBotUsername: botHandle,
         tgMiniAppShortName: config.tgMiniAppShortName,
-        ...(startParam ? { startParam } : {}),
+        ...(cleanParam ? { startParam: cleanParam } : {}),
       }),
     };
   }
@@ -294,7 +308,7 @@ export function createAstroDexBot(
     const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
     const arg = tokens[0] ?? "XLM";
     const isPrivate = ctx.chat?.type === "private";
-    await ctx.reply(`Open live <code>${botCfg.network.toUpperCase()}</code> chart for <code>${arg}</code>:`, {
+    await ctx.reply(`Open live <code>${botCfg.network.toUpperCase()}</code> chart for <code>${escapeHtml(arg)}</code>:`, {
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [
@@ -308,6 +322,7 @@ export function createAstroDexBot(
   });
 
   bot.command("book", async (ctx) => {
+    if (!isExplicitMentionInGroup(ctx)) return;
     const { botCfg, tokens } = resolveBotFeedConfig(config, ctx.match);
     const rawBase = tokens[0] ?? "XLM";
     const defaultQuote =
@@ -345,7 +360,7 @@ export function createAstroDexBot(
         ammPools
           .map(
             (p) =>
-              `• <code>${p.venue}</code> vs <b>${p.counterCode}</b> · Fee ${(p.feeBps / 100).toFixed(2)}%${p.totalTrustlines > 0 ? ` · ${p.totalTrustlines} LPs` : ""}`,
+              `• <code>${escapeHtml(p.venue)}</code> vs <b>${escapeHtml(p.counterCode)}</b> · Fee ${(p.feeBps / 100).toFixed(2)}%${p.totalTrustlines > 0 ? ` · ${p.totalTrustlines} LPs` : ""}`,
           )
           .join("\n")
       : "";
