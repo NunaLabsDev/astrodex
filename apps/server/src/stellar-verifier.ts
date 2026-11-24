@@ -16,6 +16,7 @@ export function adaptFetch(fetchFn: FetchLike) {
       ...(init?.method !== undefined ? { method: init.method } : {}),
       ...(init?.headers !== undefined ? { headers: init.headers } : {}),
       ...(init?.body !== undefined ? { body: init.body } : {}),
+      signal: AbortSignal.timeout(8_000),
     });
 }
 
@@ -29,7 +30,10 @@ export type TxVerificationResult =
 export async function verifyTransactionConfirmed(
   config: Pick<ServerConfig, "horizonUrls" | "rpcUrls" | "networkPassphrase">,
   txHash: string,
-  expected?: { expectedSourceAccount?: string | undefined },
+  expected?: {
+    expectedSourceAccount?: string | undefined;
+    minCreatedAtUnix?: number | undefined;
+  },
   fetchFn: FetchLike = fetch,
 ): Promise<TxVerificationResult> {
   const cleanHash = txHash.trim().toLowerCase();
@@ -42,17 +46,28 @@ export async function verifyTransactionConfirmed(
     try {
       const res = await fetchFn(`${clean}/transactions/${cleanHash}`, {
         headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(8_000),
       });
       if (res.status === 404) continue;
       if (!res.ok) continue;
       const body = (await res.json()) as {
         successful?: boolean;
         ledger?: number;
+        created_at?: string;
         source_account?: string;
         envelope_xdr?: string;
       };
       if (body.successful === false) {
         return { confirmed: false, reason: "Transaction failed on-chain" };
+      }
+      if (expected?.minCreatedAtUnix && body.created_at) {
+        const txUnix = Math.floor(Date.parse(body.created_at) / 1000);
+        if (Number.isFinite(txUnix) && txUnix > 0 && txUnix < expected.minCreatedAtUnix - 15) {
+          return {
+            confirmed: false,
+            reason: "Transaction predates intent creation (replay rejected)",
+          };
+        }
       }
       if (
         expected?.expectedSourceAccount &&
@@ -61,7 +76,10 @@ export async function verifyTransactionConfirmed(
       ) {
         return { confirmed: false, reason: "Transaction source account mismatch" };
       }
-      if (expected?.expectedSourceAccount && body.envelope_xdr) {
+      if (expected?.expectedSourceAccount) {
+        if (!body.envelope_xdr) {
+          return { confirmed: false, reason: "Missing Horizon transaction envelope_xdr" };
+        }
         try {
           const decoded = decodeTransactionEnvelope(body.envelope_xdr, config.networkPassphrase);
           if (
@@ -88,6 +106,7 @@ export async function verifyTransactionConfirmed(
       const res = await fetchFn(rpcUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(8_000),
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -97,10 +116,22 @@ export async function verifyTransactionConfirmed(
       });
       if (!res.ok) continue;
       const body = (await res.json()) as {
-        result?: { status?: string; ledger?: number; envelopeXdr?: string };
+        result?: { status?: string; ledger?: number; ledgerCloseTime?: string; envelopeXdr?: string };
       };
       if (body.result?.status === "SUCCESS") {
-        if (expected?.expectedSourceAccount && body.result.envelopeXdr) {
+        if (expected?.minCreatedAtUnix && body.result.ledgerCloseTime) {
+          const txUnix = Number(body.result.ledgerCloseTime);
+          if (Number.isFinite(txUnix) && txUnix > 0 && txUnix < expected.minCreatedAtUnix - 15) {
+            return {
+              confirmed: false,
+              reason: "Transaction predates intent creation (replay rejected)",
+            };
+          }
+        }
+        if (expected?.expectedSourceAccount) {
+          if (!body.result.envelopeXdr) {
+            return { confirmed: false, reason: "Missing Soroban transaction envelopeXdr" };
+          }
           try {
             const decoded = decodeTransactionEnvelope(
               body.result.envelopeXdr,

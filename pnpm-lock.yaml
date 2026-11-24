@@ -50,6 +50,9 @@ importers:
       '@astrodex/tg-protocol':
         specifier: workspace:*
         version: link:../../packages/tg-protocol
+      '@stellar/stellar-sdk':
+        specifier: ^17.4.0
+        version: 17.4.0
       grammy:
         specifier: ^1.36.0
         version: 1.46.0
@@ -63,9 +66,6 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20250508.0
         version: 4.20260702.1
-      '@stellar/stellar-sdk':
-        specifier: ^17.4.0
-        version: 17.4.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -75,27 +75,12 @@ importers:
 
   apps/tma:
     dependencies:
-      '@astrodex/dex-aggregator':
-        specifier: workspace:*
-        version: link:../../packages/dex-aggregator
       '@astrodex/domain':
         specifier: workspace:*
         version: link:../../packages/domain
-      '@astrodex/oracles-and-charts':
-        specifier: workspace:*
-        version: link:../../packages/oracles-and-charts
-      '@astrodex/security-shield':
-        specifier: workspace:*
-        version: link:../../packages/security-shield
-      '@astrodex/stellar-scanner':
-        specifier: workspace:*
-        version: link:../../packages/stellar-scanner
       '@astrodex/tg-protocol':
         specifier: workspace:*
         version: link:../../packages/tg-protocol
-      buffer:
-        specifier: ^6.0.3
-        version: 6.0.3
       lightweight-charts:
         specifier: ^5.3.0
         version: 5.3.0
@@ -167,14 +152,14 @@ importers:
         specifier: workspace:*
         version: link:../domain
       '@astrowallet/connect':
-        specifier: file:../../vendor/astrowallet-connect-0.2.0.tgz
-        version: file:vendor/astrowallet-connect-0.2.0.tgz
+        specifier: file:../../vendor/astrowallet-connect-0.3.0.tgz
+        version: file:vendor/astrowallet-connect-0.3.0.tgz
 
 packages:
 
-  '@astrowallet/connect@file:vendor/astrowallet-connect-0.2.0.tgz':
-    resolution: {integrity: sha512-7BOj10tfoGyhyMktX5hQPbNJdrscPy6Y6fcbLinnrWR295v3jgEpKdx9mZnvGPEyTGFOq6IkliSbRYNY1K58tg==, tarball: file:vendor/astrowallet-connect-0.2.0.tgz}
-    version: 0.2.0
+  '@astrowallet/connect@file:vendor/astrowallet-connect-0.3.0.tgz':
+    resolution: {integrity: sha512-o9JobKb3yFNd3GZ9Ve3xQCeHtTOUJsEtD2v3qL2gEpXPJYS4l72DyirfNWO0TiTXTD03mi/0hqFjFK9HiiY0DA==, tarball: file:vendor/astrowallet-connect-0.3.0.tgz}
+    version: 0.3.0
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -1256,9 +1241,6 @@ packages:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
     engines: {node: 18 || 20 || >=22}
 
-  base64-js@1.5.1:
-    resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
-
   baseline-browser-mapping@2.11.39:
     resolution: {integrity: sha512-Q9buOYhr2ggrEZpImICecZTJHCCd8yXkRUokFlUEQ8uiD6oP82F4W4jWnhOHZYV+wlvrC51V7Wy0ULyWjil5Wg==}
     engines: {node: '>=6.0.0'}
@@ -1278,9 +1260,6 @@ packages:
     resolution: {integrity: sha512-CmVVIQ3RVc5HxYEc9X84GvxK/C8C1wH8TlKAiO7uTxF8PDwt7r8t9Qk3J9NkMOVzX5O/HbLv3yzxZg9HPrnI9w==}
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
-
-  buffer@6.0.3:
-    resolution: {integrity: sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==}
 
   cac@6.7.14:
     resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
@@ -1617,9 +1596,6 @@ packages:
 
   humanize-ms@1.2.1:
     resolution: {integrity: sha512-Fl70vYtsAFb/C06PTS9dZBo7ihau+Tu/DNCk/OyHhea07S+aeMWpFFkUaXRa8fI+ScZbEI8dfSxwY7gxZ9SAVQ==}
-
-  ieee754@1.2.1:
-    resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
 
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
@@ -2167,7 +2143,7 @@ packages:
 
 snapshots:
 
-  '@astrowallet/connect@file:vendor/astrowallet-connect-0.2.0.tgz': {}
+  '@astrowallet/connect@file:vendor/astrowallet-connect-0.3.0.tgz': {}
 
   '@babel/code-frame@7.29.7':
     dependencies:
@@ -3073,8 +3049,6 @@ snapshots:
 
   balanced-match@4.0.4: {}
 
-  base64-js@1.5.1: {}
-
   baseline-browser-mapping@2.11.39: {}
 
   bignumber.js@11.1.5: {}
@@ -3095,11 +3069,6 @@ snapshots:
       electron-to-chromium: 1.5.492
       node-releases: 2.0.65
       update-browserslist-db: 1.4.0(browserslist@4.29.6)
-
-  buffer@6.0.3:
-    dependencies:
-      base64-js: 1.5.1
-      ieee754: 1.2.1
 
   cac@6.7.14: {}
 
@@ -3472,8 +3441,6 @@ snapshots:
   humanize-ms@1.2.1:
     dependencies:
       ms: 2.1.3
-
-  ieee754@1.2.1: {}
 
   ignore@5.3.2: {}
 

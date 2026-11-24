@@ -17,7 +17,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@astrowallet/connect": "file:../../vendor/astrowallet-connect-0.2.0.tgz",
+    "@astrowallet/connect": "file:../../vendor/astrowallet-connect-0.3.0.tgz",
     "@astrodex/domain": "workspace:*"
   }
 }

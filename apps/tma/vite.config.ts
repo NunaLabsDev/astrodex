@@ -12,7 +12,6 @@ function collectConfiguredConnectOrigins(env: Record<string, string | undefined>
     "VITE_FRIENDBOT_URL",
     "VITE_SEP42_ASSET_LIST_URLS",
     "VITE_ASTROWALLET_API_BASE_URL",
-    "VITE_ASTROGATE_API_BASE_URL",
   ];
   for (const key of urlKeys) {
     const raw = env[key];

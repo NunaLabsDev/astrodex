@@ -2,7 +2,7 @@ import type { OpenLimitOffer } from "@astrodex/domain";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { TokenSearchInput } from "../components/TokenSearchInput.js";
 import { useAppState } from "../state/app-context.js";
-import { openTelegramDeepLink, triggerTelegramHaptic } from "../telegram/webapp.js";
+import { openExpressSignFlow, triggerTelegramHaptic } from "../telegram/webapp.js";
 
 interface PriceAlertItem {
   id: string;
@@ -278,13 +278,25 @@ export function OrdersAlertsView() {
           returnStartAppParam: `${feedNetwork}_t-orders`,
         }),
       });
-      const json = (await res.json()) as { deepLink?: string; error?: string };
+      const json = (await res.json()) as {
+        intentId?: string;
+        deepLink?: string;
+        expressWebUrl?: string;
+        error?: string;
+      };
       if (!res.ok || !json.deepLink) {
         throw new Error(json.error ?? "Failed to create cancel intent");
       }
       triggerTelegramHaptic("success");
       setStatusMsg(`Opening AstroWallet to cancel offer #${offer.offerId}...`);
-      openTelegramDeepLink(json.deepLink);
+      openExpressSignFlow({
+        deepLink: json.deepLink,
+        expressWebUrl: json.expressWebUrl,
+        intentId: json.intentId,
+        onComplete: () => {
+          void loadData();
+        },
+      });
     } catch (err) {
       triggerTelegramHaptic("error");
       setErrorMsg(err instanceof Error ? err.message : "Cancel failed");

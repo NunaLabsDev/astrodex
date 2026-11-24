@@ -82,6 +82,7 @@ const CreateIntentBodySchema = z.object({
       minOutputAmount: z.string().regex(/^\d+(\.\d{1,7})?$/),
       pathAssets: z.array(z.string()).optional(),
       includeTrustlineIfMissing: z.boolean().optional(),
+      slippageBps: z.number().int().min(1).max(5000).optional(),
     })
     .optional(),
   extendTtlContractId: ContractAddressSchema.optional(),
@@ -124,7 +125,10 @@ export interface TradingRoutesDeps {
     | ((
         config: Pick<ServerConfig, "horizonUrls" | "rpcUrls" | "networkPassphrase">,
         txHash: string,
-        expected?: { expectedSourceAccount?: string | undefined },
+        expected?: {
+          expectedSourceAccount?: string | undefined;
+          minCreatedAtUnix?: number | undefined;
+        },
       ) => Promise<TxVerificationResult>)
     | undefined;
 }
@@ -289,15 +293,16 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
         400,
       );
     }
-    const config = body.network ? resolveReadFeedConfig(baseConfig, body.network) : baseConfig;
-    if (body.network && body.network !== config.network) {
+    if (body.network && body.network !== baseConfig.network) {
       return c.json(
-        { error: `Network mismatch: requested ${body.network} on ${config.network} signer` },
+        { error: `Network mismatch: requested ${body.network} on ${baseConfig.network} signer` },
         409,
       );
     }
+    const config = baseConfig;
 
     let unsignedXdr = body.unsignedXdr?.trim();
+    let cachedCatalogSnapshot: Awaited<ReturnType<typeof buildUnifiedCatalog>> | null = null;
     const needsServerXdr =
       !unsignedXdr &&
       Boolean(
@@ -305,6 +310,15 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
           body.swapSpec ||
           (body.subAction === "soroban_extend_ttl" && body.extendTtlContractId),
       );
+    if (needsServerXdr && body.sourceAddress.startsWith("C")) {
+      return c.json(
+        {
+          error:
+            "Smart Accounts (C...) require client-assembled Soroban auth or a Classic G... source account for server XDR building.",
+        },
+        400,
+      );
+    }
     const accountState = needsServerXdr
       ? await loadHorizonAccountState(config.horizonUrls, body.sourceAddress, fetchFn)
       : { sequence: "0", trustlines: null };
@@ -343,10 +357,10 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
 
     if (!unsignedXdr && body.swapSpec) {
       try {
-        const snapshot = await buildUnifiedCatalog(config, repo, fetchFn);
+        cachedCatalogSnapshot = await buildUnifiedCatalog(config, repo, fetchFn);
         const [{ target: fromTarget }, { target: toTarget }] = await Promise.all([
-          resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.swapSpec.fromAsset, snapshot }),
-          resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.swapSpec.toAsset, snapshot }),
+          resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.swapSpec.fromAsset, snapshot: cachedCatalogSnapshot }),
+          resolveAssetTarget({ config, repo, fetchFn, rawAsset: body.swapSpec.toAsset, snapshot: cachedCatalogSnapshot }),
         ]);
 
         const fromNorm = normalizeAssetIdentifier(fromTarget.resolvedKey);
@@ -398,22 +412,28 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
 
         if (
           !unsignedXdr &&
-          body.swapSpec.venue === "xoxno_aggregator" &&
-          config.xoxnoSwapApiBase
+          body.swapSpec.venue === "xoxno_aggregator"
         ) {
+          if (!config.xoxnoSwapApiBase) {
+            return c.json({ error: "XOXNO aggregator is not configured on this network" }, 400);
+          }
           const xoxnoBuilt = await quoteViaXoxno({
             xoxnoApiBase: config.xoxnoSwapApiBase,
             networkPassphrase: config.networkPassphrase,
             fromAsset: fromTarget.resolvedKey,
             toAsset: toTarget.resolvedKey,
             amount: body.swapSpec.amount,
-            slippageBps: 100,
+            slippageBps: body.swapSpec.slippageBps ?? 100,
             sourceAddress: body.sourceAddress,
             fetchFn,
           });
-          if (xoxnoBuilt?.unsignedXdr) {
-            unsignedXdr = xoxnoBuilt.unsignedXdr;
+          if (!xoxnoBuilt?.unsignedXdr) {
+            return c.json(
+              { error: "XOXNO aggregator did not return an executable XDR; please re-quote or pick another venue." },
+              502,
+            );
           }
+          unsignedXdr = xoxnoBuilt.unsignedXdr;
         }
 
         if (
@@ -485,7 +505,8 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     }
 
     // Mandatory pre-sign Scan & Shield gate (fail-closed on malicious verdict)
-    const { sep42Assets: verifiedAssets } = await buildUnifiedCatalog(config, repo, fetchFn);
+    const { sep42Assets: verifiedAssets } =
+      cachedCatalogSnapshot ?? (await buildUnifiedCatalog(config, repo, fetchFn));
     const shield = createPreSignSecurityShield({
       networkPassphrase: config.networkPassphrase,
       rpcUrls: config.rpcUrls,
@@ -710,6 +731,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     const intentCfg = resolveReadFeedConfig(config, intent.network);
     const txCheck = await verifyFn(intentCfg, body.txHash, {
       expectedSourceAccount: intent.sourceAddress,
+      minCreatedAtUnix: intent.createdAt,
     });
     if (!txCheck.confirmed) {
       return c.json({ error: txCheck.reason }, 409);

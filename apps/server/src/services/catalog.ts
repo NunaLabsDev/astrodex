@@ -436,6 +436,11 @@ export async function fetchSingleTokenStellarExpertMetric(
   }
 }
 
+const unifiedCatalogCache = new Map<
+  string,
+  { expiresAt: number; snapshot: UnifiedCatalogSnapshot }
+>();
+
 export async function buildUnifiedCatalog(
   config: ServerConfig,
   repo: DexServerRepository,
@@ -443,6 +448,11 @@ export async function buildUnifiedCatalog(
   options: { includeRepoTokens?: boolean } = {},
 ): Promise<UnifiedCatalogSnapshot> {
   const includeRepo = options.includeRepoTokens ?? true;
+  const cacheKey = `${config.network}:${includeRepo ? "repo" : "norepo"}:${config.sep42AssetListUrls.join(",")}`;
+  const cached = unifiedCatalogCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now() && fetchFn === fetch) {
+    return cached.snapshot;
+  }
   const [tokens, pairs, sep42Assets, launchpadTokens, marketMap] = await Promise.all([
     includeRepo ? repo.listTokens(100) : Promise.resolve([]),
     includeRepo ? repo.listPairs(60) : Promise.resolve([]),
@@ -594,13 +604,20 @@ export async function buildUnifiedCatalog(
     });
   }
 
-  return {
+  const snapshot: UnifiedCatalogSnapshot = {
     tokens,
     pairs,
     sep42Assets,
     launchpadTokens,
     catalog: Array.from(catalogMap.values()),
   };
+  if (fetchFn === fetch) {
+    unifiedCatalogCache.set(cacheKey, {
+      expiresAt: Date.now() + 60_000,
+      snapshot,
+    });
+  }
+  return snapshot;
 }
 
 function rankMatchScore(item: CatalogTokenItem, lowerQuery: string): number {
@@ -1769,7 +1786,7 @@ export async function fetchTokenTopHolders(input: {
         if (rec.source_account && /^G[A-Z2-7]{55}$/.test(rec.source_account)) {
           uniq.add(rec.source_account);
         }
-        if (uniq.size >= 12) break;
+        if (uniq.size >= 6) break;
       }
       const list: TokenTopHolderSummary[] = [];
       await Promise.all(

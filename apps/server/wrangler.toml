@@ -20,7 +20,7 @@ class_name = "DexIndexerDO"
 
 [[services]]
 binding = "ASTROWALLET"
-service = "astrowallet-server-mainnet"
+service = "astrowallet-server"
 
 [[migrations]]
 tag = "v1"
@@ -85,6 +85,10 @@ id = "REPLACE_WITH_MAINNET_KV_ID"
 [[env.mainnet.durable_objects.bindings]]
 name = "DEX_INDEXER"
 class_name = "DexIndexerDO"
+
+[[env.mainnet.services]]
+binding = "ASTROWALLET"
+service = "astrowallet-server-mainnet"
 
 [env.mainnet.triggers]
 crons = ["0 */6 * * *"]

@@ -122,6 +122,7 @@ export function openTelegramDeepLink(url: string): void {
 export function openExpressSignFlow(opts: {
   deepLink: string;
   expressWebUrl?: string | undefined;
+  intentId?: string | undefined;
   onComplete?: (detail: { txHash?: string | undefined; intentId?: string | undefined }) => void;
 }): void {
   if (isInsideTelegramMiniApp()) {
@@ -149,9 +150,11 @@ export function openExpressSignFlow(opts: {
     window.open(targetUrl, "_blank", "noopener,noreferrer");
     return;
   }
+  if (!expectedOrigin) return;
   const handleMessage = (event: MessageEvent) => {
-    if (expectedOrigin && event.origin !== expectedOrigin) return;
+    if (event.origin !== expectedOrigin || event.source !== popup) return;
     const data = event.data as { type?: string; status?: string; txHash?: string; intentId?: string } | null;
+    if (opts.intentId && data?.intentId && data.intentId !== opts.intentId) return;
     if (data?.type === "ASTRO_SIGN_COMPLETE" && data.status === "approved") {
       window.removeEventListener("message", handleMessage);
       opts.onComplete?.({ txHash: data.txHash, intentId: data.intentId });

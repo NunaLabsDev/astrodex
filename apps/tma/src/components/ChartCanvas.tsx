@@ -50,7 +50,8 @@ function ChartSurface({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const [hovered, setHovered] = useState<OhlcvCandle | null>(null);
+  const hudPriceRef = useRef<HTMLElement | null>(null);
+  const hudRangeRef = useRef<HTMLSpanElement | null>(null);
   const [logScale, setLogScale] = useState(false);
   const [chartStyle, setChartStyle] = useState<"area" | "candles">("area");
 
@@ -68,8 +69,14 @@ function ChartSurface({
   }, [candles]);
 
   useEffect(() => {
-    setHovered(null);
-  }, [candles, timeframe]);
+    chartRef.current?.applyOptions({
+      rightPriceScale: {
+        borderColor: "rgba(165, 139, 224, 0.18)",
+        mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+        scaleMargins: { top: 0.1, bottom: 0.22 },
+      },
+    });
+  }, [logScale]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -195,19 +202,35 @@ function ChartSurface({
 
     chart.timeScale().fitContent();
 
+    const latestCandle = normalized[normalized.length - 1]!.candle;
+    const formatHudDate = (sec: number) =>
+      timeframe === "1d"
+        ? new Date(sec * 1000).toLocaleDateString([], {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          })
+        : new Date(sec * 1000).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
     const bySecLookup = new Map<number, OhlcvCandle>(
       normalized.map(({ sec, candle }) => [Number(sec), candle]),
     );
     chart.subscribeCrosshairMove((param) => {
-      if (!param.time || !param.point) {
-        setHovered(null);
-        return;
-      }
       const key = typeof param.time === "number" ? param.time : null;
-      if (key !== null && param.seriesData.has(mainSeries)) {
-        setHovered(bySecLookup.get(key) ?? null);
-      } else {
-        setHovered(null);
+      const target =
+        param.time && param.point && key !== null && param.seriesData.has(mainSeries)
+          ? (bySecLookup.get(key) ?? latestCandle)
+          : latestCandle;
+      if (hudPriceRef.current) {
+        hudPriceRef.current.textContent = `${formatPrice(target.close)} ${quoteLabel} · ${formatHudDate(target.time)}`;
+      }
+      if (hudRangeRef.current) {
+        hudRangeRef.current.textContent = `H ${formatPrice(target.high)} / L ${formatPrice(target.low)}`;
       }
     });
 
@@ -229,11 +252,11 @@ function ChartSurface({
       chart.remove();
       chartRef.current = null;
     };
-  }, [normalized, candles, chartStyle, timeframe, expanded, logScale]);
+  }, [normalized, candles, chartStyle, timeframe, expanded, quoteLabel]);
 
   if (normalized.length === 0) return null;
 
-  const active = hovered ?? normalized[normalized.length - 1]!.candle;
+  const active = normalized[normalized.length - 1]!.candle;
   const dateLabel =
     timeframe === "1d"
       ? new Date(active.time * 1000).toLocaleDateString([], {
@@ -252,13 +275,10 @@ function ChartSurface({
     <div className="ad-stack-8">
       <div className="ad-stack-6">
         <div className="ad-row ad-row-wrap ad-text-sm">
-          <strong className="tabular-nums">
-            {formatPrice(active.close)} {quoteLabel}{" "}
-            <span className="ad-text-xs ad-text-muted" style={{ fontWeight: 500 }}>
-              · {dateLabel}
-            </span>
+          <strong ref={hudPriceRef} className="tabular-nums">
+            {formatPrice(active.close)} {quoteLabel} · {dateLabel}
           </strong>
-          <span className="tabular-nums ad-text-xs ad-text-muted">
+          <span ref={hudRangeRef} className="tabular-nums ad-text-xs ad-text-muted">
             H {formatPrice(active.high)} / L {formatPrice(active.low)}
           </span>
         </div>

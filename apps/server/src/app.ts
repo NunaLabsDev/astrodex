@@ -199,8 +199,12 @@ export function createApp(deps: ServerDeps = {}): Hono<AppEnv> {
   };
 
   app.use("/tg/webhook", attachRepo);
-  app.use("/v1/*", attachRepo);
-  app.use("/v1/proxy/*", attachOptionalRepo);
+  app.use("/v1/*", async (c, next) => {
+    if (c.req.path.startsWith("/v1/proxy/")) {
+      return attachOptionalRepo(c, next);
+    }
+    return attachRepo(c, next);
+  });
   app.use("/mcp", attachOptionalRepo);
 
   app.use("/v1/markets/overview", async (c, next) => {

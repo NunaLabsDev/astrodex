@@ -187,9 +187,12 @@ export function createStellarForensicScanner(config: StellarScannerConfig): Scan
       const resolvedDecimals = astroGate.decimals ?? sep41Meta.decimals ?? 7;
 
       const sorobanAudit = {
-        owner: astroGate.isLaunchpadToken || isLayerZeroOftVerified ? null : undefined,
+        owner: isLayerZeroOftVerified || astroGate.isLaunchpadToken ? null : "unverified",
         ownerRenounced: astroGate.isLaunchpadToken || isLayerZeroOftVerified,
-        dangerousMethods: [] as string[],
+        dangerousMethods:
+          !astroGate.isLaunchpadToken && !isLayerZeroOftVerified && !registry.verified
+            ? ["unverified_admin_authority"]
+            : ([] as string[]),
         sep55Verified: registry.verified || astroGate.isLaunchpadToken || isLayerZeroOftVerified,
         registryVerified: registry.verified || isLayerZeroOftVerified,
         ttlStatus,

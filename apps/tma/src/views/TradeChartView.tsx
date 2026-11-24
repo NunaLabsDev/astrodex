@@ -220,6 +220,20 @@ export function TradeChartView() {
   }, [loadAccountState]);
 
   useEffect(() => {
+    const onResume = () => {
+      if (document.visibilityState === "visible") {
+        void loadAccountState();
+      }
+    };
+    window.addEventListener("focus", onResume);
+    document.addEventListener("visibilitychange", onResume);
+    return () => {
+      window.removeEventListener("focus", onResume);
+      document.removeEventListener("visibilitychange", onResume);
+    };
+  }, [loadAccountState]);
+
+  useEffect(() => {
     if (!tradeScrollTarget || tradeScrollTarget === "swap") {
       if (tradeScrollTarget === "swap") setTradeScrollTarget(null);
       return;
@@ -248,10 +262,10 @@ export function TradeChartView() {
       setToAsset(selectedAsset);
       return;
     }
-    if ((!toAsset || toAsset === "XLM") && defaultPairAsset !== "XLM") {
-      setToAsset(defaultPairAsset);
+    if (defaultPairAsset !== "XLM") {
+      setToAsset((prev) => (!prev || prev === "XLM" ? defaultPairAsset : prev));
     }
-  }, [selectedAsset, defaultPairAsset, toAsset]);
+  }, [selectedAsset, defaultPairAsset]);
 
   useEffect(() => {
     setTelegramClosingConfirmation(submitting);
@@ -281,7 +295,13 @@ export function TradeChartView() {
 
   useEffect(() => {
     let cancelled = false;
-    async function loadChartAndDepth() {
+    const controller = new AbortController();
+    setCandles([]);
+    setDepth([]);
+    setAmmPair(null);
+    setTokenHub(null);
+
+    async function loadDepthAndHub() {
       const targetAsset = focusAsset || "XLM";
       try {
         const base = config.apiBaseUrl.replace(/\/+$/, "");
@@ -289,15 +309,12 @@ export function TradeChartView() {
           targetAsset === "XLM" ? "XLM-XLM" : `${encodeURIComponent(targetAsset)}-XLM`;
         const netParam = encodeURIComponent(feedNetwork);
         setHubLoading(true);
-        const [candlesRes, bookRes, hubRes] = await Promise.all([
-          fetch(`${base}/v1/candles/${pair}?tf=${timeframe}&net=${netParam}`),
-          fetch(`${base}/v1/orderbook/${pair}?net=${netParam}`),
-          fetch(`${base}/v1/token-hub/${encodeURIComponent(targetAsset)}?net=${netParam}`),
+        const [bookRes, hubRes] = await Promise.all([
+          fetch(`${base}/v1/orderbook/${pair}?net=${netParam}`, { signal: controller.signal }),
+          fetch(`${base}/v1/token-hub/${encodeURIComponent(targetAsset)}?net=${netParam}`, {
+            signal: controller.signal,
+          }),
         ]);
-        if (!cancelled && candlesRes.ok) {
-          const json = (await candlesRes.json()) as { candles?: OhlcvCandle[] };
-          setCandles(json.candles ?? []);
-        }
         if (!cancelled && bookRes.ok) {
           const json = (await bookRes.json()) as {
             depth?: DepthPoint[];
@@ -311,14 +328,44 @@ export function TradeChartView() {
           setTokenHub(hubJson);
         }
       } catch {
-        // Ignore offline chart errors
+        // Ignore offline/aborted hub errors
       } finally {
         if (!cancelled) setHubLoading(false);
       }
     }
-    void loadChartAndDepth();
+    void loadDepthAndHub();
     return () => {
       cancelled = true;
+      controller.abort();
+    };
+  }, [config.apiBaseUrl, feedNetwork, focusAsset]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    async function loadCandles() {
+      const targetAsset = focusAsset || "XLM";
+      try {
+        const base = config.apiBaseUrl.replace(/\/+$/, "");
+        const pair =
+          targetAsset === "XLM" ? "XLM-XLM" : `${encodeURIComponent(targetAsset)}-XLM`;
+        const netParam = encodeURIComponent(feedNetwork);
+        const candlesRes = await fetch(
+          `${base}/v1/candles/${pair}?tf=${timeframe}&net=${netParam}`,
+          { signal: controller.signal },
+        );
+        if (!cancelled && candlesRes.ok) {
+          const json = (await candlesRes.json()) as { candles?: OhlcvCandle[] };
+          setCandles(json.candles ?? []);
+        }
+      } catch {
+        // Ignore offline/aborted chart errors
+      }
+    }
+    void loadCandles();
+    return () => {
+      cancelled = true;
+      controller.abort();
     };
   }, [config.apiBaseUrl, feedNetwork, focusAsset, timeframe]);
 
@@ -363,7 +410,10 @@ export function TradeChartView() {
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        if (!cancelled) setErrorMsg(err instanceof Error ? err.message : "Quote error");
+        if (!cancelled) {
+          setQuote(null);
+          setErrorMsg(err instanceof Error ? err.message : "Quote error");
+        }
       } finally {
         if (!cancelled) setQuoting(false);
       }
@@ -506,7 +556,8 @@ export function TradeChartView() {
                 amount: activeRoute.inputAmount,
                 minOutputAmount: activeRoute.minOutputAmount,
                 pathAssets: [...activeRoute.pathAssets],
-                includeTrustlineIfMissing: activeRoute.requiresTrustline,
+                includeTrustlineIfMissing: activeRoute.requiresTrustline || undefined,
+                slippageBps,
               },
           humanSummary: `Swap ${activeRoute.inputAmount} ${activeFromToken?.code ?? fromAsset} -> ~${activeRoute.expectedOutputAmount} ${toLabel} via ${activeRoute.venue}`,
           returnStartAppParam: `${feedNetwork}_token_${toAsset}`,
@@ -518,7 +569,12 @@ export function TradeChartView() {
           priceImpactPct: activeRoute.priceImpactPct,
         }),
       });
-      const json = (await res.json()) as { deepLink?: string; expressWebUrl?: string; error?: string };
+      const json = (await res.json()) as {
+        intentId?: string;
+        deepLink?: string;
+        expressWebUrl?: string;
+        error?: string;
+      };
       if (!res.ok || !json.deepLink) {
         throw new Error(json.error ?? "Failed to create Swap Signed Intent");
       }
@@ -527,12 +583,14 @@ export function TradeChartView() {
       openExpressSignFlow({
         deepLink: json.deepLink,
         expressWebUrl: json.expressWebUrl,
+        intentId: json.intentId,
         onComplete: (detail) => {
           setStatusMsg(
             detail.txHash
               ? `Swap confirmed on Stellar (${detail.txHash.slice(0, 8)}…${detail.txHash.slice(-6)}).`
               : "Swap approved in AstroWallet Express Sign!",
           );
+          void loadAccountState();
         },
       });
     } catch (err) {

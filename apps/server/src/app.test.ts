@@ -388,12 +388,38 @@ describe("@astrodex/server", () => {
       ),
     ).toBe(true);
 
-    // 2. Spoofed USDC listing must be blocked (403)
-    const spoofListing = await app.request(
+    // 2. Unauthenticated listing fails closed (401), and authenticated spoofed USDC listing is blocked (403)
+    const unauthListing = await app.request(
       "/v1/markets/listings",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId: `USDC:${ATTACKER_PUB}`, ammVenue: "soroswap" }),
+      },
+      makeBaseEnv(),
+    );
+    expect(unauthListing.status).toBe(401);
+
+    const initData = await makeSignedInitData();
+    const authRes = await app.request(
+      "/v1/tg/auth",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData }),
+      },
+      makeBaseEnv(),
+    );
+    const { sessionToken } = (await authRes.json()) as { sessionToken: string };
+
+    const spoofListing = await app.request(
+      "/v1/markets/listings",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
         body: JSON.stringify({ assetId: `USDC:${ATTACKER_PUB}`, ammVenue: "soroswap" }),
       },
       makeBaseEnv(),
@@ -405,7 +431,10 @@ describe("@astrodex/server", () => {
       "/v1/markets/listings",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
         body: JSON.stringify({
           assetId: `ACT:${UNLOCKED_ISSUER}`,
           ammVenue: "sdex_pool",
@@ -425,17 +454,6 @@ describe("@astrodex/server", () => {
     expect(communityJson.reviewNote.length).toBeGreaterThan(10);
 
     // 4. End-to-end dex_swap intent builder via swapSpec
-    const initData = await makeSignedInitData();
-    const authRes = await app.request(
-      "/v1/tg/auth",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initData }),
-      },
-      makeBaseEnv(),
-    );
-    const { sessionToken } = (await authRes.json()) as { sessionToken: string };
 
     const swapIntentRes = await app.request(
       "/v1/intents",
@@ -471,7 +489,10 @@ describe("@astrodex/server", () => {
       "/v1/markets/listings",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
         body: JSON.stringify({
           assetId: `ACT:${UNLOCKED_ISSUER}`,
           ammVenue: "soroswap",

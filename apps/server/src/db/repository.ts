@@ -540,9 +540,10 @@ export function createD1Repository(db: D1Database): DexServerRepository {
     },
 
     async isTxHashUsed(txHash) {
+      const normalized = txHash.trim().toLowerCase();
       const row = await db
-        .prepare("SELECT intent_id FROM signed_intents WHERE LOWER(tx_hash) = LOWER(?1) LIMIT 1")
-        .bind(txHash)
+        .prepare("SELECT intent_id FROM signed_intents WHERE tx_hash = ?1 LIMIT 1")
+        .bind(normalized)
         .first();
       return row !== null;
     },

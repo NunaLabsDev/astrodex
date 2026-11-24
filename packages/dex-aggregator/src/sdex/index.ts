@@ -308,7 +308,7 @@ export async function quoteHorizonSdexPath(input: {
     if (remainingBase <= 1e-8) break;
   }
 
-  if (totalQuote <= 0) return null;
+  if (remainingBase > 1e-7 || totalQuote <= 0) return null;
   const expectedStr = totalQuote.toFixed(7);
   const outStroops = parseDecimalToStroops7(expectedStr) ?? 0n;
   if (outStroops <= 0n) return null;

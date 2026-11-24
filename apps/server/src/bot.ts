@@ -355,7 +355,11 @@ export function createAstroDexBot(
       reply_markup: {
         inline_keyboard: [
           [
-            miniAppBtn(isPrivate, "📖 Open Orderbook", `${botCfg.network}_book_${baseTarget.resolvedKey}`),
+            miniAppBtn(
+              isPrivate,
+              "📖 Open Orderbook",
+              `${botCfg.network}_book_${(baseTarget.classicAsset ? (baseTarget.resolvedKey.split(":")[0] ?? baseTarget.resolvedKey) : baseTarget.resolvedKey).slice(0, 44)}`,
+            ),
             { text: "🛡️ AstroWallet", url: astroWalletUrl },
           ],
         ],

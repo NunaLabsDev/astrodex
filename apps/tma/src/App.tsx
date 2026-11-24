@@ -1,5 +1,5 @@
 import { buildAstroWalletOnboardingLink } from "@astrodex/tg-protocol";
-import { useState, type FormEvent } from "react";
+import { Suspense, lazy, useState, type FormEvent } from "react";
 import { AstroIdHeader } from "./components/AstroIdHeader.js";
 import { BottomDock } from "./components/BottomDock.js";
 import { TelegramOnlyGate } from "./components/TelegramOnlyGate.js";
@@ -10,9 +10,14 @@ import {
   shouldAllowMiniAppAccess,
   useTelegramBackButton,
 } from "./telegram/webapp.js";
-import { OrdersAlertsView } from "./views/OrdersAlertsView.js";
 import { RadarView } from "./views/RadarView.js";
-import { TradeChartView } from "./views/TradeChartView.js";
+
+const TradeChartView = lazy(() =>
+  import("./views/TradeChartView.js").then((m) => ({ default: m.TradeChartView })),
+);
+const OrdersAlertsView = lazy(() =>
+  import("./views/OrdersAlertsView.js").then((m) => ({ default: m.OrdersAlertsView })),
+);
 
 function AstroWalletLoginGate() {
   const { config, retryAuth, resolvePublicIdentity } = useAppState();
@@ -114,7 +119,13 @@ function AstroDexShell() {
         {!astroId.found ? (
           <AstroWalletLoginGate />
         ) : (
-          <>
+          <Suspense
+            fallback={
+              <section className="glass-card ad-stack-8" aria-label="Loading view">
+                <div className="ad-text-sm ad-text-muted">Loading terminal…</div>
+              </section>
+            }
+          >
             {activeTab === "radar" ? (
               <RadarView />
             ) : activeTab === "orders" ? (
@@ -122,7 +133,7 @@ function AstroDexShell() {
             ) : (
               <TradeChartView />
             )}
-          </>
+          </Suspense>
         )}
       </div>
       {astroId.found && <BottomDock />}

@@ -162,7 +162,7 @@ describe("@astrodex/oracles-and-charts", () => {
       }),
       new xdr.ScMapEntry({
         key: xdr.ScVal.scvSymbol("timestamp"),
-        val: xdr.ScVal.scvU64(xdr.Uint64.fromString("1763900000")),
+        val: xdr.ScVal.scvU64(xdr.Uint64.fromString(String(Math.floor(Date.now() / 1000)))),
       }),
     ]);
 

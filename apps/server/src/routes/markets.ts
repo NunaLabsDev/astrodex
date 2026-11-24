@@ -344,8 +344,13 @@ export function createMarketRoutes(deps: { fetchFn?: FetchLike | undefined } = {
   });
 
   router.post("/markets/listings", async (c) => {
-    const config = c.get("config");
+    const baseConfig = c.get("config");
     const repo = c.get("repo");
+    const session = await authenticateMiniAppSession(c);
+    if (!session.ok) {
+      return c.json({ ok: false, error: session.error }, session.status);
+    }
+    const config = resolveReadFeedConfig(baseConfig, c.req.query("net"));
     const rl = await checkRateLimit({
       repository: repo,
       cache: c.env.CACHE,

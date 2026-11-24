@@ -195,6 +195,7 @@ export function RadarView() {
     config,
     feedNetwork,
     executionDisabled,
+    sessionToken,
     catalog,
     favorites,
     toggleFavorite,
@@ -211,6 +212,7 @@ export function RadarView() {
   const [activeFilter, setActiveFilter] = useState<MarketFilter>("all");
   const [quoteUnit, setQuoteUnit] = useState<"usd" | "xlm">("usd");
   const [showListForm, setShowListForm] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(35);
 
   const xlmItem = useMemo(() => catalog.find((c) => c.assetKey === "XLM"), [catalog]);
   const liveXlmUsd = xlmUsd && xlmUsd > 0 ? xlmUsd : (xlmItem?.priceUsd ?? 0.135);
@@ -271,9 +273,12 @@ export function RadarView() {
     setListingResult(null);
     try {
       const base = config.apiBaseUrl.replace(/\/+$/, "");
-      const res = await fetch(`${base}/v1/markets/listings`, {
+      const res = await fetch(`${base}/v1/markets/listings?net=${encodeURIComponent(feedNetwork)}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+        },
         body: JSON.stringify({
           assetId: listAssetId.trim(),
           ammVenue: listVenue,
@@ -637,7 +642,7 @@ export function RadarView() {
           </div>
         ) : (
           <div className="ad-stack-6">
-            {filteredCatalog.slice(0, 35).map((item, idx) => {
+            {filteredCatalog.slice(0, visibleLimit).map((item, idx) => {
               const isXlm = item.assetKey === "XLM";
               const pct24 =
                 quoteUnit === "usd"
@@ -750,6 +755,15 @@ export function RadarView() {
                 </div>
               );
             })}
+            {filteredCatalog.length > visibleLimit && (
+              <button
+                type="button"
+                className="ad-btn-secondary ad-btn-block"
+                onClick={() => setVisibleLimit((n) => n + 35)}
+              >
+                Load more ({filteredCatalog.length - visibleLimit} remaining)
+              </button>
+            )}
           </div>
         )}
       </section>

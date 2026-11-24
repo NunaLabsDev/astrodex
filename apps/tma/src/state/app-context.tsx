@@ -96,8 +96,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>("mainnet");
-  const executionDisabled = !config.executionEnabled;
+  const [feedNetwork, setFeedNetworkState] = useState<StellarNetwork>(
+    config.defaultFeedNetwork ?? config.network,
+  );
+  const executionDisabled = !config.executionEnabled || feedNetwork !== config.network;
 
   const [authStatus, setAuthStatus] = useState<TelegramAuthStatus>("checking");
   const [authError, setAuthError] = useState<string | null>(null);
@@ -210,7 +212,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const authenticate = useCallback(async () => {
     initTelegramMiniApp();
     const wa = getTelegramWebApp();
-    const startParam = wa?.initDataUnsafe?.start_param ?? "";
+    const urlStartParam =
+      typeof window !== "undefined"
+        ? (new URLSearchParams(window.location.search).get("startapp") ?? "")
+        : "";
+    const startParam = (wa?.initDataUnsafe?.start_param ?? urlStartParam).trim();
     if (startParam) {
       applyStartParam(startParam);
     }
@@ -251,9 +257,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           Boolean(json.startParam?.startsWith("mainnet_") || json.startParam?.startsWith("testnet_"));
         if (
           !explicitNetInParam &&
-          json.astroId.preferredNetwork === "mainnet"
+          (json.astroId.preferredNetwork === "mainnet" ||
+            json.astroId.preferredNetwork === "testnet")
         ) {
-          setFeedNetworkState("mainnet");
+          setFeedNetworkState(json.astroId.preferredNetwork);
         }
         if (json.astroId.activeAddress) {
           setSelectedAddress(json.astroId.activeAddress);

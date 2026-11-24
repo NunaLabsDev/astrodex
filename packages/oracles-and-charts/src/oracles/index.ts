@@ -84,6 +84,19 @@ export async function fetchChainlinkXlmUsd(input: {
   });
   if (!val || typeof val !== "object") return null;
   const obj = val as Record<string, unknown>;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const updatedAtRaw = obj.updated_at ?? obj.timestamp;
+  const updatedAtNum =
+    typeof updatedAtRaw === "bigint"
+      ? Number(updatedAtRaw)
+      : typeof updatedAtRaw === "number"
+        ? updatedAtRaw
+        : typeof updatedAtRaw === "string"
+          ? Number(updatedAtRaw)
+          : 0;
+  if (Number.isFinite(updatedAtNum) && updatedAtNum > 0 && nowSec - updatedAtNum > 3600) {
+    return null;
+  }
   const rawAnswer = obj.answer;
   const numeric =
     typeof rawAnswer === "bigint"
@@ -94,15 +107,15 @@ export async function fetchChainlinkXlmUsd(input: {
           ? Number(rawAnswer)
           : 0;
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  // Chainlink Stellar feeds commonly use 8 or 14 decimals; normalize if > 100
-  const priceUsd = numeric > 1_000_000_000 ? numeric / 1e14 : numeric > 1000 ? numeric / 1e8 : numeric;
+  // Chainlink price feeds use 8 decimals (1e8) or 14 decimals (1e14)
+  const priceUsd = numeric >= 1e12 ? numeric / 1e14 : numeric >= 1e5 ? numeric / 1e8 : numeric;
   if (!Number.isFinite(priceUsd) || priceUsd <= 0 || priceUsd > 1000) return null;
 
   return {
     assetKey: "XLM",
     priceUsd: Number(priceUsd.toFixed(6)),
     source: "chainlink",
-    updatedAtUnix: Math.floor(Date.now() / 1000),
+    updatedAtUnix: Number.isFinite(updatedAtNum) && updatedAtNum > 0 ? updatedAtNum : nowSec,
   };
 }
 
@@ -204,6 +217,19 @@ export async function fetchRedStoneSep40Price(input: {
     });
     if (!val || typeof val !== "object") continue;
     const obj = val as Record<string, unknown>;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tsRaw = obj.timestamp ?? obj.updated_at;
+    const tsNum =
+      typeof tsRaw === "bigint"
+        ? Number(tsRaw)
+        : typeof tsRaw === "number"
+          ? tsRaw
+          : typeof tsRaw === "string"
+            ? Number(tsRaw)
+            : 0;
+    if (Number.isFinite(tsNum) && tsNum > 0 && nowSec - tsNum > 3600) {
+      continue;
+    }
     const rawPrice = obj.price;
     const numeric =
       typeof rawPrice === "bigint"
@@ -214,15 +240,15 @@ export async function fetchRedStoneSep40Price(input: {
             ? Number(rawPrice)
             : 0;
     if (!Number.isFinite(numeric) || numeric <= 0) continue;
-    // SEP-40 standard uses 14 decimals; guard if a feed uses 8 decimals
-    const priceUsd = numeric > 1e10 ? numeric / 1e14 : numeric > 1e5 ? numeric / 1e8 : numeric;
+    // SEP-40 standard uses 14 decimals ($1 = 1e14, $90k BTC = 9e18); 8-decimal feeds ($90k BTC = 9e12) stay < 1e13
+    const priceUsd = numeric >= 1e13 ? numeric / 1e14 : numeric >= 1e5 ? numeric / 1e8 : numeric;
     if (!Number.isFinite(priceUsd) || priceUsd <= 0 || priceUsd >= 1_000_000) continue;
 
     return {
       assetKey: input.assetKey,
       priceUsd: Number(priceUsd.toFixed(6)),
       source: "redstone",
-      updatedAtUnix: Math.floor(Date.now() / 1000),
+      updatedAtUnix: Number.isFinite(tsNum) && tsNum > 0 ? tsNum : nowSec,
     };
   }
   return null;

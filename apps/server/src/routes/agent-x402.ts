@@ -85,6 +85,9 @@ export function createX402PaymentVerifier(
   config: ServerConfig,
   fetchFn: AdaptedFetch,
   requirements?: X402PaymentRequirements,
+  replayStore?: {
+    hasAndClaimNonce?: (nonceKey: string) => Promise<boolean>;
+  },
 ): AgenticPaymentPort {
   const usedNonces = new Set<string>();
 
@@ -99,6 +102,12 @@ export function createX402PaymentVerifier(
           : "";
       if (nonceKey && usedNonces.has(nonceKey)) {
         return { paid: false };
+      }
+      if (nonceKey && replayStore?.hasAndClaimNonce) {
+        const claimed = await replayStore.hasAndClaimNonce(nonceKey).catch(() => false);
+        if (!claimed) {
+          return { paid: false };
+        }
       }
 
       if (config.x402FacilitatorUrl) {
@@ -175,9 +184,26 @@ export function createAgentX402Routes(deps: {
       );
     }
 
+    if (
+      config.network === "mainnet" &&
+      (!config.x402PayToAddress || config.x402PayToAddress === DEFAULT_PAY_TO_FALLBACK)
+    ) {
+      return c.json({ error: "x402 payment receiver is not configured for Mainnet" }, 503);
+    }
+
     const verifier =
       deps.verifyPaymentFn ??
-      createX402PaymentVerifier(config, fetchFn, requirements).verifyPaymentProof!;
+      createX402PaymentVerifier(config, fetchFn, requirements, {
+        hasAndClaimNonce: async (nonceKey) => {
+          const kv = (c.env as { CACHE?: { get(k: string): Promise<string | null>; put(k: string, v: string, opts?: { expirationTtl?: number }): Promise<void> } }).CACHE;
+          if (!kv) return true;
+          const cacheKey = `x402_nonce:${nonceKey}`;
+          const existing = await kv.get(cacheKey);
+          if (existing) return false;
+          await kv.put(cacheKey, "1", { expirationTtl: 86_400 });
+          return true;
+        },
+      }).verifyPaymentProof!;
     const verification: { paid: boolean; payer?: string | undefined } = await verifier(
       paymentHeader,
     ).catch(() => ({ paid: false }));

@@ -129,11 +129,25 @@ export class DexIndexerDO {
     const pairById = new Map(knownPairs.map((p) => [p.pairId.toUpperCase(), p]));
     const lastLedger = (await this.state.storage.get<number>("lastLedger")) ?? 0;
 
+    const activeFilters: Array<Record<string, unknown>> = [];
+    if (factoryIds.length > 0) {
+      activeFilters.push({ type: "contract", contractIds: factoryIds });
+    }
+    if (config.xlmSacContractId && knownPairs.length > 0) {
+      activeFilters.push({
+        type: "contract",
+        contractIds: [config.xlmSacContractId],
+        topics: [[transferTopic, "*", "*", "**"]],
+      });
+    }
+    if (activeFilters.length === 0) return;
+
     for (const rpcUrl of config.rpcUrls) {
       try {
         const healthRes = await fetch(rpcUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(8_000),
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
         });
         if (!healthRes.ok) continue;
@@ -148,121 +162,153 @@ export class DexIndexerDO {
         const startLedger = Math.max(targetStart, oldestLedger + 10);
         if (startLedger > latestLedger) return;
 
-        const eventsRes = await fetch(rpcUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 2,
-            method: "getEvents",
-            params: {
-              startLedger,
-              filters,
-              pagination: { limit: 80 },
-            },
-          }),
-        });
-        if (!eventsRes.ok) continue;
-        const eventsJson = (await eventsRes.json()) as {
-          result?: {
-            latestLedger?: number;
-            events?: Array<{
-              ledger?: number;
-              ledgerClosedAt?: string;
-              txHash?: string;
-              contractId?: string;
-              topic?: string[];
-              value?: string;
-            }>;
-          };
-        };
-
-        const events = eventsJson.result?.events ?? [];
-        const nowUnix = Math.floor(Date.now() / 1000);
+        let pageCursor: string | undefined;
         let maxLedger = startLedger;
+        let reachedEnd = false;
+        let rpcLatestLedger = latestLedger;
 
-        for (const ev of events) {
-          if (typeof ev.ledger === "number" && ev.ledger > maxLedger) {
-            maxLedger = ev.ledger;
+        for (let page = 0; page < 3; page += 1) {
+          const pagination: Record<string, unknown> = pageCursor
+            ? { limit: 80, cursor: pageCursor }
+            : { limit: 80 };
+          const eventsRes = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(8_000),
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 2 + page,
+              method: "getEvents",
+              params: {
+                ...(pageCursor ? {} : { startLedger }),
+                filters: activeFilters,
+                pagination,
+              },
+            }),
+          });
+          if (!eventsRes.ok) break;
+          const eventsJson = (await eventsRes.json()) as {
+            result?: {
+              latestLedger?: number;
+              cursor?: string;
+              events?: Array<{
+                ledger?: number;
+                ledgerClosedAt?: string;
+                txHash?: string;
+                contractId?: string;
+                topic?: string[];
+                value?: string;
+              }>;
+            };
+          };
+          if (eventsJson.result?.latestLedger) {
+            rpcLatestLedger = eventsJson.result.latestLedger;
           }
-          if (!ev.contractId || !ev.txHash) continue;
+          const events = eventsJson.result?.events ?? [];
+          const nowUnix = Math.floor(Date.now() / 1000);
 
-          if (
-            ev.contractId === config.soroswapFactoryContractId ||
-            ev.contractId === config.astroGateLaunchpadContractId
-          ) {
-            const exclude = new Set(
-              [
-                config.soroswapFactoryContractId,
-                config.astroGateLaunchpadContractId,
-                config.xlmSacContractId,
-              ]
-                .filter((x): x is NonNullable<typeof x> => Boolean(x))
-                .map((x) => x.toUpperCase()),
-            );
-            const decodedVal = ev.value ? decodeScValSafe(ev.value) : null;
-            const decodedTopics = Array.isArray(ev.topic) ? ev.topic.map(decodeScValSafe) : [];
-            const embeddedContracts = [
-              ...extractEmbeddedContractIds(decodedVal, exclude),
-              ...extractEmbeddedContractIds(decodedTopics, exclude),
-            ];
-            const discoveredPairId = embeddedContracts[0];
-            if (!discoveredPairId) continue;
-            const baseAssetKey = embeddedContracts[1] ?? discoveredPairId;
-            await repo.upsertPair({
-              pairId: discoveredPairId,
-              venue:
-                ev.contractId === config.astroGateLaunchpadContractId
-                  ? "astrogate_curve"
-                  : "soroswap",
-              baseAssetKey,
-              quoteAssetKey: "XLM",
-              reserveBase: "0",
-              reserveQuote: "0",
-              lpLockKind: "indexed_onchain",
-              lastLedger: ev.ledger ?? maxLedger,
-              updatedAt: nowUnix,
-            });
-            continue;
-          }
+          for (const ev of events) {
+            if (typeof ev.ledger === "number" && ev.ledger > maxLedger) {
+              maxLedger = ev.ledger;
+            }
+            if (!ev.contractId || !ev.txHash) continue;
 
-          if (ev.contractId === config.xlmSacContractId && Array.isArray(ev.topic) && ev.value) {
-            const topics = ev.topic.map(decodeScValSafe);
-            if (topics[0] !== "transfer") continue;
-            const fromAddr = typeof topics[1] === "string" ? topics[1] : "";
-            const toAddr = typeof topics[2] === "string" ? topics[2] : "";
-            const xlmStroops = extractTransferAmountStroops(decodeScValSafe(ev.value));
-            if (xlmStroops <= 0n) continue;
-
-            const toPair = pairById.get(toAddr.toUpperCase());
-            const fromPair = pairById.get(fromAddr.toUpperCase());
-            const matchedPair = toPair ?? fromPair;
-            if (!matchedPair) continue;
-
-            const side = toPair ? "buy" : "sell";
-            const traderAddress = toPair ? fromAddr : toAddr;
-            const tsSec = ev.ledgerClosedAt
-              ? Math.floor(Date.parse(ev.ledgerClosedAt) / 1000) || nowUnix
-              : nowUnix;
-
-            if (xlmStroops >= WHALE_THRESHOLD_STROOPS && traderAddress) {
-              await repo.recordWhaleTrade({
-                txHash: ev.txHash,
-                pairId: matchedPair.pairId,
-                baseSymbol: matchedPair.baseAssetKey,
-                side,
-                traderAddress,
-                amountBase: "0",
-                amountXlm: formatStroops7(xlmStroops, true),
-                ledger: ev.ledger ?? maxLedger,
-                timestampUnix: tsSec,
+            if (
+              ev.contractId === config.soroswapFactoryContractId ||
+              ev.contractId === config.astroGateLaunchpadContractId
+            ) {
+              const exclude = new Set(
+                [
+                  config.soroswapFactoryContractId,
+                  config.astroGateLaunchpadContractId,
+                  config.xlmSacContractId,
+                ]
+                  .filter((x): x is NonNullable<typeof x> => Boolean(x))
+                  .map((x) => x.toUpperCase()),
+              );
+              const decodedVal = ev.value ? decodeScValSafe(ev.value) : null;
+              const decodedTopics = Array.isArray(ev.topic) ? ev.topic.map(decodeScValSafe) : [];
+              const embeddedContracts = [
+                ...extractEmbeddedContractIds(decodedVal, exclude),
+                ...extractEmbeddedContractIds(decodedTopics, exclude),
+              ];
+              const discoveredPairId = embeddedContracts[0];
+              if (!discoveredPairId) continue;
+              const baseAssetKey = embeddedContracts[1] ?? discoveredPairId;
+              await repo.upsertPair({
+                pairId: discoveredPairId,
+                venue:
+                  ev.contractId === config.astroGateLaunchpadContractId
+                    ? "astrogate_curve"
+                    : "soroswap",
+                baseAssetKey,
+                quoteAssetKey: "XLM",
+                reserveBase: "0",
+                reserveQuote: "0",
+                lpLockKind: "indexed_onchain",
+                lastLedger: ev.ledger ?? maxLedger,
+                updatedAt: nowUnix,
               });
+              continue;
+            }
+
+            if (ev.contractId === config.xlmSacContractId && Array.isArray(ev.topic) && ev.value) {
+              const topics = ev.topic.map(decodeScValSafe);
+              if (topics[0] !== "transfer") continue;
+              const fromAddr = typeof topics[1] === "string" ? topics[1] : "";
+              const toAddr = typeof topics[2] === "string" ? topics[2] : "";
+              const xlmStroops = extractTransferAmountStroops(decodeScValSafe(ev.value));
+              if (xlmStroops <= 0n) continue;
+
+              const toPair = pairById.get(toAddr.toUpperCase());
+              const fromPair = pairById.get(fromAddr.toUpperCase());
+              const matchedPair = toPair ?? fromPair;
+              if (!matchedPair) continue;
+
+              const side = toPair ? "buy" : "sell";
+              const traderAddress = toPair ? fromAddr : toAddr;
+              const tsSec = ev.ledgerClosedAt
+                ? Math.floor(Date.parse(ev.ledgerClosedAt) / 1000) || nowUnix
+                : nowUnix;
+
+              if (xlmStroops >= WHALE_THRESHOLD_STROOPS && traderAddress) {
+                await repo.recordWhaleTrade({
+                  txHash: ev.txHash,
+                  pairId: matchedPair.pairId,
+                  baseSymbol: matchedPair.baseAssetKey,
+                  side,
+                  traderAddress,
+                  amountBase: "0",
+                  amountXlm: formatStroops7(xlmStroops, true),
+                  ledger: ev.ledger ?? maxLedger,
+                  timestampUnix: tsSec,
+                });
+              }
+
+              const xlmVal = Number(formatStroops7(xlmStroops, true));
+              if (Number.isFinite(xlmVal) && xlmVal > 0) {
+                const bucket1m = Math.floor(tsSec / 60) * 60;
+                await repo.upsertCandle(matchedPair.pairId, "1m", {
+                  time: bucket1m,
+                  open: xlmVal,
+                  high: xlmVal,
+                  low: xlmVal,
+                  close: xlmVal,
+                  volume: xlmVal,
+                });
+              }
             }
           }
+
+          if (events.length < 80 || !eventsJson.result?.cursor) {
+            reachedEnd = true;
+            break;
+          }
+          pageCursor = eventsJson.result.cursor;
         }
 
-        if (eventsJson.result?.latestLedger && eventsJson.result.latestLedger > maxLedger) {
-          maxLedger = eventsJson.result.latestLedger;
+        if (reachedEnd && rpcLatestLedger > maxLedger) {
+          maxLedger = rpcLatestLedger;
         }
         if (maxLedger > lastLedger) {
           await this.state.storage.put("lastLedger", maxLedger);

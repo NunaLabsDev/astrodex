@@ -40,6 +40,9 @@ const PROTECTED_TICKERS = new Set([
   "BTC",
   "ETH",
   "USDT",
+  "USDT0",
+  "USDE",
+  "SUSDE",
   "YUSDC",
   "YXLM",
 ]);
@@ -51,6 +54,7 @@ const DANGEROUS_SOROBAN_FUNCTIONS = new Set([
   "add_context_rule",
   "update_context_rule",
   "remove_signer",
+  "burn",
   "burn_from",
   "clawback",
   "set_admin",
