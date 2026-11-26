@@ -26,8 +26,9 @@ After the disappearance of the legacy StellarDEX (`SDEX`) web explorer, Stellar 
    - **AstroWallet (`@AstroWalletAppBot`) — Exclusive `AstroID` SSO Login & Signing Hub:** `AstroDex` custodies **zero** private keys and **zero** seed phrases. Users log in automatically via `AstroWallet` (`AstroID` SSO). Every transaction is pre-scanned via `Scan & Shield` (`simulateTransaction` + `balanceDiffs`), packed into a bit-exact 4-field **HMAC-Signed Intent (`<= 5 min` TTL)** (`CrossAppIntentEnvelope v1`), and sent via Telegram deep link (`https://t.me/AstroWalletAppBot/wallet?startapp=i-...`) or **Web Express Sign Popup** (`expressWebUrl` + `openExpressSignFlow` listening for origin-checked `ASTRO_SIGN_COMPLETE`) for PIN/Biometric authorization and automatic return.
    - *(Note: AstroGate/Sorobits UI and bot commands were removed from active surfaces; server-side bonding-curve quoting remains dormant for the future NFT/launchpad phase.)*
 6. **Telegram Super-Bot & AI Agent Ready:**
-   - `@AstroDexBot` (100% English) delivers `/usde` (live Ethena `USDe`/`sUSDe`/`USDT0` Mainnet pulse), `/route` (with inline Trade/Sign buttons), `/scan`, `/chart`, `/book`, `/whales`, `/alerts`, and **Inline Mode** (`@AstroDexBot <ticker|G...|C...>`) rich security & price cards in any group chat.
-   - Built-in **MCP Server (`/mcp`)**, `/openapi.json`, `/llms.txt`, and modular `AgenticPaymentPort` hooks ready for **x402 / MPP** USDC SAC agentic data endpoints in Phase 2.
+   - `@AstroDexBot` (100% English, 11 commands) delivers `/start`, `/stats`, `/help`, `/scan`, `/list`, `/chart`, `/book`, `/route`, `/whales`, `/usde` (live Ethena `USDe`/`sUSDe`/`USDT0` Mainnet pulse), `/alerts`, and **Inline Mode** (`@AstroDexBot <ticker|G...|C...>`) rich security & price cards in any group chat.
+   - TMA (`apps/tma`) ships a CoinGecko-style **Markets + Watchlist** bottom dock feeding a unified **Token Detail Hub** (`RadarView`, `Watchlist`, `TradeChartView`, `BookPoolsView`, `ScannerView`).
+   - Built-in **MCP Server (`/mcp`)**, `/openapi.json`, `/llms.txt`, and `x402` nonces (`0004_indexes_and_x402_nonces.sql`) for `/v1/agent/forensic-alpha/:assetId`.
    - **API Notes:** `POST /v1/quote` accepts `amount` in **human units** (e.g. `"10"`, not stroops). `GET /v1/scanner/:assetId` returns `{ ok, network, audit: { ... }, resolvedFrom }`.
 
 ---
@@ -55,12 +56,12 @@ After the disappearance of the legacy StellarDEX (`SDEX`) web explorer, Stellar 
 ## Documentation Map
 
 - [`AGENTS.md`](AGENTS.md) — Engineering contract, 8 non-negotiable rules, hexagonal dependency DAG, and Definition of Done.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — Consolidated hexagonal monorepo design, 5-way liquidity routing, forensic scanner pipeline, AstroWallet/AstroGate integration, and D1/DO indexer architecture.
-- [`PLAN.md`](PLAN.md) — 6-Milestone vertical-slice execution roadmap from Foundation to Testnet E2E parity and Pre-Mainnet readiness.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — Consolidated hexagonal monorepo design, 5-way liquidity routing, forensic scanner pipeline, AstroWallet integration, and D1/DO indexer architecture.
 - [`SECURITY.md`](SECURITY.md) — Trust boundaries, non-custodial delegation to AstroWallet, STRIDE mitigations, and vulnerability disclosure.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — Local verification gates and contribution standards.
 - [`docs/INDEX.md`](docs/INDEX.md) — Fast lookup table for targeted reading.
 - [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) — Apple Liquid Glass tokens, Progressive Disclosure (`Basic` $\leftrightarrow$ `Pro`), mobile GPU blur budgets, and anti-jitter slot specifications.
 - [`docs/ENV_MATRIX.md`](docs/ENV_MATRIX.md) — Complete client (`VITE_*`) and server (Cloudflare env/bindings/secrets) Zod configuration matrix.
-- [`docs/ECOSYSTEM_INTEGRATION.md`](docs/ECOSYSTEM_INTEGRATION.md) — Canonical protocol contract linking **AstroWallet (`AstroID`)**, **AstroGate v4.5**, and **AstroDex**.
-- [`docs/NEXT_SESSION_HANDOFF.md`](docs/NEXT_SESSION_HANDOFF.md) — Actionable bootstrap checklist for Milestone 1 implementation and verified Testnet reference IDs.
+- [`docs/ECOSYSTEM_INTEGRATION.md`](docs/ECOSYSTEM_INTEGRATION.md) — Canonical protocol contract linking **AstroWallet (`AstroID`)** and **AstroDex**.
+- [`docs/MAINNET_CUTOVER_RUNBOOK.md`](docs/MAINNET_CUTOVER_RUNBOOK.md) — Deterministic Mainnet cutover checklist, D1/KV provisioning, and 60s kill-switch runbook.
+- [`docs/NEXT_SESSION_HANDOFF.md`](docs/NEXT_SESSION_HANDOFF.md) — Current deployed Testnet state, verified IDs, and Gate 2 Mainnet priorities.

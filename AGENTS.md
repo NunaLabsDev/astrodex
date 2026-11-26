@@ -8,7 +8,6 @@ Check [`docs/INDEX.md`](docs/INDEX.md) first and read **only** the doc or sectio
 - Env matrix & schemas: [`docs/ENV_MATRIX.md`](docs/ENV_MATRIX.md)
 - Architecture & diagrams: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - Ecosystem SSO & signing contract: [`docs/ECOSYSTEM_INTEGRATION.md`](docs/ECOSYSTEM_INTEGRATION.md)
-- Execution roadmap: [`PLAN.md`](PLAN.md)
 - Stellar official AI resources: `developers.stellar.org/llms.txt`, global skills (`~/.agents/skills/`), and sibling repos `/Users/munay/dev/ASTRO/astrowallet` + `/Users/munay/dev/ASTRO/AstroGate`.
 
 ## 2. Non-Negotiable Engineering Rules
