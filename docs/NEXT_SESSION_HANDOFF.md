@@ -11,9 +11,9 @@
 | **GitHub Repo** | `NunaLabsDev/astrodex` (`main` branch) | Independent repo |
 | **Cloudflare Pages** | `https://astrodex-testnet.pages.dev` | Project `astrodex-testnet` |
 | **Testnet Worker** | `astrodex-server` (`workers_dev = false`) | D1 `astrodex` (`4f7684e0-86dd-4696-b725-d7b109f4dd67`, `0001..0004`) · KV `d086ce01143b472d920ec36ccc906668` · DO `DexIndexerDO` |
-| **Service Binding** | `ASTROWALLET` → `astrowallet-server` | `ASTROGATE` binding removed (dormant curve code remains server-side) |
+| **Service Binding** | `ASTROWALLET` → `astro-wallet-server` | `ASTROGATE` binding removed (dormant curve code remains server-side) |
 | **Telegram Bot** | `@AstroDexBot` (`dex`) | `/start`, `/stats`, `/help`, `/scan`, `/list`, `/chart`, `/book`, `/route`, `/whales`, `/usde`, `/alerts` |
-| **AstroWallet Hub** | `@AstroWalletAppBot` (`https://astrowallet-soroban.pages.dev`) | Exclusive `AstroID` SSO + Clear-Sign + Express Sign popup (`ASTRO_SIGN_COMPLETE`) |
+| **AstroWallet Hub** | `@AstroWalletAppBot` (`https://astro-wallet.pages.dev`) | Exclusive `AstroID` SSO + Clear-Sign + Express Sign popup (`ASTRO_SIGN_COMPLETE`) |
 | **AstroWallet ClaimEscrow (Testnet)** | `CCWVGVBSHAFS73HCDRJ5MEFJPYKKG4WQFJ2LJPNIO2PU3U4X6PTDA4TA` | Reference only |
 | **Mainnet Oracles (`wrangler.toml`)** | RedStone `CBMGLK...WYR F` · Chainlink `CDQBHE...32ZLZ` · Reflector `CALI2B...PLE6M` | `XOXNO_SWAP_API_BASE = https://stellar-swap.xoxno.com` |
 | **Mainnet Soroswap (`wrangler.toml`)** | Factory `CA4HEQTL2WPEUYKYKCDOHCDNIV4QHNJ7EL4J4NQ6VADP7SYHVRYZ7AW2` · Router `CAG5LRYQ5JVEUI5TEID72EYOVX44TTUJT5BQR2J6J77FH65PCCFAJDDH` | `XLM_SAC = CAS3J7...OWMA` |

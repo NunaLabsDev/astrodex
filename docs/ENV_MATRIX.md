@@ -18,7 +18,7 @@
 | `VITE_TG_MINI_APP_SHORT_NAME` | `dex` | `dex` | BotFather Mini App short name (`t.me/<bot>/<short_name>`) |
 | `VITE_ASTROWALLET_BOT_USERNAME` | `AstroWalletAppBot` | `AstroWalletBot` | Exclusive signing hub deep link (`t.me/<bot>/<short_name>?startapp=i-...`) |
 | `VITE_ASTROWALLET_MINI_APP_SHORT_NAME` | `wallet` | `wallet` | AstroWallet Mini App short name |
-| `VITE_ASTROWALLET_API_BASE_URL` | `https://astrowallet-soroban.pages.dev` | `https://app.astrowallet.example` | Primary `AstroID` SSO public identity resolution & intent federation origin |
+| `VITE_ASTROWALLET_API_BASE_URL` | `https://astro-wallet.pages.dev` | `https://app.astrowallet.example` | Primary `AstroID` SSO public identity resolution & intent federation origin |
 | `VITE_ASTROWALLET_CLAIM_ESCROW_CONTRACT_ID` | `CDEOJ4KCHMCSJY2N6VCHD3UYVFIIJ3ZVG7DRZ6XMLSTTU4US6ITH36BQ` *(optional display tag)* | Mainnet Claim Escrow `C...` | Used by scanner to tag escrow holdings cleanly |
 | `VITE_ASTROWALLET_SOROBITS_CONTRACT_ID` | `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3` | Mainnet Sorobits `C...` | Sorobits SEP-50 avatar & `TokenBaseXp` verification badge |
 | `VITE_ASTROGATE_BOT_USERNAME` | `AstroGateSorobanBot` | `AstroGateBot` | Deep links back to AstroGate Launchpad |

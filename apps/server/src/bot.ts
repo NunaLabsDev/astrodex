@@ -160,7 +160,7 @@ export function createAstroDexBot(
   bot.command("stats", async (ctx) => {
     if (!isExplicitMentionInGroup(ctx)) return;
     const snap = await repo.getPublicMetricsSnapshot(config.network);
-    const walletBase = (config.astroWalletApiBaseUrl ?? "https://astrowallet-soroban.pages.dev").replace(/\/+$/, "");
+    const walletBase = (config.astroWalletApiBaseUrl ?? "https://astro-wallet.pages.dev").replace(/\/+$/, "");
     await ctx.reply(
       [
         `📊 <b>AstroDex · Live Traction</b> · <code>MAINNET &amp; TESTNET</code>`,

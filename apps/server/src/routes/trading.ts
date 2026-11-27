@@ -636,7 +636,7 @@ export function createTradingRoutes(deps: TradingRoutesDeps = {}): Hono<TradingR
     }
 
     const astroWalletBase = (
-      config.astroWalletApiBaseUrl ?? "https://astrowallet-soroban.pages.dev"
+      config.astroWalletApiBaseUrl ?? "https://astro-wallet.pages.dev"
     ).replace(/\/+$/, "");
     const expressWebUrl = `${astroWalletBase}/intent/${encodeURIComponent(intent.intentId)}?sig=${encodeURIComponent(intent.hmacSig)}&express=1`;
 
